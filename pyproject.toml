@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "calds-runtime"
+version = "0.1.0"
+description = "California-first evidence workflow spine for governed oversight triage."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "CalDS" }]
+license = { text = "Proprietary" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.scripts]
+calds-runtime = "calds_runtime.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["calds_runtime*"]

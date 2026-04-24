@@ -1,0 +1,20 @@
+name: CalDS CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile
+        run: python -m compileall calds_runtime evals tests scripts
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+      - name: Eval harness
+        run: python evals\run_calds_eval.py

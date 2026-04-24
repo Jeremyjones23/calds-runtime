@@ -1,0 +1,46 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local tooling
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Generated CalDS artifacts
+artifacts/
+runs/
+data/live_corpus/
+consolidated-docx/
+
+# Large downloaded source material
+*.pdf
+*.xlsx
+*.xls
+*.docx
+
+# Local OS/editor state
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Legacy local packaging scratch
+*.zip
+*.tar.gz
+
+# Legacy local document generator not needed for runtime publish
+consolidate_caldoge_docs.py
+
+# Local publish staging
+publish/
+github-publish/
