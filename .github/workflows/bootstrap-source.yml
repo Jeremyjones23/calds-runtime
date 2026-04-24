@@ -1,5 +1,6 @@
 name: Bootstrap Source Bundle
 
+# Rehydrate the exact source-only publish bundle after all parts are present.
 on:
   push:
     paths:
