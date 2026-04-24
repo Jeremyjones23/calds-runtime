@@ -1,0 +1,61 @@
+{
+    "case_id": "live_ca_recovery_ngos_2026_04_24",
+    "evaluation_case_id": "live_web_recovery_ngos",
+    "title": "Live web case: large California recovery and treatment nonprofits",
+    "objective": "Using public Form 990 XML for the 2023-2025 tax-period window where available, Federal Audit Clearinghouse audit PDFs and award ledgers, DHCS facility-status records, county contract or monitoring records, litigation docket manifests, and organization service-page records, identify reviewer-safe oversight triage signals among large California drug recovery and substance use treatment nonprofits. Keep the result internal, source-cited, and limited to review leads, plus official county/CoC outcome-series, DHCS capacity/adverse-action metadata, and attributable public statement pages from target entities for contextual spend-versus-results screening.",
+    "jurisdiction": "California",
+    "allowed_sources": [
+        "irs_990_summary",
+        "irs_990_xml",
+        "irs_990_download_manifest",
+        "irs_990_full_text_fallback",
+        "fac_audit_summary",
+        "fac_audit_pdf",
+        "fac_findings",
+        "fac_federal_awards",
+        "dhcs_page",
+        "dhcs_facility_status",
+        "dhcs_adverse_status_manifest",
+        "dhcs_adverse_status_discovery",
+        "county_contract_or_monitoring",
+        "court_docket_manifest",
+        "source_extraction_irs_990_table",
+        "source_extraction_fac_audit_table",
+        "source_extraction_fac_award_table",
+        "source_extraction_dhcs_status_table",
+        "source_extraction_pdf_text_index",
+        "org_service_page",
+        "source_extraction_official_outcome_table",
+        "source_extraction_spend_vs_results_table",
+        "source_extraction_public_statement_table",
+        "public_statement_source"
+    ],
+    "entities": [
+        "Tarzana Treatment Centers Inc",
+        "HealthRIGHT 360",
+        "WestCare California Inc",
+        "Behavioral Health Services Inc",
+        "CRI-Help Inc",
+        "Social Model Recovery Systems Inc",
+        "Phoenix Houses Of California Inc"
+    ],
+    "requested_by": "live-web-test",
+    "max_results": 60,
+    "metadata": {
+        "ranking_proxy": "public Form 990 summaries plus downloaded IRS XML across the 2023-2025 tax-period window where available",
+        "evidence_posture": "leads, not allegations",
+        "tax_period_year_window": [
+            2023,
+            2024,
+            2025
+        ],
+        "outcome_join_sources": [
+            "CA HDIS SPM/demographics",
+            "CHHS MAT by county",
+            "CHHS County Health Status Profiles drug overdose deaths",
+            "CA DOJ OpenJustice crime",
+            "DHCS facility/adverse-action pages",
+            "target NGO public statement pages"
+        ]
+    }
+}
