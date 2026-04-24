@@ -1,0 +1,16 @@
+{
+  "record_id": "north_coast_procurement_ledger",
+  "title": "Procurement ledger: North Coast Resilience Program",
+  "source_uri": "fixture://calds/north-coast-procurement-ledger",
+  "source_type": "grant_ledger",
+  "published_at": "2025-10-22",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "North Coast Resilience Program",
+    "Redwood Civic Partners"
+  ],
+  "attributes": {
+    "signals": {}
+  },
+  "body": "The procurement ledger for the North Coast Resilience Program lists Redwood Civic Partners as a planning vendor. The ledger shows award date, amendment date, and invoice approval dates for reviewer comparison with meeting minutes."
+}

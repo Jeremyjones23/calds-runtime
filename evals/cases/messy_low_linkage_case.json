@@ -1,0 +1,22 @@
+{
+  "case_id": "eval_messy_harbor",
+  "evaluation_case_id": "messy_low_linkage",
+  "title": "Messy case: Harbor name overlap",
+  "objective": "Assess whether weakly linked public records justify only a cautious internal lead for Harbor Community Health Project and Harbor Community Services LLC.",
+  "jurisdiction": "California",
+  "allowed_sources": [
+    "audit_report",
+    "grant_ledger",
+    "entity_registry",
+    "meeting_minutes"
+  ],
+  "entities": [
+    "Harbor Community Health Project",
+    "Harbor Community Services LLC"
+  ],
+  "requested_by": "eval-harness",
+  "max_results": 4,
+  "metadata": {
+    "expected_posture": "downgrade or preserve low-linkage caveat"
+  }
+}

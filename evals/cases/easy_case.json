@@ -1,0 +1,22 @@
+{
+  "case_id": "eval_easy_central_valley",
+  "evaluation_case_id": "easy",
+  "title": "Easy case: Central Valley grant monitoring",
+  "objective": "Assess whether public grant monitoring records show reviewable reporting gaps for the Central Valley Workforce Initiative and Golden State Skills Network.",
+  "jurisdiction": "California",
+  "allowed_sources": [
+    "audit_report",
+    "grant_ledger",
+    "entity_registry",
+    "meeting_minutes"
+  ],
+  "entities": [
+    "Central Valley Workforce Initiative",
+    "Golden State Skills Network"
+  ],
+  "requested_by": "eval-harness",
+  "max_results": 5,
+  "metadata": {
+    "expected_posture": "reviewable lead with provenance"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "record_id": "north_coast_meeting_minutes",
+  "title": "Meeting minutes: North Coast Resilience Program",
+  "source_uri": "fixture://calds/north-coast-meeting-minutes",
+  "source_type": "meeting_minutes",
+  "published_at": "2025-10-05",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "North Coast Resilience Program",
+    "Redwood Civic Partners"
+  ],
+  "attributes": {
+    "signals": {}
+  },
+  "body": "Meeting minutes for the North Coast Resilience Program describe a planning scope discussion with Redwood Civic Partners before final award posting. The minutes do not state a reviewer conclusion and should be read with the procurement ledger."
+}

@@ -1,0 +1,15 @@
+{
+  "record_id": "golden_state_registry",
+  "title": "Sample entity registry: Golden State Skills Network",
+  "source_uri": "fixture://calds/golden-state-registry",
+  "source_type": "entity_registry",
+  "published_at": "2025-08-12",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "Golden State Skills Network"
+  ],
+  "attributes": {
+    "signals": {}
+  },
+  "body": "The sample entity registry lists Golden State Skills Network as an active nonprofit training provider. The registry includes a mailing address, filing status, and officer names for reviewer comparison against grant records."
+}

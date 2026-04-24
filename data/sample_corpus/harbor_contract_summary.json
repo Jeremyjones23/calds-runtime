@@ -1,0 +1,17 @@
+{
+  "record_id": "harbor_contract_summary",
+  "title": "County contract summary: Harbor Community Services",
+  "source_uri": "fixture://calds/harbor-contract-summary",
+  "source_type": "grant_ledger",
+  "published_at": "2025-07-01",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "Harbor Community Services LLC"
+  ],
+  "attributes": {
+    "signals": {
+      "missing_data": true
+    }
+  },
+  "body": "A county contract summary lists Harbor Community Services LLC for outreach support. A separate Harbor Community Health Project is mentioned in an appendix, but the summary does not establish that the two names refer to the same organization."
+}

@@ -1,0 +1,18 @@
+{
+  "record_id": "ca_audit_grant_monitoring",
+  "title": "State audit sample: grant monitoring review",
+  "source_uri": "fixture://calds/ca-audit-grant-monitoring",
+  "source_type": "audit_report",
+  "published_at": "2025-11-18",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "Central Valley Workforce Initiative",
+    "Golden State Skills Network"
+  ],
+  "attributes": {
+    "signals": {
+      "missing_data": true
+    }
+  },
+  "body": "A California oversight report reviewed the Central Valley Workforce Initiative and its monitoring of Golden State Skills Network. The report notes late quarterly reports, incomplete recipient eligibility checks, and invoice sampling gaps. The report recommends documenting follow-up before future grant cycles."
+}

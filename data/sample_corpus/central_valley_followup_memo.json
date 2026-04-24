@@ -1,0 +1,18 @@
+{
+  "record_id": "central_valley_followup_memo",
+  "title": "Corrective action follow-up memo: Central Valley Workforce Initiative",
+  "source_uri": "fixture://calds/central-valley-followup-memo",
+  "source_type": "audit_report",
+  "published_at": "2026-01-20",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "Central Valley Workforce Initiative",
+    "Golden State Skills Network"
+  ],
+  "attributes": {
+    "signals": {
+      "contradiction": true
+    }
+  },
+  "body": "A follow-up memo says program staff closed two prior documentation gaps for the Central Valley Workforce Initiative. The memo still recommends sampling additional Golden State Skills Network invoices before closing the monitoring review."
+}

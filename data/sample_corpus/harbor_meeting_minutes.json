@@ -1,0 +1,17 @@
+{
+  "record_id": "harbor_meeting_minutes",
+  "title": "Meeting minutes: Harbor Community Health Project",
+  "source_uri": "fixture://calds/harbor-meeting-minutes",
+  "source_type": "meeting_minutes",
+  "published_at": "2025-06-15",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "Harbor Community Health Project"
+  ],
+  "attributes": {
+    "signals": {
+      "missing_data": true
+    }
+  },
+  "body": "Meeting minutes for Harbor Community Health Project mention a public grant discussion and a possible outreach role. The minutes do not include contract numbers, payment amounts, or a confirmed link to Harbor Community Services LLC."
+}

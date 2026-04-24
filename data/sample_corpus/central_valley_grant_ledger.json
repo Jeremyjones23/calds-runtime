@@ -1,0 +1,16 @@
+{
+  "record_id": "central_valley_grant_ledger",
+  "title": "California grant award ledger: Central Valley Workforce Initiative",
+  "source_uri": "fixture://calds/central-valley-grant-ledger",
+  "source_type": "grant_ledger",
+  "published_at": "2025-09-30",
+  "collected_at": "2026-04-24T00:00:00+00:00",
+  "entities": [
+    "Central Valley Workforce Initiative",
+    "Golden State Skills Network"
+  ],
+  "attributes": {
+    "signals": {}
+  },
+  "body": "The California grant award ledger lists the Central Valley Workforce Initiative as the recipient for workforce training funds. Golden State Skills Network appears as a named training partner. The ledger includes milestone payment dates and one amendment extending the reporting deadline."
+}
