@@ -4,10 +4,22 @@ CalDS (California Doge Services) is a California-first, evidence-first oversight
 
 This repository is not an autonomous accusation engine. It produces reviewer-safe triage leads, provenance-bearing evidence bundles, and audit-ready review packets for human verification.
 
+## Publish Note
+
+The repository was published through the GitHub connector. Core runtime files, tests, evals, docs, and the live case entrypoint are present directly in the tree. The full source-only bundle, including the large live ingestion scripts, is also published as base64 zip parts under `.github/bootstrap/`.
+
+To expand the exact full source bundle in a clone, run:
+
+```powershell
+pwsh scripts\rehydrate_source_bundle.ps1
+```
+
+If GitHub Actions is enabled for the repository, the `Bootstrap Source Bundle` workflow can perform the same unpacking from the Actions tab.
+
 ## What Is Included
 
-- `calds_runtime/` - core contracts, deterministic truth/search/scoring/review services, local workflow adapter, bounded role adapters, sentinel gate, and CLI.
-- `scripts/` - source ingestion, deterministic extraction, gap recovery, official outcome ingestion, and live pipeline orchestration.
+- `calds_runtime/` - core contracts, deterministic truth/search/scoring/review services, local workflow adapter, bounded role adapters, sentinel gate, WFA screening matrix, and CLI.
+- `scripts/` - live pipeline entrypoint and bootstrap guards; rehydrate the full bundle for the complete source ingestion, deterministic extraction, gap recovery, official outcome ingestion, and live orchestration scripts.
 - `cases/` - live case configuration for the California recovery NGO workflow.
 - `data/sample_corpus/` - small synthetic/sample corpus for tests and evals.
 - `evals/` - three-case regression harness: easy, messy low-linkage, and adversarial/politically charged cases.
@@ -43,7 +55,7 @@ Run a sample bounded case:
 python -m calds_runtime run-case --case-file evals\cases\easy_case.json --corpus-dir data\sample_corpus --runs-dir runs\local-smoke
 ```
 
-Run the live recovery NGO pipeline from an existing recovered corpus through the newest outcome stage and human-review pause:
+Run the live recovery NGO pipeline after rehydrating the full source bundle and restoring or regenerating live corpora:
 
 ```powershell
 python scripts\run_live_case_pipeline.py --resume-from outcomes --runs-dir runs\live-outcomes-local
@@ -57,7 +69,7 @@ python scripts\run_live_case_pipeline.py --runs-dir runs\live-full-local
 
 ## Current Verification Baseline
 
-The latest local checks passed:
+The latest local checks passed before publishing:
 
 ```powershell
 python -m compileall calds_runtime evals tests scripts
