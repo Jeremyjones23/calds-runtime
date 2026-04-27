@@ -38,6 +38,7 @@ class AgentRole(str, Enum):
     LEAD_SCORER = "Lead Scorer"
     SENTINEL = "Sentinel"
     REVIEW_PACKAGER = "Review Packager"
+    CASE_COMPILER = "Case Compiler"
 
 
 class WorkflowStatus(str, Enum):
@@ -274,6 +275,18 @@ class ReviewPacket:
     created_at: str = field(default_factory=utc_now)
 
 
+
+@dataclass(frozen=True)
+class CompiledCaseDossier:
+    dossier_id: str
+    case_id: str
+    markdown_path: str
+    source_artifact_refs: list[str]
+    sentinel_decision: SentinelDecision
+    compiler_role: AgentRole = AgentRole.CASE_COMPILER
+    created_at: str = field(default_factory=utc_now)
+
+
 @dataclass(frozen=True)
 class TraceEvent:
     event_id: str
@@ -320,3 +333,6 @@ def write_json(path: Path, value: Any) -> Path:
 
 def read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+

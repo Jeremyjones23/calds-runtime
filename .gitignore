@@ -7,6 +7,9 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
+build/
+dist/
+*.egg-info/
 
 # Virtual environments and local tooling
 .venv/
@@ -44,3 +47,11 @@ consolidate_caldoge_docs.py
 # Local publish staging
 publish/
 github-publish/
+
+# Local cleanup/archive scratch
+archive/
+archives/
+CalDS-archive/
+archive_manifest*.json
+archive_summary*.json
+legacy_tools_manifest.json

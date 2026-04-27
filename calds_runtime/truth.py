@@ -109,7 +109,7 @@ class JsonCorpusTruthStore:
                     hit.matched_terms,
                     radius=900
                     if record.source_type.startswith("source_extraction_")
-                    or record.source_type in {"irs_990_full_text_fallback", "dhcs_adverse_status_discovery"}
+                    or record.source_type in {"irs_990_full_text_fallback", "dhcs_adverse_status_discovery", "org_service_page"}
                     else 190,
                 ),
                 relevance_score=round(hit.relevance_score, 3),
@@ -179,3 +179,4 @@ class JsonCorpusTruthStore:
         if end < len(body):
             excerpt = excerpt + "..."
         return excerpt
+

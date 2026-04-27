@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from .case_compiler import compile_dossier_from_run
 from .case_workflow import CaseWorkflow
 from .contracts import CaseRequest, HumanDecision, read_json
 
@@ -39,6 +40,14 @@ def record_review(args: argparse.Namespace) -> int:
     return 0
 
 
+
+def compile_dossier(args: argparse.Namespace) -> int:
+    dossier = compile_dossier_from_run(args.run_dir, args.output_dir)
+    print(f"case_id={dossier.case_id}")
+    print(f"sentinel_decision={dossier.sentinel_decision.value}")
+    print(f"case_dossier={dossier.markdown_path}")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CalDS local workflow spine")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -62,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     review_parser.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_DIR)
     review_parser.set_defaults(func=record_review)
 
+    compile_parser = subparsers.add_parser("compile-dossier", help="Compile an existing run directory into a case dossier.")
+    compile_parser.add_argument("--run-dir", type=Path, required=True)
+    compile_parser.add_argument("--output-dir", type=Path, default=None)
+    compile_parser.set_defaults(func=compile_dossier)
     return parser
 
 
@@ -73,3 +86,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
