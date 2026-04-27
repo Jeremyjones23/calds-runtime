@@ -6,9 +6,9 @@
     "index_html": "index.html",
     "source_ledger_json": "source_ledger.json"
   },
-  "generated_at": "2026-04-27T20:11:29+00:00",
+  "generated_at": "2026-04-27T20:32:02+00:00",
   "human_review_required": true,
-  "publication_id": "publication_2d5735da1eb3e0e0",
+  "publication_id": "publication_2e64b151fa14b137",
   "safety": {
     "checked_files": [
       "case_dossier.md",
@@ -16,9 +16,9 @@
       "source_ledger.json"
     ],
     "errors": [],
-    "evidence_refs_checked": 60,
+    "evidence_refs_checked": 69,
     "passed": true,
-    "source_ledger_entries": 60,
+    "source_ledger_entries": 69,
     "warnings": []
   },
   "sentinel_decision": "DOWNGRADE_FOR_REVIEW",
