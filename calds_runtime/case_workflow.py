@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .case_compiler import CaseDossierService
+
 from .agents import (
     CaseDirector,
     EntityNetworkAnalyst,
@@ -17,6 +19,7 @@ from .contracts import (
     HumanDecision,
     Plane,
     ReviewDecision,
+    SearchHit,
     TaskStatus,
     WorkflowStatus,
     stable_id,
@@ -27,7 +30,7 @@ from .risk_matrix import OversightRiskMatrixService
 from .scoring import LeadScoringService
 from .search import KeywordSearchIndex
 from .sentinel import SentinelPolicy
-from .truth import JsonCorpusTruthStore
+from .truth import JsonCorpusTruthStore, tokenize
 from .workflow import FileWorkflowStore, WorkflowRunResult
 
 
@@ -39,6 +42,7 @@ class CaseWorkflow:
         self.search_index = KeywordSearchIndex(self.truth_store.records)
         self.scoring_service = LeadScoringService()
         self.review_artifacts = ReviewArtifactService()
+        self.case_dossiers = CaseDossierService()
         self.risk_matrix_service = OversightRiskMatrixService()
         self.sentinel_policy = SentinelPolicy()
         self.provider = LocalProviderAdapter()
@@ -48,10 +52,12 @@ class CaseWorkflow:
         store = FileWorkflowStore(self.runs_dir, request.case_id)
         prior_state = store.read_state()
         prior_packet = store.artifact_path("review_packet.md")
+        prior_dossier = store.artifact_path("case_dossier.md")
         if (
             prior_state
             and prior_state.get("status") == WorkflowStatus.AWAITING_HUMAN_REVIEW.value
             and prior_packet.exists()
+            and prior_dossier.exists()
         ):
             return WorkflowRunResult(
                 case_id=request.case_id,
@@ -98,7 +104,7 @@ class CaseWorkflow:
             metadata=self.provider.describe_role_call(AgentRole.RETRIEVAL_STRATEGIST.value),
         )
 
-        hits = self.search_index.search(search_plan)
+        hits = self._ensure_entity_context_hits(request, self.search_index.search(search_plan))
         hits_path = store.write_artifact("search_hits.json", {"hits": hits})
         artifacts["search_hits"] = str(hits_path)
         completed_steps.append("retrieved")
@@ -244,6 +250,41 @@ class CaseWorkflow:
             case_id=request.case_id,
             decision=HumanDecision.PENDING,
         )
+
+        dossier_path = store.artifact_path("case_dossier.md")
+        dossier = self.case_dossiers.write_dossier(
+            dossier_path,
+            request,
+            bundle,
+            lead,
+            sentinel,
+            risk_matrix,
+            packet,
+            review_decision,
+            source_artifact_refs=list(artifacts.values()) + [str(packet_path), str(review_packet_path)],
+        )
+        dossier_json_path = store.write_artifact("case_dossier.json", dossier)
+        self._write_task(
+            store,
+            request,
+            AgentRole.CASE_COMPILER,
+            "Compile final case dossier for human review.",
+            [str(dossier_path), str(dossier_json_path)],
+        )
+        artifacts["case_dossier"] = str(dossier_json_path)
+        artifacts["case_dossier_markdown"] = str(dossier_path)
+        completed_steps.append("case_compiled")
+        store.trace(
+            request.case_id,
+            Plane.TRUTH,
+            "CaseDossierService",
+            "case_dossier_created",
+            "Deterministic service compiled the final human-review dossier from existing workflow artifacts.",
+            outputs={"sentinel_decision": sentinel.decision.value, "priority_rows": len([item for item in risk_matrix.indicators if item.risk_level in {"High", "Medium", "Data gap"}])},
+            artifacts=[str(dossier_path), str(dossier_json_path)],
+            metadata=self.provider.describe_role_call(AgentRole.CASE_COMPILER.value),
+        )
+
         review_decision_path = store.write_artifact("review_decision.json", review_decision)
         artifacts["review_decision"] = str(review_decision_path)
         completed_steps.append("awaiting_human_review")
@@ -268,6 +309,27 @@ class CaseWorkflow:
             trace_path=store.trace_json_path,
         )
 
+    def _ensure_entity_context_hits(self, request: CaseRequest, hits: list[SearchHit]) -> list[SearchHit]:
+        if "org_service_page" not in request.allowed_sources:
+            return hits
+        selected_ids = {hit.record_id for hit in hits}
+        context_hits: list[SearchHit] = []
+        requested_entities = {self._normalize_entity(entity): entity for entity in request.entities}
+        for record in sorted(self.truth_store.records, key=lambda item: item.record_id):
+            if record.source_type != "org_service_page" or record.record_id in selected_ids:
+                continue
+            record_entities = {self._normalize_entity(entity) for entity in record.entities}
+            matched_entity = next((entity for entity in requested_entities if entity in record_entities), "")
+            if not matched_entity:
+                continue
+            terms = [term for term in tokenize(requested_entities[matched_entity]) if term not in {"inc", "of", "california", "the"}]
+            context_hits.append(SearchHit(record_id=record.record_id, relevance_score=1.0, matched_terms=terms or ["service"]))
+            selected_ids.add(record.record_id)
+        return [*hits, *context_hits]
+
+    def _normalize_entity(self, value: str) -> str:
+        tokens = [token for token in tokenize(value) if token not in {"inc", "of", "the"}]
+        return " ".join(tokens)
     def record_review(
         self,
         case_id: str,
@@ -337,3 +399,8 @@ class CaseWorkflow:
         ).complete(output_refs)
         name = "task_" + role.value.lower().replace(" ", "_").replace("and", "").replace("__", "_") + ".json"
         return store.write_artifact(name, task)
+
+
+
+
+

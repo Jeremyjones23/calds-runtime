@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 from .contracts import (
@@ -24,9 +25,13 @@ class OversightRiskMatrixService:
     )
 
     METHODOLOGY = (
-        "Waste, fraud, and abuse risk-screening matrix generated from parsed IRS, "
-        "FAC, DHCS, county/document, public-statement, and outcome-join records. "
-        "Rows are reviewer prompts only and cannot be treated as conclusions."
+        "Waste, fraud, and abuse (WFA) risk-screening matrix generated from parsed IRS Form 990, "
+        "Federal Audit Clearinghouse, DHCS facility-status, county/document index, and retrieved "
+        "service-page records. The matrix tests observable risk proxies: year-over-year financial "
+        "growth, spending growth, public-funds concentration, executive compensation, payroll scale, "
+        "political/lobbying indicators, audit-control flags, award concentration, facility closure "
+        "patterns, off-scope web-language checks, official county/CoC outcome context, "
+        "and remaining provider-attributable outcome gaps."
     )
 
     def build(
@@ -38,48 +43,29 @@ class OversightRiskMatrixService:
         self.records = list(records)
         self.records_by_id = {record.record_id: record for record in self.records}
         self.items_by_record = {item.record_id: item for item in bundle.items}
-        indicators: list[OversightRiskIndicator] = []
-
+        irs = self._load_json_for_type("source_extraction_irs_990_table") or {}
+        fac = self._load_json_for_type("source_extraction_fac_audit_table") or {}
+        dhcs = self._load_json_for_type("source_extraction_dhcs_status_table") or {}
         spend_join = self._load_json_for_type("source_extraction_spend_vs_results_table") or {}
-        spend_rows = list(spend_join.get("entity_outcome_rows", [])) if isinstance(spend_join, dict) else []
-        indicators.extend(self._spend_vs_results_rows(request, spend_rows))
+        outcome_manifest = self._load_json_for_type("source_extraction_official_outcome_table") or {}
 
-        entities = self._entities(request)
+        irs_rows = list(irs.get("rows", [])) if isinstance(irs, dict) else []
+        fac_rows = list(fac.get("audit_summary", [])) if isinstance(fac, dict) else []
+        award_rows = list(fac.get("award_summary", [])) if isinstance(fac, dict) else []
+        dhcs_rows = list(dhcs.get("rows", [])) if isinstance(dhcs, dict) else []
+
+        entities = self._entities(request, irs_rows, fac_rows, dhcs_rows)
+        indicators: list[OversightRiskIndicator] = []
         for entity in entities:
-            indicators.extend(self._entity_financial_rows(request, entity))
-            indicators.extend(self._entity_source_rows(request, entity))
+            indicators.extend(self._irs_indicators(request, entity, irs_rows))
+            indicators.extend(self._fac_indicators(request, entity, fac_rows, award_rows))
+            indicators.extend(self._dhcs_indicators(request, entity, dhcs_rows))
+            indicators.extend(self._service_page_indicators(request, entity))
+            indicators.extend(self._public_statement_indicators(request, entity))
 
-        if not spend_rows:
-            indicators.append(
-                self._indicator(
-                    request,
-                    "Spend-versus-results",
-                    "Case-wide",
-                    "Outcome-denominator coverage for homelessness, drug use, crime, and treatment results",
-                    "No joined outcome-denominator rows are available in this source tree until the live outcome ingestor is run or the bundled source is rehydrated.",
-                    "Data gap",
-                    "missing_required_outcome_sources",
-                    "Run the official outcome ingestor and align by county, year, and service footprint before ranking spend-versus-results concerns.",
-                    [],
-                    ["This data gap blocks provider-attributable outcome conclusions."],
-                )
-            )
-
-        indicators.append(
-            self._indicator(
-                request,
-                "Public attention and traffic",
-                "Case-wide",
-                "Social media and website traffic coverage",
-                "No governed social media metrics, website analytics, ad-library records, or third-party traffic estimates are present in the source tree.",
-                "Data gap",
-                "missing_required_attention_sources",
-                "Add a governed source policy for traffic/social metrics before using attention patterns as risk proxies.",
-                [],
-                ["Traffic and social metrics are volatile and require timestamps, normalization, and source caveats."],
-            )
-        )
-
+        indicators.extend(self._spend_vs_results_indicators(request, spend_join))
+        indicators.extend(self._outcome_source_gap_indicators(request, outcome_manifest))
+        indicators.extend(self._case_wide_gap_indicators(request, spend_join))
         indicators = sorted(
             indicators,
             key=lambda item: (
@@ -101,7 +87,8 @@ class OversightRiskMatrixService:
         for record in self.records:
             if record.source_type != source_type:
                 continue
-            for candidate in [record.attributes.get("table_path"), record.source_uri]:
+            candidates = [record.attributes.get("table_path"), record.source_uri]
+            for candidate in candidates:
                 if not candidate:
                     continue
                 path = Path(str(candidate))
@@ -109,36 +96,450 @@ class OversightRiskMatrixService:
                     return json.loads(path.read_text(encoding="utf-8"))
         return None
 
-    def _entities(self, request: CaseRequest) -> list[str]:
+    def _entities(
+        self,
+        request: CaseRequest,
+        irs_rows: list[dict[str, Any]],
+        fac_rows: list[dict[str, Any]],
+        dhcs_rows: list[dict[str, Any]],
+    ) -> list[str]:
         seen: list[str] = []
-        for entity in request.entities:
+        for entity in [*request.entities, *[str(row.get("entity", "")) for row in irs_rows], *[str(row.get("entity", "")) for row in fac_rows], *[str(row.get("entity", "")) for row in dhcs_rows]]:
+            entity = entity.strip()
             if entity and entity not in seen:
                 seen.append(entity)
-        for record in self.records:
-            for entity in record.entities:
-                if entity and entity not in seen:
-                    seen.append(entity)
-        return seen or ["Case-wide"]
+        return seen
 
-    def _spend_vs_results_rows(self, request: CaseRequest, rows: list[dict[str, Any]]) -> list[OversightRiskIndicator]:
-        indicators: list[OversightRiskIndicator] = []
-        record_ids = self._record_ids_for_source_types(
-            "source_extraction_spend_vs_results_table",
-            "source_extraction_official_outcome_table",
+    def _irs_indicators(self, request: CaseRequest, entity: str, rows: list[dict[str, Any]]) -> list[OversightRiskIndicator]:
+        entity_rows = sorted(
+            [row for row in rows if row.get("entity") == entity],
+            key=lambda row: int(row.get("tax_period_year") or 0),
         )
+        record_ids = self._record_ids_for_source_types("source_extraction_irs_990_table")
+        indicators: list[OversightRiskIndicator] = []
+
+        indicators.append(
+            self._growth_indicator(
+                request,
+                entity,
+                entity_rows,
+                "Financial growth",
+                "Year-over-year total revenue growth",
+                "total_revenue",
+                "revenue",
+                [(50.0, "High"), (25.0, "Medium")],
+                record_ids,
+                "Compare the growth to contract amendments, new grants, acquisitions, service volume, and program outcomes before escalation.",
+            )
+        )
+        indicators.append(
+            self._growth_indicator(
+                request,
+                entity,
+                entity_rows,
+                "Spending growth",
+                "Year-over-year total expense growth",
+                "total_expenses",
+                "expenses",
+                [(50.0, "High"), (20.0, "Medium")],
+                record_ids,
+                "Check whether expense growth maps to funded scope, staffing, facilities, and documented service results.",
+            )
+        )
+        indicators.append(self._grant_concentration_indicator(request, entity, entity_rows, record_ids))
+        indicators.append(self._compensation_indicator(request, entity, entity_rows, record_ids))
+        indicators.append(self._payroll_growth_indicator(request, entity, entity_rows, record_ids))
+        indicators.append(self._political_lobbying_indicator(request, entity, entity_rows, record_ids))
+        return indicators
+
+    def _growth_indicator(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+        risk_area: str,
+        test_name: str,
+        field: str,
+        label: str,
+        thresholds: list[tuple[float, str]],
+        record_ids: list[str],
+        reviewer_action: str,
+    ) -> OversightRiskIndicator:
+        pair = self._latest_numeric_pair(rows, field)
+        if not pair:
+            years = self._available_years(rows, field)
+            return self._indicator(
+                request,
+                risk_area,
+                entity,
+                test_name,
+                f"No two downloaded IRS returns with numeric {label} are available for this entity. Available parsed years: {years or 'none'}.",
+                "Data gap",
+                "missing_source_or_field",
+                reviewer_action,
+                record_ids,
+                ["A missing year is not an adverse signal by itself, but it prevents the growth test."],
+            )
+        previous, current = pair
+        previous_value = self._number(previous.get(field)) or 0.0
+        current_value = self._number(current.get(field)) or 0.0
+        pct = self._pct_change(previous_value, current_value)
+        level = "Low"
+        for threshold, candidate in thresholds:
+            if pct >= threshold:
+                level = candidate
+                break
+        return self._indicator(
+            request,
+            risk_area,
+            entity,
+            test_name,
+            (
+                f"IRS parsed {label} moved from {self._money(previous_value)} in {previous.get('tax_period_year')} "
+                f"to {self._money(current_value)} in {current.get('tax_period_year')} ({pct:+.1f}%)."
+            ),
+            level,
+            "observed",
+            reviewer_action,
+            record_ids,
+            ["Growth can be legitimate; it becomes useful only when compared with scope, staffing, service volume, and outcome data."],
+        )
+
+    def _grant_concentration_indicator(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+        record_ids: list[str],
+    ) -> OversightRiskIndicator:
+        row = self._latest_row_with(rows, "government_grants", "total_revenue")
+        if not row:
+            return self._indicator(
+                request,
+                "Public-funds concentration",
+                entity,
+                "Government grants as share of Form 990 revenue",
+                "No downloaded IRS row in the current corpus contains both government grants and total revenue for this entity.",
+                "Data gap",
+                "missing_source_or_field",
+                "Recover the full return or schedule detail before ranking public-funds concentration.",
+                record_ids,
+                ["Blank government-grant fields may reflect parser coverage or return presentation; verify against raw XML/PDF."],
+            )
+        grants = self._number(row.get("government_grants")) or 0.0
+        revenue = self._number(row.get("total_revenue")) or 0.0
+        ratio = grants / revenue if revenue else 0.0
+        level = "High" if ratio >= 0.80 else "Medium" if ratio >= 0.50 else "Low"
+        return self._indicator(
+            request,
+            "Public-funds concentration",
+            entity,
+            "Government grants as share of Form 990 revenue",
+            f"Latest parsed IRS row with both fields is {row.get('tax_period_year')}: government grants {self._money(grants)} / total revenue {self._money(revenue)} = {ratio:.1%}.",
+            level,
+            "observed",
+            "Prioritize tracing grant terms, allowable costs, subawards, and reported service outputs for high public-funds exposure.",
+            record_ids,
+            ["Public-funds concentration is an oversight-priority signal, not an allegation."],
+        )
+
+    def _compensation_indicator(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+        record_ids: list[str],
+    ) -> OversightRiskIndicator:
+        row = self._latest_row_with(rows, "top_compensation_total")
+        if not row:
+            return self._indicator(
+                request,
+                "Executive compensation",
+                entity,
+                "Highest officer/key employee compensation from Form 990 Part VII",
+                "No parsed Part VII compensation total is available in the current IRS table for this entity.",
+                "Data gap",
+                "missing_parser_or_source_field",
+                "Parse Part VII from the raw return and compare officer/key-employee pay against peers, program scale, and compensation-policy disclosures.",
+                record_ids,
+                ["The current test does not infer reasonableness; it only flags pay levels for reviewer comparison."],
+            )
+        top_total = self._number(row.get("top_compensation_total")) or 0.0
+        expenses = self._number(row.get("total_expenses")) or 0.0
+        expense_ratio = top_total / expenses if expenses else 0.0
+        level = "High" if top_total >= 1_000_000 or expense_ratio >= 0.02 else "Medium" if top_total >= 500_000 or expense_ratio >= 0.01 else "Low"
+        person = row.get("top_compensation_person") or "top compensated person"
+        title = row.get("top_compensation_title") or "title not parsed"
+        return self._indicator(
+            request,
+            "Executive compensation",
+            entity,
+            "Highest officer/key employee compensation from Form 990 Part VII",
+            f"Latest parsed return {row.get('tax_period_year')} lists {person} ({title}) with total reportable/other compensation of {self._money(top_total)}, equal to {expense_ratio:.2%} of parsed expenses.",
+            level,
+            "observed",
+            "Compare compensation to board approval process, market survey disclosure, related-organization pay, and peer organizations before any conclusion.",
+            record_ids,
+            ["High compensation can be explainable by size, clinical complexity, related-organization structures, or one-time items."],
+        )
+
+    def _payroll_growth_indicator(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+        record_ids: list[str],
+    ) -> OversightRiskIndicator:
+        pair = self._latest_numeric_pair(rows, "salaries_comp_benefits_current_year")
+        if not pair:
+            return self._indicator(
+                request,
+                "Payroll and wages",
+                entity,
+                "Year-over-year salaries, compensation, and benefits growth",
+                "No two downloaded IRS returns with parsed salaries/compensation/benefits totals are available for this entity.",
+                "Data gap",
+                "missing_source_or_field",
+                "Parse the salaries/compensation/benefits line and compare payroll growth to headcount, contract scope, and service volume.",
+                record_ids,
+                ["Payroll growth alone does not show misuse; it is a spend-versus-output review trigger."],
+            )
+        previous, current = pair
+        previous_value = self._number(previous.get("salaries_comp_benefits_current_year")) or 0.0
+        current_value = self._number(current.get("salaries_comp_benefits_current_year")) or 0.0
+        pct = self._pct_change(previous_value, current_value)
+        employees = self._number(current.get("total_employee_count"))
+        per_employee = current_value / employees if employees else None
+        level = "High" if pct >= 35.0 else "Medium" if pct >= 20.0 else "Low"
+        tail = f"; {self._money(per_employee)} per employee using {int(employees)} employees" if per_employee is not None else ""
+        return self._indicator(
+            request,
+            "Payroll and wages",
+            entity,
+            "Year-over-year salaries, compensation, and benefits growth",
+            f"Parsed salaries/compensation/benefits moved from {self._money(previous_value)} in {previous.get('tax_period_year')} to {self._money(current_value)} in {current.get('tax_period_year')} ({pct:+.1f}%{tail}).",
+            level,
+            "observed",
+            "Compare payroll growth with staffing changes, wage requirements, vacancy rates, service units, and contract deliverables.",
+            record_ids,
+            ["This is a spending efficiency trigger, not a compensation reasonableness finding."],
+        )
+
+    def _political_lobbying_indicator(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+        record_ids: list[str],
+    ) -> OversightRiskIndicator:
+        row = self._latest_row_with_any(rows, "political_campaign_activity", "lobbying_activities")
+        if not row:
+            return self._indicator(
+                request,
+                "Off-scope activity",
+                entity,
+                "Form 990 political campaign and lobbying indicators",
+                "No parsed PoliticalCampaignActyInd or LobbyingActivitiesInd field is available in the current IRS table for this entity.",
+                "Data gap",
+                "missing_source_or_field",
+                "Parse the latest full return and review related schedules before judging whether dollars were used outside funded scope.",
+                record_ids,
+                ["This check only covers return-level indicators; it does not inspect every program expenditure."],
+            )
+        political = self._boolish(row.get("political_campaign_activity"))
+        lobbying = self._boolish(row.get("lobbying_activities"))
+        level = "High" if political else "Medium" if lobbying else "Low"
+        return self._indicator(
+            request,
+            "Off-scope activity",
+            entity,
+            "Form 990 political campaign and lobbying indicators",
+            f"Latest parsed return {row.get('tax_period_year')} reports PoliticalCampaignActyInd={self._yn(political)} and LobbyingActivitiesInd={self._yn(lobbying)}.",
+            level,
+            "observed",
+            "If either indicator is yes, inspect the full return, schedules, funding restrictions, and cost allocation before escalation.",
+            record_ids,
+            ["A yes indicator can reflect disclosed permissible activity; the reviewer must test allowability and funding source."],
+        )
+
+    def _fac_indicators(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+        award_rows: list[dict[str, Any]],
+    ) -> list[OversightRiskIndicator]:
+        record_ids = self._record_ids_for_source_types("source_extraction_fac_audit_table", "source_extraction_fac_award_table")
+        row = next((item for item in rows if item.get("entity") == entity), None)
+        if not row:
+            return [
+                self._indicator(
+                    request,
+                    "Audit controls",
+                    entity,
+                    "FAC control flags and findings",
+                    "No FAC audit-control summary row is present for this entity in the current corpus.",
+                    "Data gap",
+                    "missing_source",
+                    "Recover FAC general, findings, awards, and audit PDF records before audit-control ranking.",
+                    record_ids,
+                    [],
+                )
+            ]
+
+        material = list(row.get("material_weakness_years") or [])
+        deficiencies = list(row.get("internal_control_deficiency_years") or [])
+        not_low = list(row.get("not_low_risk_years") or [])
+        findings = int(self._number(row.get("fac_findings_row_count")) or 0)
+        if material:
+            level = "High"
+        elif deficiencies or findings or len(not_low) >= 3:
+            level = "Medium"
+        else:
+            level = "Low"
+        indicators = [
+            self._indicator(
+                request,
+                "Audit controls",
+                entity,
+                "FAC control flags and findings",
+                f"FAC summary reports material weakness years={self._list_text(material)}, internal-control deficiency years={self._list_text(deficiencies)}, not-low-risk years={self._list_text(not_low)}, findings rows={findings}.",
+                level,
+                "observed",
+                "Open the audit PDFs and row-level FAC findings to verify finding status, program, agency, questioned costs, repeat status, and corrective-action response.",
+                record_ids,
+                ["FAC flags are audit-context signals; they must be interpreted at report year and program level."],
+            )
+        ]
+
+        total = self._number(row.get("fac_award_amount_total")) or 0.0
+        top_award = next((item for item in award_rows if item.get("entity") == entity), None)
+        level = "High" if total >= 150_000_000 else "Medium" if total >= 50_000_000 else "Low"
+        program_text = ""
+        if top_award:
+            program_text = f" Top parsed program: {top_award.get('federal_program_name')} at {self._money(self._number(top_award.get('amount_expended_total')) or 0)}."
+        indicators.append(
+            self._indicator(
+                request,
+                "Federal award exposure",
+                entity,
+                "FAC cumulative award amount in retrieved reports",
+                f"Parsed FAC award amount total across retrieved reports is {self._money(total)}.{program_text}",
+                level,
+                "observed",
+                "Use large award totals to prioritize allowable-cost, subrecipient, and deliverable testing; do not infer performance from amount alone.",
+                record_ids,
+                ["Award exposure is a materiality signal, not an adverse finding."],
+            )
+        )
+        return indicators
+
+    def _dhcs_indicators(self, request: CaseRequest, entity: str, rows: list[dict[str, Any]]) -> list[OversightRiskIndicator]:
+        record_ids = self._record_ids_for_source_types("source_extraction_dhcs_status_table")
+        row = next((item for item in rows if item.get("entity") == entity), None)
+        if not row:
+            return [
+                self._indicator(
+                    request,
+                    "Facility status",
+                    entity,
+                    "DHCS active/closed facility-status ratio",
+                    "No parsed DHCS facility-status summary row is present for this entity.",
+                    "Data gap",
+                    "missing_source",
+                    "Recover DHCS facility rows and adverse-status/licensing history before facility-level ranking.",
+                    record_ids,
+                    [],
+                )
+            ]
+        status_counts = dict(row.get("status_counts") or {})
+        total = int(self._number(row.get("facility_rows")) or 0)
+        closed = int(self._number(status_counts.get("Closed")) or 0)
+        active = int(self._number(status_counts.get("Active")) or 0)
+        ratio = closed / total if total else 0.0
+        level = "High" if total and ratio >= 0.50 else "Medium" if total and ratio >= 0.30 else "Low"
+        return [
+            self._indicator(
+                request,
+                "Facility status",
+                entity,
+                "DHCS active/closed facility-status ratio",
+                f"Parsed DHCS status rows show {active} active and {closed} closed facilities out of {total} matched rows ({ratio:.1%} closed).",
+                level,
+                "observed",
+                "Review closed facility IDs, dates, license histories, probation/suspension/revocation records, and contract coverage before entity-level use.",
+                record_ids,
+                ["Closed status can be routine, historical, or administrative; facility-level records control."],
+            )
+        ]
+
+    def _service_page_indicators(self, request: CaseRequest, entity: str) -> list[OversightRiskIndicator]:
+        records = [record for record in self.records if record.source_type == "org_service_page" and entity in record.entities]
+        record_ids = [record.record_id for record in records]
+        if not records:
+            return [
+                self._indicator(
+                    request,
+                    "Off-scope activity",
+                    entity,
+                    "Retrieved website/service-page keyword screen",
+                    "No organization service page was retrieved for this entity, so the run cannot screen web language for voter registration, power building, political action, or similar off-scope terms.",
+                    "Data gap",
+                    "missing_source",
+                    "Add official-site pages and social/traffic sources before judging public messaging or scope alignment.",
+                    [],
+                    ["Absence of a retrieved page is not evidence that off-scope activity exists or does not exist."],
+                )
+            ]
+        text = "\n".join(record.body for record in records).lower()
+        high_terms = ["voter registration", "political action", "power building", "electioneering", "ballot measure", "campaign activity"]
+        medium_terms = ["policy advocacy", "community organizing", "lobbying", "lobbyist"]
+        found_high = [term for term in high_terms if term in text]
+        found_medium = [term for term in medium_terms if term in text]
+        if found_high:
+            level = "High"
+            found = found_high
+        elif found_medium:
+            level = "Medium"
+            found = found_medium
+        else:
+            level = "Low"
+            found = []
+        observed = (
+            f"Retrieved official/service pages screened for off-scope exact phrases. Matched phrases: {', '.join(found) if found else 'none from configured list'}."
+        )
+        return [
+            self._indicator(
+                request,
+                "Off-scope activity",
+                entity,
+                "Retrieved website/service-page keyword screen",
+                observed,
+                level,
+                "observed",
+                "If matches exist, inspect page context, funding restrictions, and cost-allocation records. If no matches, treat as a narrow page-level screen only.",
+                record_ids,
+                ["Keyword screening does not replace expenditure testing or full website/social review."],
+            )
+        ]
+
+    def _spend_vs_results_indicators(self, request: CaseRequest, spend_join: dict[str, Any]) -> list[OversightRiskIndicator]:
+        rows = list(spend_join.get("entity_outcome_rows", [])) if isinstance(spend_join, dict) else []
+        record_ids = self._record_ids_for_source_types("source_extraction_spend_vs_results_table", "source_extraction_official_outcome_table")
+        indicators: list[OversightRiskIndicator] = []
         for row in rows:
             flags = list(row.get("outcome_flags") or [])
             if not flags:
                 continue
-            entity = str(row.get("entity") or "unknown entity")
-            county = str(row.get("county") or "unknown county")
             level = str(row.get("risk_level") or "Medium")
-            if level not in {"High", "Medium", "Low"}:
-                level = "Medium"
+            entity = str(row.get("entity") or "unknown")
+            county = str(row.get("county") or "unknown county")
+            spending = row.get("spending_growth_pct")
+            revenue = row.get("revenue_growth_pct")
+            grants = row.get("government_grant_growth_pct")
             observed = (
-                f"{entity} has DHCS facility footprint in {county}; official county/CoC context flags "
-                f"{', '.join(flags)}. Entity growth context: spending={self._pct_text(row.get('spending_growth_pct'))}, "
-                f"revenue={self._pct_text(row.get('revenue_growth_pct'))}, government grants={self._pct_text(row.get('government_grant_growth_pct'))}."
+                f"{entity} has DHCS facility footprint in {county}; official county/CoC context flags {', '.join(flags)}. "
+                f"Parsed entity growth context: spending={self._pct_text(spending)}, revenue={self._pct_text(revenue)}, government grants={self._pct_text(grants)}."
             )
             indicators.append(
                 self._indicator(
@@ -147,95 +548,136 @@ class OversightRiskMatrixService:
                     entity,
                     f"County outcome movement and entity spending context: {county}",
                     observed,
-                    level,
+                    level if level in {"High", "Medium", "Low"} else "Medium",
                     "observed_contextual_join",
-                    "Review county/CoC outcome rows, facility footprint, contract geography, and provider-specific outcome records before drawing any conclusion.",
+                    "Review underlying county/CoC outcome rows, facility footprint, contract geography, and provider-specific outcome records before drawing any conclusion.",
                     record_ids,
                     list(row.get("join_caveats") or ["County outcomes are not provider-attributable without direct program outcome data."]),
                 )
             )
         return indicators
 
-    def _entity_financial_rows(self, request: CaseRequest, entity: str) -> list[OversightRiskIndicator]:
-        record_ids = self._record_ids_for_entity(entity, "irs_990_xml", "source_extraction_irs_990_table", "irs_990_full_text_fallback")
-        if record_ids:
-            return [
-                self._indicator(
-                    request,
-                    "Financial growth",
-                    entity,
-                    "IRS return coverage for growth, compensation, payroll, and off-scope indicators",
-                    "IRS return or parser records are present for this entity. Use raw XML/PDF and parsed tables to compute year-over-year growth, compensation, payroll, grant concentration, and political/lobbying indicators.",
-                    "Low",
-                    "source_available",
-                    "Run the full parser or inspect the raw return before ranking the entity on financial-growth or compensation tests.",
-                    record_ids,
-                    ["Presence of a return is not an adverse signal."],
-                )
-            ]
+    def _public_statement_indicators(self, request: CaseRequest, entity: str) -> list[OversightRiskIndicator]:
+        records = [record for record in self.records if record.source_type == "public_statement_source" and entity in record.entities]
+        if not records:
+            return []
+        record_ids = [record.record_id for record in records]
+        body = "\n".join(record.body for record in records).lower()
+        high_terms = ["voter registration", "political action", "power building", "campaign contribution", "ballot measure", "electioneering"]
+        medium_terms = ["lobbying", "advocacy", "policy and public affairs", "public affairs", "criminal justice", "reentry", "equity"]
+        found_high = [term for term in high_terms if term in body]
+        found_medium = [term for term in medium_terms if term in body]
+        if found_high:
+            level = "High"
+            found = found_high
+        elif found_medium:
+            level = "Medium"
+            found = found_medium
+        else:
+            level = "Low"
+            found = []
         return [
-            self._indicator(
-                request,
-                "Financial growth",
-                entity,
-                "IRS return coverage for growth, compensation, payroll, and off-scope indicators",
-                "No parsed or downloaded IRS return record is available in the current visible source tree for this entity.",
-                "Data gap",
-                "missing_source_or_field",
-                "Recover full IRS XML/PDF and parse financial fields before ranking this entity.",
-                [],
-                ["The full source bundle may contain additional live-ingest scripts and artifacts after rehydration."],
-            )
-        ]
-
-    def _entity_source_rows(self, request: CaseRequest, entity: str) -> list[OversightRiskIndicator]:
-        rows: list[OversightRiskIndicator] = []
-        fac_ids = self._record_ids_for_entity(entity, "fac_audit_pdf", "fac_findings", "fac_federal_awards", "source_extraction_fac_audit_table")
-        dhcs_ids = self._record_ids_for_entity(entity, "dhcs_facility_status", "source_extraction_dhcs_status_table")
-        statement_ids = self._record_ids_for_entity(entity, "public_statement_source", "org_service_page")
-        rows.append(
-            self._indicator(
-                request,
-                "Audit controls",
-                entity,
-                "FAC audit and award coverage",
-                "FAC audit, findings, or award records are present." if fac_ids else "No FAC audit/findings/award records are visible for this entity in the current source tree.",
-                "Low" if fac_ids else "Data gap",
-                "source_available" if fac_ids else "missing_source",
-                "Open FAC PDFs and award rows to verify findings, award concentration, and management response status.",
-                fac_ids,
-                ["Audit records require year-specific and finding-specific review."],
-            )
-        )
-        rows.append(
-            self._indicator(
-                request,
-                "License/adverse-action history",
-                entity,
-                "DHCS facility status and adverse-action coverage",
-                "DHCS facility-status records are present." if dhcs_ids else "No DHCS facility-status/adverse-action records are visible for this entity in the current source tree.",
-                "Low" if dhcs_ids else "Data gap",
-                "source_available" if dhcs_ids else "missing_source",
-                "Verify facility-level status and adverse-action history directly against DHCS before entity-level use.",
-                dhcs_ids,
-                ["Active/closed facility status is not the same as probation, suspension, revocation, or NOV history."],
-            )
-        )
-        rows.append(
             self._indicator(
                 request,
                 "Public statements",
                 entity,
                 "Official/public page term screen",
-                "Public statement or service-page records are present." if statement_ids else "No harvested public statement or service-page records are visible for this entity in the current source tree.",
-                "Low" if statement_ids else "Data gap",
-                "source_available" if statement_ids else "missing_source",
-                "Use statement pages only as context; tie any off-scope concern to funding restrictions and expenditure records.",
-                statement_ids,
-                ["Website language does not establish spending outside scope by itself."],
+                f"Configured public statement pages were harvested. Matched review terms: {', '.join(found) if found else 'none from configured high/medium list'}.",
+                level,
+                "observed",
+                "If terms are present, inspect the archived page context, speaker attribution, funding restrictions, and cost allocation; statements alone do not establish spending outside scope.",
+                record_ids,
+                ["Website language is context only and must be tied to funding/expenditure records before escalation."],
             )
-        )
-        return rows
+        ]
+
+    def _outcome_source_gap_indicators(self, request: CaseRequest, manifest: dict[str, Any]) -> list[OversightRiskIndicator]:
+        if not isinstance(manifest, dict) or not manifest:
+            return []
+        record_ids = self._record_ids_for_source_types("source_extraction_official_outcome_table")
+        indicators: list[OversightRiskIndicator] = []
+        caloms = manifest.get("dhcs_caloms", {})
+        if caloms and (not caloms.get("fetched") or int(caloms.get("text_chars") or 0) == 0):
+            indicators.append(
+                self._indicator(
+                    request,
+                    "Treatment completion",
+                    "Case-wide",
+                    "Direct CalOMS/DATAR treatment completion coverage",
+                    "The DHCS CalOMS/DATAR public page was probed, but this run did not recover a machine-readable provider/county treatment completion table.",
+                    "Data gap",
+                    "restricted_or_non_machine_readable_source",
+                    "Use public reports or a governed data request before judging spend-versus-treatment-completion performance.",
+                    record_ids,
+                    ["MAT membership and county outcomes are context; direct treatment completion data remains unavailable in this run."],
+                )
+            )
+        adverse = [manifest.get("dhcs_suspension_revocation", {}), manifest.get("dhcs_sus_rev_nov", {})]
+        if adverse and all(int(item.get("text_chars") or 0) == 0 for item in adverse if item):
+            indicators.append(
+                self._indicator(
+                    request,
+                    "License/adverse-action history",
+                    "Case-wide",
+                    "DHCS adverse-action page machine readability",
+                    "DHCS adverse-action pages were fetched but did not expose machine-readable target rows in static text during this run.",
+                    "Data gap",
+                    "non_machine_readable_source",
+                    "Archive the pages and pursue a row export or page-specific parser before ranking probation, suspension, revocation, or NOV history.",
+                    record_ids,
+                    ["Existing DHCS Active/Closed facility status remains available, but it is not the same as adverse-action history."],
+                )
+            )
+        return indicators
+
+    def _case_wide_gap_indicators(self, request: CaseRequest, spend_join: dict[str, Any] | None = None) -> list[OversightRiskIndicator]:
+        rows = list((spend_join or {}).get("entity_outcome_rows", [])) if isinstance(spend_join, dict) else []
+        indicators: list[OversightRiskIndicator] = []
+        if not rows:
+            indicators.append(
+                self._indicator(
+                    request,
+                    "Spend-versus-results",
+                    "Case-wide",
+                    "Outcome-denominator coverage for homelessness, drug use, crime, and treatment results",
+                    "No homelessness, overdose/substance-use, crime, treatment completion, recurrence, or county outcome denominator dataset is ingested in this run; the matrix cannot test whether spending increased while outcomes worsened.",
+                    "Data gap",
+                    "missing_required_outcome_sources",
+                    "Ingest official outcome series and align them by county, service line, year, and funding stream before ranking spend-versus-results concerns.",
+                    [],
+                    ["The current run can flag spending growth but cannot measure program results."],
+                )
+            )
+        else:
+            indicators.append(
+                self._indicator(
+                    request,
+                    "Spend-versus-results",
+                    "Case-wide",
+                    "Outcome-denominator coverage for homelessness, drug use, crime, and treatment results",
+                    f"Official outcome series are ingested and joined into {len(rows)} entity/county context rows. These rows remain contextual and are not provider-attributable results.",
+                    "Low",
+                    "observed",
+                    "Use entity/county rows below to prioritize follow-up; do not treat county outcomes as proof of provider performance.",
+                    self._record_ids_for_source_types("source_extraction_official_outcome_table", "source_extraction_spend_vs_results_table"),
+                    ["The join is contextual; direct program outcome data is still required for attribution."],
+                )
+            )
+        indicators.extend([
+            self._indicator(
+                request,
+                "Public attention and traffic",
+                "Case-wide",
+                "Social media and website traffic coverage",
+                "No social media account metrics, website analytics, ad-library records, or third-party traffic estimates are ingested in this run.",
+                "Data gap",
+                "missing_required_attention_sources",
+                "Add a governed source policy for traffic/social metrics and preserve collection timestamps before using attention patterns as risk proxies.",
+                [],
+                ["Traffic and social metrics are volatile and can be misleading without source timestamps and normalization."],
+            ),
+        ])
+        return indicators
 
     def _indicator(
         self,
@@ -272,15 +714,58 @@ class OversightRiskMatrixService:
     def _record_ids_for_source_types(self, *source_types: str) -> list[str]:
         return [record.record_id for record in self.records if record.source_type in source_types]
 
-    def _record_ids_for_entity(self, entity: str, *source_types: str) -> list[str]:
-        return [
-            record.record_id
-            for record in self.records
-            if record.source_type in source_types and entity in record.entities
-        ]
+    def _latest_numeric_pair(self, rows: list[dict[str, Any]], field: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        numeric_rows = [row for row in rows if row.get("downloaded") and self._number(row.get(field)) is not None]
+        numeric_rows = sorted(numeric_rows, key=lambda row: int(row.get("tax_period_year") or 0))
+        if len(numeric_rows) < 2:
+            return None
+        return numeric_rows[-2], numeric_rows[-1]
+
+    def _latest_row_with(self, rows: list[dict[str, Any]], *fields: str) -> dict[str, Any] | None:
+        candidates = [row for row in rows if row.get("downloaded") and all(self._number(row.get(field)) is not None for field in fields)]
+        return sorted(candidates, key=lambda row: int(row.get("tax_period_year") or 0))[-1] if candidates else None
+
+    def _latest_row_with_any(self, rows: list[dict[str, Any]], *fields: str) -> dict[str, Any] | None:
+        candidates = [row for row in rows if row.get("downloaded") and any(field in row for field in fields)]
+        return sorted(candidates, key=lambda row: int(row.get("tax_period_year") or 0))[-1] if candidates else None
+
+    def _available_years(self, rows: list[dict[str, Any]], field: str) -> str:
+        years = [str(row.get("tax_period_year")) for row in rows if row.get("downloaded") and self._number(row.get(field)) is not None]
+        return ", ".join(years)
+
+    def _number(self, value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        try:
+            return float(str(value).replace(",", ""))
+        except Exception:
+            return None
+
+    def _pct_change(self, previous: float, current: float) -> float:
+        if previous == 0:
+            return 0.0 if current == 0 else 100.0
+        return ((current - previous) / abs(previous)) * 100.0
+
+    def _boolish(self, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "y", "x"}
+
+    def _yn(self, value: bool) -> str:
+        return "yes" if value else "no"
+
+    def _money(self, value: float | None) -> str:
+        if value is None:
+            return "not parsed"
+        return "$" + f"{value:,.0f}"
 
     def _pct_text(self, value: Any) -> str:
-        try:
-            return f"{float(value):+.1f}%"
-        except Exception:
+        number = self._number(value)
+        if number is None:
             return "not parsed"
+        return f"{number:+.1f}%"
+
+    def _list_text(self, values: list[Any]) -> str:
+        return ", ".join(str(value) for value in values) if values else "none"
+
+

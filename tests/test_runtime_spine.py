@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
 import shutil
 import unittest
 from uuid import uuid4
 
+from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
-from calds_runtime.contracts import CanonicalRecord, CaseRequest, Provenance, WorkflowStatus, read_json
+from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
+from calds_runtime.sentinel import find_escalated_language
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +38,37 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("score_scale", matrix)
             self.assertTrue(any(item["risk_area"] == "Spend-versus-results" for item in matrix["indicators"]))
 
+            dossier_path = Path(state["artifacts"]["case_dossier_markdown"])
+            dossier = read_json(Path(state["artifacts"]["case_dossier"]))
+            self.assertEqual(dossier["compiler_role"], "Case Compiler")
+            self.assertTrue(dossier_path.exists())
+            dossier_text = dossier_path.read_text(encoding="utf-8")
+            self.assertIn("## 1. Case Dossier Orientation", dossier_text)
+            self.assertIn("## 4. Executive Briefing", dossier_text)
+            self.assertIn("## 5. Evidence Detail By Entity", dossier_text)
+            self.assertIn("## 6. Flagged Review Matrix", dossier_text)
+            self.assertIn("## 7. Evidence Citation Ledger", dossier_text)
+            self.assertIn("## 8. Human-Only Next Steps", dossier_text)
+            self.assertIn("## 10. Human Review Required", dossier_text)
+            self.assertIn("Source URI", dossier_text)
+            self.assertIn("Checksum", dossier_text)
+            self.assertIn("CalDS flags", dossier_text)
+            self.assertIn("Briefing judgment", dossier_text)
+            self.assertIn("What the organization says or is described as doing", dossier_text)
+            self.assertIn("What the records show", dossier_text)
+            self.assertIn("Why this is on the review list", dossier_text)
+            self.assertIn("Boss-level next step", dossier_text)
+            self.assertIn("Specific findings that drove the flag", dossier_text)
+            self.assertIn("What CalDS found", dossier_text)
+            self.assertIn("When/where", dossier_text)
+            self.assertIn("How this triggered review", dossier_text)
+            self.assertIn("System opinion", dossier_text)
+            self.assertIn("Why this matters", dossier_text)
+            self.assertIn("What this does not prove", dossier_text)
+            self.assertNotIn("retrieved records produced", dossier_text)
+            self.assertNotIn("row count", dossier_text)
+            self.assertFalse(find_escalated_language(dossier_text))
+
             review_decision = read_json(Path(state["artifacts"]["review_decision"]))
             self.assertEqual(review_decision["decision"], "PENDING")
             self.assertTrue(result.review_packet_path.exists())
@@ -56,6 +90,52 @@ class RuntimeSpineTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_briefing_claim_context_requires_direct_entity_source(self) -> None:
+        service_item = EvidenceItem(
+            item_id="healthright_service",
+            record_id="healthright_services",
+            title="HealthRIGHT 360 substance use disorder services",
+            source_uri="https://www.healthright360.org/our-services/substance-use-disorder/",
+            source_type="org_service_page",
+            published_at="2026-04-24",
+            excerpt="HealthRIGHT 360 describes substance use disorder treatment services, chronic disease care, and residential programs.",
+            relevance_score=1.0,
+            matched_terms=["substance", "treatment"],
+            provenance=Provenance(
+                record_id="healthright_services",
+                source_uri="https://www.healthright360.org/our-services/substance-use-disorder/",
+                source_type="org_service_page",
+                collected_at="2026-04-24T00:00:00+00:00",
+                checksum="healthright_service",
+                corpus_name="test",
+                chunk_id="healthright_services#body",
+            ),
+        )
+        bundle = EvidenceBundle(
+            bundle_id="bundle_test",
+            case_id="case_test",
+            query_terms=["treatment"],
+            items=[service_item],
+            entity_links=[],
+        )
+        service = CaseDossierService()
+
+        self.assertIn("HealthRIGHT 360 describes", service._entity_claim_context("HealthRIGHT 360", bundle, {"healthright_service": "E01"}))
+        self.assertIn("does not fill that gap", service._entity_claim_context("CRI-Help Inc", bundle, {"healthright_service": "E01"}))
+
+    def test_live_outcome_ingestor_configures_direct_service_pages(self) -> None:
+        script_path = PROJECT_ROOT / "scripts" / "ingest_outcome_sources.py"
+        spec = importlib.util.spec_from_file_location("ingest_outcome_sources", script_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        missing = [target["name"] for target in module.TARGETS if not target.get("service_urls")]
+        self.assertEqual(missing, [])
+        for target in module.TARGETS:
+            for url in target["service_urls"]:
+                self.assertTrue(url.startswith("https://"), f"{target['name']} has non-HTTPS service URL: {url}")
     def test_search_diversifies_required_source_types_before_relevance_fill(self) -> None:
         records = []
         for record_id, source_type, body in [
@@ -99,5 +179,16 @@ class RuntimeSpineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+
+
+
+
+
+
+
+
 
 

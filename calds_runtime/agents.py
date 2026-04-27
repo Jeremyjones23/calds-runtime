@@ -84,7 +84,8 @@ class CaseDirector:
 
 class RetrievalStrategist:
     def plan(self, request: CaseRequest, bounded_case: BoundedCase) -> SearchPlan:
-        raw_terms = tokenize(" ".join([request.title, request.objective, *bounded_case.entities]))
+        # Entity names are contract-critical in broad cases; keep them ahead of generic objective terms.
+        raw_terms = tokenize(" ".join([*bounded_case.entities, request.title, request.objective]))
         blocked = STOP_TERMS | set(PROHIBITED_TERMS)
         for phrase in PUBLICATION_PRESSURE_TERMS:
             blocked.update(tokenize(phrase))
@@ -95,12 +96,11 @@ class RetrievalStrategist:
             if term not in terms:
                 terms.append(term)
         return SearchPlan(
-            terms=terms[:24],
+            terms=terms[:48],
             allowed_sources=bounded_case.allowed_sources,
             max_results=request.max_results,
             required_source_types=bounded_case.allowed_sources,
         )
-
 
 class EntityNetworkAnalyst:
     def summarize_links(self, bundle: EvidenceBundle) -> dict[str, object]:
@@ -278,3 +278,4 @@ class LeadScorerAgent:
                 if value:
                     counts[key] = counts.get(key, 0) + 1
         return counts
+
