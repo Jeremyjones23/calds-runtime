@@ -6,6 +6,7 @@ from pathlib import Path
 from .case_compiler import compile_dossier_from_run
 from .case_workflow import CaseWorkflow
 from .contracts import CaseRequest, HumanDecision, read_json
+from .publication import publish_case_site_from_run
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +49,16 @@ def compile_dossier(args: argparse.Namespace) -> int:
     print(f"case_dossier={dossier.markdown_path}")
     return 0
 
+def publish_case_site(args: argparse.Namespace) -> int:
+    site = publish_case_site_from_run(args.run_dir, args.output_dir)
+    print(f"case_id={site.case_id}")
+    print(f"safety_passed={site.safety_passed}")
+    print(f"index_html={site.index_html}")
+    print(f"case_dossier={site.case_dossier_markdown}")
+    print(f"source_ledger={site.source_ledger_json}")
+    print(f"publication_manifest={site.publication_manifest_json}")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CalDS local workflow spine")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -75,6 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
     compile_parser.add_argument("--run-dir", type=Path, required=True)
     compile_parser.add_argument("--output-dir", type=Path, default=None)
     compile_parser.set_defaults(func=compile_dossier)
+    publish_parser = subparsers.add_parser("publish-case-site", help="Build a public-safe static case site from an existing run directory.")
+    publish_parser.add_argument("--run-dir", type=Path, required=True)
+    publish_parser.add_argument("--output-dir", type=Path, required=True)
+    publish_parser.set_defaults(func=publish_case_site)
+
     return parser
 
 

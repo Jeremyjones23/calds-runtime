@@ -9,6 +9,7 @@ from uuid import uuid4
 from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json
+from calds_runtime.publication import publish_case_site_from_run
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
 from calds_runtime.sentinel import find_escalated_language
 
@@ -43,9 +44,10 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertEqual(dossier["compiler_role"], "Case Compiler")
             self.assertTrue(dossier_path.exists())
             dossier_text = dossier_path.read_text(encoding="utf-8")
-            self.assertIn("## 1. Case Dossier Orientation", dossier_text)
-            self.assertIn("## 4. Executive Briefing", dossier_text)
+            self.assertIn("## 1. Supervisor Brief", dossier_text)
+            self.assertIn("## 2. Entity Briefs", dossier_text)
             self.assertIn("## 5. Evidence Detail By Entity", dossier_text)
+            self.assertIn("## 4. Case Dossier Orientation", dossier_text)
             self.assertIn("## 6. Flagged Review Matrix", dossier_text)
             self.assertIn("## 7. Evidence Citation Ledger", dossier_text)
             self.assertIn("## 8. Human-Only Next Steps", dossier_text)
@@ -53,9 +55,18 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("Source URI", dossier_text)
             self.assertIn("Checksum", dossier_text)
             self.assertIn("CalDS flags", dossier_text)
+            self.assertIn("What CalDS Found First", dossier_text)
+            self.assertIn("Decision Needed", dossier_text)
+            self.assertIn("possible waste, fraud, abuse, or mismanagement", dossier_text)
+            self.assertIn("Plain-Language Source Glossary", dossier_text)
+            self.assertIn("Federal Audit Clearinghouse", dossier_text)
+            self.assertIn("California Department of Health Care Services", dossier_text)
+            self.assertIn("Internal Revenue Service", dossier_text)
             self.assertIn("Briefing judgment", dossier_text)
             self.assertIn("What the organization says or is described as doing", dossier_text)
             self.assertIn("What the records show", dossier_text)
+            self.assertIn("Most relevant retrieved records", dossier_text)
+            self.assertIn("Implemented screen results", dossier_text)
             self.assertIn("Why this is on the review list", dossier_text)
             self.assertIn("Boss-level next step", dossier_text)
             self.assertIn("Specific findings that drove the flag", dossier_text)
@@ -67,6 +78,7 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("What this does not prove", dossier_text)
             self.assertNotIn("retrieved records produced", dossier_text)
             self.assertNotIn("row count", dossier_text)
+            self.assertNotIn("WFA", dossier_text)
             self.assertFalse(find_escalated_language(dossier_text))
 
             review_decision = read_json(Path(state["artifacts"]["review_decision"]))
@@ -75,7 +87,15 @@ class RuntimeSpineTests(unittest.TestCase):
             packet_text = result.review_packet_path.read_text(encoding="utf-8")
             self.assertIn("## 1. Reviewer Orientation", packet_text)
             self.assertIn("## 3. Oversight Risk Matrix", packet_text)
-            self.assertIn("Waste, Fraud, and Abuse (WFA) screening matrix", packet_text)
+            self.assertIn("possible waste, fraud, abuse, or mismanagement screening matrix", packet_text)
+            self.assertIn("Plain-Language Source Guide", packet_text)
+            self.assertIn("Federal Audit Clearinghouse", packet_text)
+            self.assertIn("California Department of Health Care Services", packet_text)
+            self.assertIn("Internal Revenue Service", packet_text)
+            self.assertNotIn("Waste, Fraud, and Abuse (WFA)", packet_text)
+            self.assertNotIn("WFA", packet_text)
+            self.assertNotIn("FAC control", packet_text)
+            self.assertNotIn("DHCS active", packet_text)
             self.assertIn("| Risk area | Entity | Level | Test | Observed fact | Evidence refs | Reviewer action |", packet_text)
             self.assertIn("Spend-versus-results", packet_text)
             self.assertIn("Data gap", packet_text)
@@ -87,6 +107,23 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("What this flags", packet_text)
             self.assertIn("How to use it", packet_text)
             self.assertNotIn("Evidence IDs:", packet_text)
+
+            public_site = publish_case_site_from_run(result.run_dir, temp_dir / "public_site")
+            self.assertTrue(Path(public_site.index_html).exists())
+            self.assertTrue(Path(public_site.case_dossier_markdown).exists())
+            self.assertTrue(Path(public_site.source_ledger_json).exists())
+            public_html = Path(public_site.index_html).read_text(encoding="utf-8")
+            public_md = Path(public_site.case_dossier_markdown).read_text(encoding="utf-8")
+            public_ledger = read_json(Path(public_site.source_ledger_json))
+            public_manifest = read_json(Path(public_site.publication_manifest_json))
+            self.assertTrue(public_manifest["safety"]["passed"])
+            self.assertIn("CalDS Public Case Viewer", public_html)
+            self.assertIn("#source-ledger", public_html)
+            self.assertIn("id=\"evidence-E01\"", public_html)
+            self.assertNotIn(str(PROJECT_ROOT), public_html)
+            self.assertNotIn(str(PROJECT_ROOT), public_md)
+            for entry in public_ledger["evidence"]:
+                self.assertTrue(entry["source_urls"] or entry["link_note"])
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -179,16 +216,3 @@ class RuntimeSpineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
-
-
-
-
-
-
-
-
-

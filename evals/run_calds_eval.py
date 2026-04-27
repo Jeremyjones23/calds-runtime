@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CaseRequest, WorkflowStatus, read_json
+from calds_runtime.publication import publish_case_site_from_run
 from calds_runtime.sentinel import find_escalated_language
 
 
@@ -79,18 +80,35 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
     assert_true(not packet_terms, f"review packet used prohibited terms: {packet_terms}")
     assert_true("AWAITING_HUMAN_REVIEW" in packet_text, "review packet missing human pause")
     assert_true("Oversight Risk Matrix" in packet_text, "review packet missing risk matrix")
-    assert_true("Waste, Fraud, and Abuse (WFA) screening matrix" in packet_text, "review packet missing WFA matrix orientation")
+    assert_true("possible waste, fraud, abuse, or mismanagement screening matrix" in packet_text, "review packet missing plain-language matrix orientation")
+    assert_true("Plain-Language Source Guide" in packet_text, "review packet missing source glossary")
+    assert_true("Federal Audit Clearinghouse" in packet_text, "review packet missing expanded Federal Audit Clearinghouse label")
+    assert_true("California Department of Health Care Services" in packet_text, "review packet missing expanded California Department of Health Care Services label")
+    assert_true("Internal Revenue Service" in packet_text, "review packet missing expanded Internal Revenue Service label")
+    assert_true("WFA" not in packet_text, "review packet kept unexplained WFA acronym")
+    assert_true("FAC control" not in packet_text, "review packet kept Federal Audit Clearinghouse acronym in test names")
+    assert_true("DHCS active" not in packet_text, "review packet kept California Department of Health Care Services acronym in test names")
 
     dossier_text = Path(artifacts["case_dossier_markdown"]).read_text(encoding="utf-8")
     dossier_terms = contains_prohibited_terms(dossier_text)
     assert_true(not dossier_terms, f"case dossier used prohibited terms: {dossier_terms}")
+    assert_true("Supervisor Brief" in dossier_text, "case dossier missing supervisor brief")
     assert_true("Case Dossier Orientation" in dossier_text, "case dossier missing orientation")
-    assert_true("Executive Briefing" in dossier_text, "case dossier missing executive briefing")
+    assert_true("Entity Briefs" in dossier_text, "case dossier missing entity briefs")
     assert_true("Evidence Detail By Entity" in dossier_text, "case dossier missing entity evidence detail")
     assert_true("CalDS flags" in dossier_text, "case dossier missing active system opinion")
+    assert_true("What CalDS Found First" in dossier_text, "case dossier missing source-first brief")
+    assert_true("Decision Needed" in dossier_text, "case dossier missing decision-needed section")
+    assert_true("possible waste, fraud, abuse, or mismanagement" in dossier_text, "case dossier missing spelled-out review language")
+    assert_true("Plain-Language Source Glossary" in dossier_text, "case dossier missing source glossary")
+    assert_true("Federal Audit Clearinghouse" in dossier_text, "case dossier missing expanded Federal Audit Clearinghouse label")
+    assert_true("California Department of Health Care Services" in dossier_text, "case dossier missing expanded California Department of Health Care Services label")
+    assert_true("Internal Revenue Service" in dossier_text, "case dossier missing expanded Internal Revenue Service label")
     assert_true("Briefing judgment" in dossier_text, "case dossier missing briefing judgment")
     assert_true("What the organization says or is described as doing" in dossier_text, "case dossier missing source-backed organization context")
     assert_true("What the records show" in dossier_text, "case dossier missing briefing facts")
+    assert_true("Most relevant retrieved records" in dossier_text, "case dossier missing evidence-first entity facts")
+    assert_true("Implemented screen results" in dossier_text, "case dossier missing screen-result distinction")
     assert_true("Why this is on the review list" in dossier_text, "case dossier missing briefing rationale")
     assert_true("Boss-level next step" in dossier_text, "case dossier missing supervisor next step")
     assert_true("Specific findings that drove the flag" in dossier_text, "case dossier missing fact-first entity findings")
@@ -101,10 +119,25 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
     assert_true("Why this matters" in dossier_text, "case dossier missing row rationale")
     assert_true("retrieved records produced" not in dossier_text, "case dossier used count-only entity summary")
     assert_true("row count" not in dossier_text, "case dossier explained entity flag with row count")
+    assert_true("WFA" not in dossier_text, "case dossier kept unexplained WFA acronym")
     assert_true("Evidence Citation Ledger" in dossier_text, "case dossier missing citation ledger")
     assert_true("Human-Only Next Steps" in dossier_text, "case dossier missing human next steps")
     assert_true("Human Review Required" in dossier_text, "case dossier missing human pause")
     assert_true("Source URI" in dossier_text and "Checksum" in dossier_text, "case dossier missing traceability fields")
+
+    public_site = publish_case_site_from_run(run_dir, run_dir / "public_site")
+    public_manifest = read_json(Path(public_site.publication_manifest_json))
+    assert_true(public_manifest["safety"]["passed"], "public case site failed safety validation")
+    public_html = Path(public_site.index_html).read_text(encoding="utf-8")
+    public_md = Path(public_site.case_dossier_markdown).read_text(encoding="utf-8")
+    public_ledger = read_json(Path(public_site.source_ledger_json))
+    assert_true("CalDS Public Case Viewer" in public_html, "public site missing viewer heading")
+    assert_true("#source-ledger" in public_html, "public site missing source-ledger navigation")
+    assert_true("id=\"evidence-E01\"" in public_html, "public site missing evidence anchors")
+    assert_true(str(PROJECT_ROOT) not in public_html, "public site leaked local project path")
+    assert_true(str(PROJECT_ROOT) not in public_md, "public markdown leaked local project path")
+    for entry in public_ledger["evidence"]:
+        assert_true(entry["source_urls"] or entry["link_note"], f"public source ledger row lacks URL or not-linkable note: {entry['ref']}")
     trace = read_json(run_dir / "run_trace.json")
     planes = {event["plane"] for event in trace["events"]}
     for plane in {"workflow", "search", "truth", "agent"}:
@@ -144,9 +177,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
-
-
-

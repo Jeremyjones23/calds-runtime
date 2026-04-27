@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
-import re
 
 from .contracts import (
     CaseRequest,
@@ -16,28 +15,29 @@ from .contracts import (
     SentinelResult,
     stable_id,
 )
+from .plain_language import REVIEWER_GLOSSARY_LINES, expand_reviewer_acronyms
 
 
 SOURCE_TYPE_LABELS = {
-    "irs_990_summary": "IRS Form 990 summary",
-    "irs_990_xml": "Downloaded IRS Form 990 XML",
-    "irs_990_download_manifest": "IRS XML availability manifest",
+    "irs_990_summary": "Internal Revenue Service Form 990 summary",
+    "irs_990_xml": "Downloaded Internal Revenue Service Form 990 machine-readable filing data",
+    "irs_990_download_manifest": "Internal Revenue Service machine-readable filing-data availability manifest",
     "irs_990_full_text_fallback": "Rendered Form 990 fallback",
-    "fac_audit_summary": "FAC audit summary",
-    "fac_audit_pdf": "FAC audit PDF",
-    "fac_findings": "FAC findings table",
-    "fac_federal_awards": "FAC federal awards table",
-    "dhcs_page": "DHCS page",
-    "dhcs_facility_status": "DHCS facility-status row set",
-    "dhcs_adverse_status_manifest": "DHCS adverse-status page manifest",
-    "dhcs_adverse_status_discovery": "DHCS adverse-status source discovery",
+    "fac_audit_summary": "Federal Audit Clearinghouse audit summary",
+    "fac_audit_pdf": "Federal Audit Clearinghouse audit source document",
+    "fac_findings": "Federal Audit Clearinghouse findings table",
+    "fac_federal_awards": "Federal Audit Clearinghouse federal awards table",
+    "dhcs_page": "California Department of Health Care Services page",
+    "dhcs_facility_status": "California Department of Health Care Services facility-status row set",
+    "dhcs_adverse_status_manifest": "California Department of Health Care Services adverse-status page manifest",
+    "dhcs_adverse_status_discovery": "California Department of Health Care Services adverse-status source discovery",
     "county_contract_or_monitoring": "County contract or monitoring source",
     "court_docket_manifest": "Court docket search manifest",
-    "source_extraction_irs_990_table": "Parsed IRS source table",
-    "source_extraction_fac_audit_table": "Parsed FAC audit table",
-    "source_extraction_fac_award_table": "Parsed FAC award table",
-    "source_extraction_dhcs_status_table": "Parsed DHCS status table",
-    "source_extraction_pdf_text_index": "Parsed PDF text index",
+    "source_extraction_irs_990_table": "Parsed Internal Revenue Service source table",
+    "source_extraction_fac_audit_table": "Parsed Federal Audit Clearinghouse audit table",
+    "source_extraction_fac_award_table": "Parsed Federal Audit Clearinghouse award table",
+    "source_extraction_dhcs_status_table": "Parsed California Department of Health Care Services status table",
+    "source_extraction_pdf_text_index": "Parsed source document text index",
     "source_extraction_official_outcome_table": "Parsed official outcome source table",
     "source_extraction_spend_vs_results_table": "Parsed spend-versus-results join",
     "source_extraction_public_statement_table": "Parsed public statement source table",
@@ -86,6 +86,10 @@ class ReviewArtifactService:
             "- Source excerpts and parsed tables are navigation aids. Raw source documents and checksums remain controlling for audit.",
             "- The sentinel decision is a gate on wording and review posture, not a substantive approval.",
             "",
+            "### Plain-Language Source Guide",
+            "",
+            *REVIEWER_GLOSSARY_LINES,
+            "",
             "### Reviewer Decision Needed",
             "",
             "Record an explicit `APPROVE`, `DOWNGRADE`, `REPAIR`, or `REJECT` decision after checking the cited sources and missing-data notes.",
@@ -94,9 +98,9 @@ class ReviewArtifactService:
             "",
             f"- Case ID: `{request.case_id}`",
             f"- Jurisdiction: {request.jurisdiction}",
-            f"- Objective: {request.objective}",
+            f"- Objective: {self._plain_language(request.objective)}",
             f"- Named entities: {', '.join(request.entities) or 'none specified'}",
-            f"- Allowed source types: {', '.join(request.allowed_sources) or 'none specified'}",
+            f"- Allowed source types: {self._allowed_source_labels(request.allowed_sources)}",
             "",
             *self._matrix_lines(risk_matrix, evidence_labels, bundle),
             "",
@@ -112,14 +116,14 @@ class ReviewArtifactService:
             "| --- | --- |",
         ]
         for source_type, count in self._source_counts(bundle).items():
-            lines.append(f"| {self._table_cell(SOURCE_TYPE_LABELS.get(source_type, source_type))} | {count} |")
+            lines.append(f"| {self._table_cell(self._source_type_label(source_type))} | {count} |")
 
         lines.extend(
             [
                 "",
                 "## 5. Lead Candidate For Review",
                 "",
-                lead.statement,
+                self._plain_language(lead.statement),
                 "",
                 "### Score Summary",
                 "",
@@ -154,29 +158,29 @@ class ReviewArtifactService:
                 f"| Missing data | {score_inputs.missing_data_count} * -5 | -{formula['missing_penalty']:.2f} |",
                 f"| Raw score before clamp |  | {formula['raw']:.2f} |",
                 "",
-                f"Support summary: {lead.support_summary}",
+                f"Support summary: {self._plain_language(lead.support_summary)}",
                 "",
                 f"Cited evidence labels: {self._format_label_list(cited_labels) or 'none'}",
                 "",
                 "### Uncertainty and Caveats",
                 "",
-                *[f"- {item}" for item in lead.uncertainty],
+                *[f"- {self._plain_language(item)}" for item in lead.uncertainty],
                 "",
                 "## 6. Sentinel Gate",
                 "",
                 "| Field | Value |",
                 "| --- | --- |",
                 f"| Decision | {sentinel.decision.value} |",
-                f"| Rationale | {self._table_cell(sentinel.rationale)} |",
+                f"| Rationale | {self._table_cell(self._plain_language(sentinel.rationale))} |",
                 f"| Flags | {self._table_cell(', '.join(sentinel.flags) if sentinel.flags else 'none')} |",
                 "",
                 "### Sentinel Repair Instructions",
                 "",
-                *[f"- {item}" for item in sentinel.repair_instructions],
+                *[f"- {self._plain_language(item)}" for item in sentinel.repair_instructions],
                 "",
                 "## 7. Required Reviewer Questions",
                 "",
-                *[f"{index}. {item}" for index, item in enumerate(lead.required_review_questions, start=1)],
+                *[f"{index}. {self._plain_language(item)}" for index, item in enumerate(lead.required_review_questions, start=1)],
                 "",
                 "## 8. Evidence Citation Map",
                 "",
@@ -195,9 +199,9 @@ class ReviewArtifactService:
                 + " | ".join(
                     [
                         f"`{label}`",
-                        self._table_cell(f"{item.title} (`{item.record_id}`)"),
-                        self._table_cell(self._review_flag(item)),
-                        self._table_cell(self._reviewer_action(item)),
+                        self._table_cell(f"{self._plain_language(item.title)} (`{item.record_id}`)"),
+                        self._table_cell(self._plain_language(self._review_flag(item))),
+                        self._table_cell(self._plain_language(self._reviewer_action(item))),
                         self._table_cell(", ".join(entities) if entities else "not linked"),
                         self._table_cell(item.published_at or "not provided"),
                     ]
@@ -220,19 +224,19 @@ class ReviewArtifactService:
             entities = entity_lookup.get(item.record_id, [])
             lines.extend(
                 [
-                    f"### {label} - {item.title}",
+                    f"### {label} - {self._plain_language(item.title)}",
                     "",
                     "#### Reviewer Context",
                     "",
-                    f"- What this flags: {self._review_flag(item)}",
-                    f"- How to use it: {self._reviewer_action(item)}",
-                    f"- Source posture: {self._source_posture(item)}",
+                    f"- What this flags: {self._plain_language(self._review_flag(item))}",
+                    f"- How to use it: {self._plain_language(self._reviewer_action(item))}",
+                    f"- Source posture: {self._plain_language(self._source_posture(item))}",
                     "",
                     "| Field | Value |",
                     "| --- | --- |",
                     f"| Internal evidence ID | `{item.item_id}` |",
                     f"| Record ID | `{item.record_id}` |",
-                    f"| Source type | {self._table_cell(SOURCE_TYPE_LABELS.get(item.source_type, item.source_type))} |",
+                    f"| Source type | {self._table_cell(self._source_type_label(item.source_type))} |",
                     f"| Source URI | {self._table_cell(item.source_uri)} |",
                     f"| Published | {self._table_cell(item.published_at or 'not provided')} |",
                     f"| Entity link(s) | {self._table_cell(', '.join(entities) if entities else 'not linked')} |",
@@ -274,6 +278,17 @@ class ReviewArtifactService:
             artifact_refs=artifact_refs,
         )
 
+    def _plain_language(self, text: object) -> str:
+        return expand_reviewer_acronyms(text)
+
+    def _source_type_label(self, source_type: str) -> str:
+        return self._plain_language(SOURCE_TYPE_LABELS.get(source_type, source_type))
+
+    def _allowed_source_labels(self, source_types: list[str]) -> str:
+        if not source_types:
+            return "none specified"
+        return ", ".join(self._source_type_label(source_type) for source_type in source_types)
+
     def _evidence_labels(self, bundle: EvidenceBundle) -> dict[str, str]:
         return {item.item_id: f"E{index:02d}" for index, item in enumerate(bundle.items, start=1)}
 
@@ -296,9 +311,9 @@ class ReviewArtifactService:
         lines = [
             "## 3. Oversight Risk Matrix",
             "",
-            "This is the reviewer-facing Waste, Fraud, and Abuse (WFA) screening matrix. It flags source-backed risk proxies and explicit data gaps; it does not allege that any entity mishandled funds or engaged in wrongdoing.",
+            "This is the reviewer-facing possible waste, fraud, abuse, or mismanagement screening matrix. It flags source-backed risk proxies and explicit data gaps; it does not allege that any entity mishandled funds or engaged in wrongdoing.",
             "",
-            f"Methodology: {risk_matrix.methodology}",
+            f"Methodology: {self._plain_language(risk_matrix.methodology)}",
             "",
             f"Risk scale: {risk_matrix.score_scale}",
             "",
@@ -322,7 +337,7 @@ class ReviewArtifactService:
         if priority:
             for item in priority:
                 lines.append(
-                    f"- {item.risk_level}: {item.entity} - {item.risk_area} / {item.test_name}: {item.observed_fact}"
+                    f"- {item.risk_level}: {item.entity} - {item.risk_area} / {self._plain_language(item.test_name)}: {self._plain_language(item.observed_fact)}"
                 )
         else:
             lines.append("- No high or medium rows were generated from the current source corpus.")
@@ -343,10 +358,10 @@ class ReviewArtifactService:
                         self._table_cell(item.risk_area),
                         self._table_cell(item.entity),
                         self._table_cell(item.risk_level),
-                        self._table_cell(item.test_name),
-                        self._table_cell(item.observed_fact),
+                        self._table_cell(self._plain_language(item.test_name)),
+                        self._table_cell(self._plain_language(item.observed_fact)),
                         self._table_cell(self._matrix_refs(item, labels)),
-                        self._table_cell(item.reviewer_action),
+                        self._table_cell(self._plain_language(item.reviewer_action)),
                     ]
                 )
                 + " |"
@@ -358,7 +373,7 @@ class ReviewArtifactService:
                 "",
                 "- Risk rows are screening prompts, not conclusions.",
                 "- Spending, compensation, grants, audit flags, and facility closures can have ordinary explanations; the reviewer must verify source context.",
-                "- Official county/CoC outcome series are now ingested for context, but the run still lacks provider-attributable treatment results, social/traffic metrics, and full facility license-history/adverse-status records.",
+                "- Official county or Continuum of Care outcome series are now ingested for context, but the run still lacks provider-attributable treatment results, social and traffic metrics, and full facility license-history or adverse-status records.",
             ]
         )
         return lines
@@ -394,22 +409,22 @@ class ReviewArtifactService:
         if signals.get("full_990_xml_downloaded") or signals.get("full_990_xml_parsed"):
             refs = self._refs_for(bundle, labels, "full_990_xml_downloaded", "full_990_xml_parsed")
             bullets.append(
-                f"- IRS return coverage: downloaded XML or parsed IRS tables are present for the 2023-2025 review window where available. Review use: verify revenue, expenses, assets, grants, and schedule indicators against raw XML. Cited refs: {refs}."
+                f"- Internal Revenue Service return coverage: downloaded machine-readable filing data or parsed Internal Revenue Service tables are present for the 2023-2025 review window where available. Review use: verify revenue, expenses, assets, grants, and schedule indicators against raw machine-readable filing data. Cited refs: {refs}."
             )
         if signals.get("full_990_xml_missing") or signals.get("irs_index_row_missing"):
             refs = self._refs_for(bundle, labels, "full_990_xml_missing", "irs_index_row_missing")
             bullets.append(
-                f"- IRS source gaps: at least one return is represented by a missing-index or missing-object manifest. Review use: treat as a coverage gap and follow-up target, not as an adverse finding. Cited refs: {refs}."
+                f"- Internal Revenue Service source gaps: at least one return is represented by a missing-index or missing-object manifest. Review use: treat as a coverage gap and follow-up target, not as an adverse finding. Cited refs: {refs}."
             )
         if signals.get("irs_990_full_text_fallback"):
             refs = self._refs_for(bundle, labels, "irs_990_full_text_fallback")
             bullets.append(
-                f"- Fallback return source: HealthRIGHT 360 has rendered full-text fallback fields because official IRS XML remains unresolved in this run. Review use: compare against later recovered official IRS XML or PDF before relying on it. Cited refs: {refs}."
+                f"- Fallback return source: HealthRIGHT 360 has rendered full-text fallback fields because official Internal Revenue Service machine-readable filing data remains unresolved in this run. Review use: compare against later recovered official Internal Revenue Service machine-readable filing data or source document before relying on it. Cited refs: {refs}."
             )
         if signals.get("fac_audit_pdf_downloaded") or signals.get("fac_prior_findings") or signals.get("fac_current_year_findings"):
             refs = self._refs_for(bundle, labels, "fac_audit_pdf_downloaded", "fac_prior_findings", "fac_current_year_findings")
             bullets.append(
-                f"- FAC audit context: audit PDFs, findings rows, or prior-finding indicators are present. Review use: open the audit PDF and confirm the year, finding status, agency, and management response before escalation. Cited refs: {refs}."
+                f"- Federal Audit Clearinghouse audit context: audit source documents, findings rows, or prior-finding indicators are present. Review use: open the audit source document and confirm the year, finding status, agency, and management response before escalation. Cited refs: {refs}."
             )
         if signals.get("fac_federal_awards_present") or signals.get("fac_award_table_parsed"):
             refs = self._refs_for(bundle, labels, "fac_federal_awards_present", "fac_award_table_parsed")
@@ -419,7 +434,7 @@ class ReviewArtifactService:
         if signals.get("dhcs_facility_closed_status") or signals.get("dhcs_status_crosscheck_incomplete"):
             refs = self._refs_for(bundle, labels, "dhcs_facility_closed_status", "dhcs_status_crosscheck_incomplete")
             bullets.append(
-                f"- DHCS facility/status context: facility-level status rows and an incomplete adverse-status source check are present. Review use: verify facility-level meaning directly with DHCS records before making entity-level judgments. Cited refs: {refs}."
+                f"- California Department of Health Care Services facility-status context: facility-level status rows and an incomplete adverse-status source check are present. Review use: verify facility-level meaning directly with California Department of Health Care Services records before making entity-level judgments. Cited refs: {refs}."
             )
         if signals.get("county_monitoring_report") or signals.get("county_contract_source_match"):
             refs = self._refs_for(bundle, labels, "county_monitoring_report", "county_contract_source_match")
@@ -478,16 +493,16 @@ class ReviewArtifactService:
         return "Interpretation: insufficient retrieved support for a review lead from the current corpus."
 
     def _source_posture(self, item: EvidenceItem) -> str:
-        label = SOURCE_TYPE_LABELS.get(item.source_type, item.source_type)
+        label = self._source_type_label(item.source_type)
         signals = item.signals or {}
         if item.source_type == "irs_990_xml":
-            return f"{label}: official IRS XML preserved locally; raw XML controls"
+            return f"{label}: official Internal Revenue Service machine-readable filing data preserved locally; raw machine-readable filing data controls"
         if item.source_type == "irs_990_summary":
             return f"{label}: summary context; verify against return before ranking"
         if item.source_type == "irs_990_download_manifest":
             return f"{label}: source availability gap, not a substantive finding"
         if item.source_type == "irs_990_full_text_fallback":
-            return f"{label}: fallback only until official IRS XML or PDF is recovered"
+            return f"{label}: fallback only until official Internal Revenue Service machine-readable filing data or source document is recovered"
         if item.source_type.startswith("source_extraction_"):
             return f"{label}: deterministic parser output; raw source controls"
         if item.source_type in {"fac_audit_pdf", "fac_findings", "fac_federal_awards", "fac_audit_summary"}:
@@ -507,11 +522,11 @@ class ReviewArtifactService:
         if item.source_type == "irs_990_summary":
             return "Financial baseline and audit-link context from a public Form 990 summary."
         if item.source_type == "irs_990_download_manifest":
-            return "Missing IRS XML coverage for the specified tax period; this flags a data gap only."
+            return "Missing Internal Revenue Service machine-readable filing data coverage for the specified tax period; this flags a data gap only."
         if item.source_type == "irs_990_full_text_fallback":
             return "Fallback return fields available because official XML remains unresolved for this object."
         if item.source_type == "fac_audit_pdf":
-            parts = ["FAC audit record for year-specific review"]
+            parts = ["Federal Audit Clearinghouse audit record for year-specific review"]
             if signals.get("fac_prior_findings"):
                 parts.append("prior-finding agency indicator present")
             if signals.get("fac_low_risk_no"):
@@ -520,31 +535,31 @@ class ReviewArtifactService:
                 parts.append("federal award rows available")
             return "; ".join(parts) + "."
         if item.source_type == "fac_findings":
-            return "Filtered FAC findings rows exist for target reports and require row-level interpretation."
+            return "Filtered Federal Audit Clearinghouse findings rows exist for target reports and require row-level interpretation."
         if item.source_type == "fac_federal_awards":
             return "Federal award ledger rows exist for funding-trace review."
         if item.source_type == "dhcs_facility_status":
-            return "DHCS facility-level status rows, including any closed statuses, require facility-level follow-up."
+            return "California Department of Health Care Services facility-level status rows, including any closed statuses, require facility-level follow-up."
         if item.source_type in {"dhcs_adverse_status_manifest", "dhcs_adverse_status_discovery"}:
-            return "DHCS adverse-status source discovery remains incomplete or machine-readability is unresolved."
+            return "California Department of Health Care Services adverse-status source discovery remains incomplete or machine-readability is unresolved."
         if item.source_type == "county_contract_or_monitoring":
             return "County monitoring, contract, or ledger document is available for current-status review."
         if item.source_type == "court_docket_manifest":
             return "Court calendar or docket-search pointer requiring direct docket verification."
         if item.source_type == "source_extraction_irs_990_table":
-            return "Parsed IRS financial table flags year-window coverage and missing return fields."
+            return "Parsed Internal Revenue Service financial table flags year-window coverage and missing return fields."
         if item.source_type == "source_extraction_fac_audit_table":
-            return "Parsed FAC audit-control table flags audit years, report coverage, and control/finding indicators."
+            return "Parsed Federal Audit Clearinghouse audit-control table flags audit years, report coverage, and control/finding indicators."
         if item.source_type == "source_extraction_fac_award_table":
-            return "Parsed FAC award table flags program and amount concentrations for funding-trace review."
+            return "Parsed Federal Audit Clearinghouse award table flags program and amount concentrations for funding-trace review."
         if item.source_type == "source_extraction_dhcs_status_table":
-            return "Parsed DHCS table flags facility counts, active/closed status counts, and counties."
+            return "Parsed California Department of Health Care Services table flags facility counts, active/closed status counts, and counties."
         if item.source_type == "source_extraction_pdf_text_index":
             return "PDF extraction index flags where reviewer navigation aids are available."
         if item.source_type == "source_extraction_official_outcome_table":
-            return "Official outcome-source manifest flags which county/CoC datasets were ingested or blocked."
+            return "Official outcome-source manifest flags which county or Continuum of Care datasets were ingested or blocked."
         if item.source_type == "source_extraction_spend_vs_results_table":
-            return "Spend-versus-results join flags county/CoC outcome movement next to entity spending and facility footprint."
+            return "Spend-versus-results join flags county or Continuum of Care outcome movement next to entity spending and facility footprint."
         if item.source_type == "source_extraction_public_statement_table":
             return "Public-statement source table flags harvested pages and matched review terms."
         if item.source_type == "public_statement_source":
@@ -555,19 +570,19 @@ class ReviewArtifactService:
 
     def _reviewer_action(self, item: EvidenceItem) -> str:
         if item.source_type == "irs_990_xml":
-            return "Open the local XML or IRS ZIP member and verify fields before relying on numbers."
+            return "Open the local machine-readable filing data or Internal Revenue Service archive member and verify fields before relying on numbers."
         if item.source_type == "irs_990_summary":
             return "Use as orientation only; compare against downloaded XML or original return."
         if item.source_type == "irs_990_download_manifest":
-            return "Treat as a source-coverage gap and recheck IRS indexes before escalation."
+            return "Treat as a source-coverage gap and recheck Internal Revenue Service indexes before escalation."
         if item.source_type == "irs_990_full_text_fallback":
-            return "Use only as fallback; replace with official IRS XML or PDF when recovered."
+            return "Use only as fallback; replace with official Internal Revenue Service machine-readable filing data or source document when recovered."
         if item.source_type in {"fac_audit_pdf", "fac_findings", "fac_audit_summary"}:
-            return "Open the audit PDF or row-level FAC data and verify finding status, year, agency, and response."
+            return "Open the audit source document or row-level Federal Audit Clearinghouse data and verify finding status, year, agency, and response."
         if item.source_type == "fac_federal_awards":
             return "Trace programs and amounts; do not infer performance from award size alone."
         if item.source_type.startswith("dhcs"):
-            return "Verify facility-level meaning directly with DHCS source records or an export before entity-level use."
+            return "Verify facility-level meaning directly with California Department of Health Care Services source records or an export before entity-level use."
         if item.source_type == "county_contract_or_monitoring":
             return "Check agency response, corrective-action status, and current contract status."
         if item.source_type == "court_docket_manifest":

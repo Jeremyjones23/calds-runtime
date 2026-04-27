@@ -26,10 +26,12 @@ from .contracts import (
     stable_id,
     write_json,
 )
+from .plain_language import REVIEWER_GLOSSARY_LINES, expand_reviewer_acronyms
 from .review import SOURCE_TYPE_LABELS
 
 
 RISK_ORDER = {"High": 0, "Medium": 1, "Data gap": 2, "Low": 3}
+
 
 
 class CaseDossierService:
@@ -54,32 +56,46 @@ class CaseDossierService:
         labels = self._evidence_labels(bundle)
         priority_rows = self._priority_indicators(risk_matrix)
         source_counts = Counter(item.source_type for item in bundle.items)
-        sentinel_items = [f"- {item}" for item in sentinel.repair_instructions] or ["- none"]
+        sentinel_items = [f"- {self._plain_language(item)}" for item in sentinel.repair_instructions] or ["- none"]
         mode = self._dossier_mode(sentinel)
 
         lines = [
             f"# Case Dossier: {request.title}",
             "",
-            "## 1. Case Dossier Orientation",
+            "## 1. Supervisor Brief",
             "",
-            f"Status: `{review_decision.decision.value}` human review required",
+            f"Bottom line: {self._case_bottom_line(request, bundle, lead, sentinel, risk_matrix, labels)}",
             "",
-            "This dossier compiles existing CalDS workflow artifacts into a human-readable case file. It is an internal WFA screening aid, not a finding or outside-facing conclusion.",
+            "### What CalDS Found First",
             "",
-            "Every substantive row below is tied to a risk indicator, evidence item, source URI, checksum, or durable artifact path. Raw source documents and canonical records remain controlling.",
+            *self._top_source_findings(bundle, labels, risk_matrix),
             "",
-            f"Dossier mode: {mode}",
+            "### Why This Is On A Reviewer's Desk",
             "",
-            "## 2. Case Summary",
+            *self._why_on_desk_lines(risk_matrix, labels),
             "",
-            f"- Case ID: `{request.case_id}`",
-            f"- Jurisdiction: {request.jurisdiction}",
-            f"- Objective: {request.objective}",
-            f"- Named entities: {', '.join(request.entities) or 'none specified'}",
-            f"- Allowed source types: {', '.join(request.allowed_sources) or 'none specified'}",
-            f"- Review packet: `{review_packet.markdown_path}`",
+            "### Decision Needed",
             "",
-            "## 3. Score and Sentinel Posture",
+            f"- Human-review state: `{review_decision.decision.value}`. The workflow is paused until a reviewer approves, downgrades, repairs, or rejects the case.",
+            f"- Score: {lead.score} / 100. {self._brief_score_meaning(lead.score)}",
+            f"- Sentinel: `{sentinel.decision.value}`. {sentinel.rationale}",
+            f"- Immediate reviewer action: {self._supervisor_next_action(bundle, risk_matrix, sentinel)}",
+            "",
+            "### What This Does Not Prove",
+            "",
+            *self._case_limits(risk_matrix, sentinel),
+            "",
+            "### Plain-Language Source Glossary",
+            "",
+            *self._glossary_lines(),
+            "",
+            "## 2. Entity Briefs",
+            "",
+            "These briefs assume the reader has not seen the agent work. They summarize specific cited records first, then explain why the system held or flagged each NGO.",
+            "",
+            *self._briefing_memo_lines(request, bundle, lead, sentinel, risk_matrix, labels),
+            "",
+            "## 3. Score, Sentinel, and Case Context",
             "",
             f"Lead statement: {lead.statement}",
             "",
@@ -110,15 +126,28 @@ class CaseDossierService:
             "",
             *sentinel_items,
             "",
-            "## 4. Executive Briefing",
+            "### Case Summary",
             "",
-            "Read this section first. It is written as an internal briefing memo: what the organization says or is described as doing in the retrieved sources, what the records show, why CalDS flags it, and what still needs human verification.",
+            f"- Case ID: `{request.case_id}`",
+            f"- Jurisdiction: {request.jurisdiction}",
+            f"- Objective: {request.objective}",
+            f"- Named entities: {', '.join(request.entities) or 'none specified'}",
+            f"- Allowed source types: {', '.join(request.allowed_sources) or 'none specified'}",
+            f"- Review packet: `{review_packet.markdown_path}`",
             "",
-            *self._briefing_memo_lines(request, bundle, lead, sentinel, risk_matrix, labels),
+            "## 4. Case Dossier Orientation",
+            "",
+            f"Status: `{review_decision.decision.value}` human review required",
+            "",
+            "This dossier compiles existing CalDS workflow artifacts into a human-readable case file. It is an internal possible waste, fraud, abuse, or mismanagement screening aid, not a formal finding or outside-facing conclusion.",
+            "",
+            "Every substantive row below is tied to a risk indicator, evidence item, source URI, checksum, or durable artifact path. Raw source documents and canonical records remain controlling.",
+            "",
+            f"Dossier mode: {mode}",
             "",
             "## 5. Evidence Detail By Entity",
             "",
-            "This section preserves the system opinion and source-fact detail behind the briefing memo. It remains an internal WFA screening opinion, not a formal allegation or outside-facing conclusion.",
+            "This section preserves the system opinion and source-fact detail behind the briefing memo. It remains an internal possible waste, fraud, abuse, or mismanagement screening opinion, not a formal allegation or outside-facing conclusion.",
             "",
             *self._entity_opinion_lines(risk_matrix, labels),
             "",
@@ -156,17 +185,17 @@ class CaseDossierService:
                             f"#### {level}-{index}: {item.entity} - {item.risk_area}",
                             "",
                             f"- Test: {item.test_name}",
-                            f"- What CalDS found: {item.observed_fact}",
+                            f"- What CalDS found: {self._plain_language(item.observed_fact)}",
                             f"- When/where: {self._when_where(item)}",
                             f"- How this triggered review: {self._trigger_text(item)}",
                             f"- Evidence refs: {refs}",
                             f"- Source URI(s): {self._format_source_uris(item.source_uris)}",
-                            f"- System opinion: {self._system_opinion(item)}",
-                            f"- Why this matters: {self._why_it_matters(item)}",
-                            f"- What this flags: {item.reviewer_action}",
-                            f"- What this does not prove: {self._not_proven_text(item)}",
-                            f"- Human next step: {self._indicator_next_step(item)}",
-                            *[f"- Caveat: {caveat}" for caveat in item.caveats],
+                            f"- System opinion: {self._plain_language(self._system_opinion(item))}",
+                            f"- Why this matters: {self._plain_language(self._why_it_matters(item))}",
+                            f"- What this flags: {self._plain_language(item.reviewer_action)}",
+                            f"- What this does not prove: {self._plain_language(self._not_proven_text(item))}",
+                            f"- Human next step: {self._plain_language(self._indicator_next_step(item))}",
+                            *[f"- Caveat: {self._plain_language(caveat)}" for caveat in item.caveats],
                             "",
                         ]
                     )
@@ -191,7 +220,7 @@ class CaseDossierService:
                         f"`{labels[item.item_id]}`",
                         f"`{item.item_id}`",
                         f"`{item.record_id}`",
-                        self._table_cell(SOURCE_TYPE_LABELS.get(item.source_type, item.source_type)),
+                        self._table_cell(self._source_type_label(item.source_type)),
                         self._table_cell(self._display_uri(item.source_uri)),
                         self._table_cell(item.published_at or "not provided"),
                         f"`{item.provenance.checksum}`",
@@ -210,7 +239,7 @@ class CaseDossierService:
             ]
         )
         for source_type, count in sorted(source_counts.items(), key=lambda pair: (-pair[1], pair[0])):
-            lines.append(f"| {self._table_cell(SOURCE_TYPE_LABELS.get(source_type, source_type))} | {count} |")
+            lines.append(f"| {self._table_cell(self._source_type_label(source_type))} | {count} |")
 
         lines.extend(
             [
@@ -248,6 +277,7 @@ class CaseDossierService:
             ]
         )
 
+        lines = [self._plain_language(line) for line in lines]
         path.write_text("\n".join(lines), encoding="utf-8")
         return CompiledCaseDossier(
             dossier_id=stable_id("dossier", request.case_id, str(path)),
@@ -257,6 +287,148 @@ class CaseDossierService:
             sentinel_decision=sentinel.decision,
             compiler_role=AgentRole.CASE_COMPILER,
         )
+
+    def _plain_language(self, text: object) -> str:
+        return expand_reviewer_acronyms(text)
+
+    def _source_type_label(self, source_type: str) -> str:
+        return self._plain_language(SOURCE_TYPE_LABELS.get(source_type, source_type))
+
+    def _glossary_lines(self) -> list[str]:
+        return REVIEWER_GLOSSARY_LINES
+
+    def _case_bottom_line(
+        self,
+        request: CaseRequest,
+        bundle: EvidenceBundle,
+        lead: LeadCandidate,
+        sentinel: SentinelResult,
+        matrix: OversightRiskMatrix,
+        labels: dict[str, str],
+    ) -> str:
+        entities = ", ".join(request.entities) or "the named entity set"
+        substantive = self._substantive_rows(matrix.indicators)
+        gaps = self._data_gap_rows(matrix.indicators)
+        if substantive:
+            top = substantive[0]
+            return (
+                f"CalDS flags {entities} for possible waste, fraud, abuse, or mismanagement review because "
+                f"{self._plain_language(top.observed_fact)} Evidence: {self._matrix_refs(top, labels)}. "
+                f"The lead score is {lead.score} / 100 and the sentinel posture is `{sentinel.decision.value}`; "
+                "this is a review priority, not a formal conclusion."
+            )
+        if bundle.items:
+            top_item = sorted(bundle.items, key=lambda item: item.relevance_score, reverse=True)[0]
+            gap_text = self._gap_area_summary(gaps) or "required official source series"
+            return (
+                f"CalDS found source-backed oversight questions for {entities}, but the implemented matrix is mostly blocked by missing source series. "
+                f"The strongest retrieved record is `{labels.get(top_item.item_id, top_item.item_id)}`: {self._short_excerpt(self._plain_language(top_item.excerpt), 220)} "
+                f"The reviewer should treat this as a source-completion and screening dossier until {gap_text} are verified."
+            )
+        return (
+            f"CalDS did not recover enough source-backed material to brief a possible waste, fraud, abuse, or mismanagement review for {entities}. "
+            "The next step is source collection, not ranking."
+        )
+
+    def _top_source_findings(self, bundle: EvidenceBundle, labels: dict[str, str], matrix: OversightRiskMatrix, limit: int = 4) -> list[str]:
+        if not bundle.items:
+            return ["- No retrieved evidence items are available in the current bundle."]
+        by_id = {item.item_id: item for item in bundle.items}
+        priority_ids: list[str] = []
+        for row in self._substantive_rows(matrix.indicators):
+            for evidence_id in row.evidence_ids:
+                if evidence_id in by_id and evidence_id not in priority_ids:
+                    priority_ids.append(evidence_id)
+        ordered = [by_id[evidence_id] for evidence_id in priority_ids]
+        ordered.extend(
+            item
+            for item in sorted(bundle.items, key=lambda item: item.relevance_score, reverse=True)
+            if item.item_id not in priority_ids
+        )
+        lines = []
+        for item in ordered[:limit]:
+            ref = labels.get(item.item_id, item.item_id)
+            source_label = self._source_type_label(item.source_type)
+            published = item.published_at or "date not provided"
+            lines.append(
+                f"- `{ref}` {item.title} ({source_label}, {published}): {self._short_excerpt(item.excerpt, 260)} Source: {self._display_uri(item.source_uri)}"
+            )
+        if len(ordered) > limit:
+            lines.append(f"- {len(ordered) - limit} additional evidence item(s) are in the citation ledger.")
+        return lines
+
+    def _why_on_desk_lines(self, matrix: OversightRiskMatrix, labels: dict[str, str]) -> list[str]:
+        substantive = self._substantive_rows(matrix.indicators)
+        gaps = self._data_gap_rows(matrix.indicators)
+        lines: list[str] = []
+        if substantive:
+            for item in substantive[:4]:
+                lines.append(
+                    f"- CalDS flags {item.entity or 'the case'} / {item.risk_area}: {self._plain_language(item.observed_fact)} Evidence: {self._matrix_refs(item, labels)}. {self._plain_language(self._why_it_matters(item))}"
+                )
+        else:
+            lines.append(
+                "- No implemented high or medium source-backed screen fired from the current matrix. The case stays open because retrieved records raise oversight questions while required official source series are incomplete."
+            )
+        if gaps:
+            lines.append(
+                f"- Source blockers to resolve before stronger ranking: {self._gap_area_summary(gaps)}. These are collection blockers, not adverse findings."
+            )
+        return lines or ["- The current run did not produce a reviewable source-backed desk rationale."]
+
+    def _brief_score_meaning(self, score: float) -> str:
+        if score >= 75:
+            return "High triage priority from retrieval strength and entity linkage; still requires human verification."
+        if score >= 50:
+            return "Reviewable triage priority with caveats or missing data."
+        if score >= 25:
+            return "Limited triage priority; repair likely needed before escalation."
+        return "Insufficient current support for a review lead."
+
+    def _supervisor_next_action(
+        self,
+        bundle: EvidenceBundle,
+        matrix: OversightRiskMatrix,
+        sentinel: SentinelResult,
+    ) -> str:
+        for item in self._substantive_rows(matrix.indicators):
+            return self._indicator_next_step(item)
+        gaps = self._data_gap_rows(matrix.indicators)
+        if gaps:
+            return f"Complete source collection for {self._gap_area_summary(gaps)} before ranking an entity as a substantive possible waste, fraud, abuse, or mismanagement lead."
+        if sentinel.repair_instructions:
+            return sentinel.repair_instructions[0]
+        if bundle.items:
+            return "Read the top cited source records, then decide whether to collect the missing official records or close the lead as insufficient."
+        return "Collect source records before continuing."
+
+    def _case_limits(self, matrix: OversightRiskMatrix, sentinel: SentinelResult) -> list[str]:
+        lines = [
+            "- This dossier does not make a formal finding of waste, fraud, or abuse. It identifies possible screening questions and source blockers for human review.",
+        ]
+        if any(item.risk_area == "Spend-versus-results" for item in matrix.indicators):
+            lines.append("- County or Continuum of Care outcomes are contextual unless provider-attributable outcome records are recovered and linked.")
+        if sentinel.flags:
+            lines.append(f"- Sentinel restrictions remain active: {', '.join(sentinel.flags)}.")
+        return lines
+
+    def _substantive_rows(self, indicators: Iterable[OversightRiskIndicator]) -> list[OversightRiskIndicator]:
+        rows = [item for item in indicators if item.risk_level in {"High", "Medium"}]
+        return sorted(rows, key=lambda item: (RISK_ORDER.get(item.risk_level, 99), item.risk_area, item.entity, item.test_name))
+
+    def _data_gap_rows(self, indicators: Iterable[OversightRiskIndicator]) -> list[OversightRiskIndicator]:
+        rows = [item for item in indicators if item.risk_level == "Data gap"]
+        return sorted(rows, key=lambda item: (item.risk_area, item.entity, item.test_name))
+
+    def _gap_area_summary(self, rows: Iterable[OversightRiskIndicator], limit: int = 4) -> str:
+        areas = []
+        for item in rows:
+            if item.risk_area not in areas:
+                areas.append(item.risk_area)
+        if not areas:
+            return ""
+        suffix = f"; plus {len(areas) - limit} other source area(s)" if len(areas) > limit else ""
+        return ", ".join(areas[:limit]) + suffix
 
     def _briefing_memo_lines(
         self,
@@ -277,12 +449,7 @@ class CaseDossierService:
             else:
                 by_entity.setdefault(item.entity, []).append(item)
 
-        lines = [
-            f"Briefing posture: CalDS scores this lead at {lead.score} / 100 and the sentinel returned `{sentinel.decision.value}`. That means this is reviewable internal triage with caveats, not a final finding.",
-            "",
-            "Bottom line: this section summarizes what the records show about public-money exposure, service footprint, financial movement, outcome context, and source gaps. The briefs below answer that question entity by entity.",
-            "",
-        ]
+        lines: list[str] = []
 
         ordered = sorted(
             by_entity.items(),
@@ -305,7 +472,7 @@ class CaseDossierService:
                     continue
                 lines.extend(
                     [
-                        f"- {item.risk_area}: {item.observed_fact}",
+                        f"- {item.risk_area}: {self._plain_language(item.observed_fact)}",
                         f"  Evidence: {self._matrix_refs(item, labels)}. Human action: {self._indicator_next_step(item)}",
                     ]
                 )
@@ -326,6 +493,7 @@ class CaseDossierService:
         review_rows = [item for item in priority if item.risk_level in {"High", "Medium", "Data gap"}]
         posture = self._entity_posture(Counter(item.risk_level for item in indicators))
         claim = self._entity_claim_context(entity, bundle, labels)
+        source_facts = self._entity_source_fact_bullets(entity, bundle, labels)
         facts = self._briefing_fact_bullets(review_rows, labels)
         why = self._briefing_why_flagged(review_rows)
         limits = self._briefing_limits(review_rows)
@@ -335,9 +503,15 @@ class CaseDossierService:
             "",
             f"Briefing judgment: CalDS flags {entity} as a {posture}.",
             "",
-            f"What the organization says or is described as doing: {claim}",
+            f"What the organization says or is described as doing: {self._plain_language(claim)}",
             "",
             "What the records show:",
+            "",
+            "Most relevant retrieved records:",
+            "",
+            *source_facts,
+            "",
+            "Implemented screen results:",
             "",
             *facts,
             "",
@@ -353,14 +527,23 @@ class CaseDossierService:
         if not rows:
             return ["- No high, medium, or data-gap facts were available for this entity in the current matrix."]
         bullets: list[str] = []
-        outcome_rows = [item for item in rows if item.risk_area == "Spend-versus-results"]
-        selected = [item for item in rows if item.risk_area != "Spend-versus-results"]
-        for item in selected[:5]:
-            bullets.append(
-                f"- {item.risk_area}: {item.observed_fact} ({self._when_where(item)}; evidence {self._matrix_refs(item, labels)}.)"
-            )
+        substantive = self._substantive_rows(rows)
+        data_gaps = self._data_gap_rows(rows)
+        outcome_rows = [item for item in substantive if item.risk_area == "Spend-versus-results"]
+        selected = [item for item in substantive if item.risk_area != "Spend-versus-results"]
+        if selected:
+            for item in selected[:5]:
+                bullets.append(
+                    f"- {item.risk_area}: {self._plain_language(item.observed_fact)} ({self._when_where(item)}; evidence {self._matrix_refs(item, labels)}.)"
+                )
+        else:
+            bullets.append("- No implemented high or medium possible waste, fraud, abuse, or mismanagement screen fired for this entity from the current matrix.")
         if outcome_rows:
             bullets.append(self._outcome_briefing_bullet(outcome_rows, labels))
+        if data_gaps:
+            bullets.append(
+                f"- Source gaps that limit judgment: {self._gap_area_summary(data_gaps)}. These gaps explain what CalDS still cannot test; they are not adverse findings by themselves."
+            )
         return bullets
 
     def _outcome_briefing_bullet(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> str:
@@ -383,6 +566,46 @@ class CaseDossierService:
             + refs
             + "."
         )
+
+    def _entity_source_fact_bullets(
+        self,
+        entity: str,
+        bundle: EvidenceBundle,
+        labels: dict[str, str],
+        limit: int = 3,
+    ) -> list[str]:
+        items = self._entity_related_evidence_items(entity, bundle)
+        if not items:
+            return [f"- No retrieved evidence excerpt directly matched {entity}; use the citation ledger for case-wide context."]
+        bullets = []
+        for item in items[:limit]:
+            ref = labels.get(item.item_id, item.item_id)
+            source_label = self._source_type_label(item.source_type)
+            published = item.published_at or "date not provided"
+            bullets.append(
+                f"- `{ref}` {self._plain_language(item.title)} ({source_label}, {published}): {self._short_excerpt(self._plain_language(item.excerpt), 260)}"
+            )
+        if len(items) > limit:
+            bullets.append(f"- {len(items) - limit} additional matched source item(s) appear in the citation ledger.")
+        return bullets
+
+    def _entity_related_evidence_items(self, entity: str, bundle: EvidenceBundle) -> list[EvidenceItem]:
+        entity_norm = self._normalize(entity)
+        tokens = [token for token in re.findall(r"[a-z0-9]+", entity.lower()) if token not in {"inc", "of", "california", "the"}]
+        aliases = {
+            entity_norm,
+            entity_norm.removesuffix("inc"),
+            entity_norm.replace("ofcalifornia", ""),
+            "".join(tokens),
+        }
+        aliases.update(token for token in tokens if len(token) >= 7)
+        aliases = {alias for alias in aliases if len(alias) >= 6}
+        matches: list[EvidenceItem] = []
+        for item in bundle.items:
+            haystack = self._normalize(" ".join([item.record_id, item.title, item.source_uri, item.excerpt]))
+            if any(alias and alias in haystack for alias in aliases):
+                matches.append(item)
+        return sorted(matches, key=lambda item: item.relevance_score, reverse=True)
 
     def _entity_claim_context(self, entity: str, bundle: EvidenceBundle, labels: dict[str, str]) -> str:
         candidates = self._entity_evidence_items(entity, bundle)
@@ -420,28 +643,42 @@ class CaseDossierService:
     def _briefing_why_flagged(self, rows: list[OversightRiskIndicator]) -> str:
         if not rows:
             return "No review-priority reason was available in the current matrix."
-        areas = {item.risk_area.lower() for item in rows}
+        substantive = self._substantive_rows(rows)
+        if not substantive:
+            gaps = self._gap_area_summary(self._data_gap_rows(rows))
+            return (
+                "CalDS is holding this item because retrieved records create an oversight question, but the current matrix cannot responsibly rank it without the missing official source series"
+                + (f": {gaps}." if gaps else ".")
+            )
+        areas = {item.risk_area.lower() for item in substantive}
         if "spend-versus-results" in areas and any("award" in area or "public-funds" in area or "growth" in area for area in areas):
             return "CalDS sees the combination reviewers care about: material public-money exposure or financial movement, plus outcome context that moved the wrong direction in matched service geographies. That does not prove provider responsibility, but it is exactly the mismatch that should be briefed up for document review."
         if any("facility" in area for area in areas) and any("award" in area or "public-funds" in area for area in areas):
             return "CalDS sees public-money exposure next to facility-footprint stress. The reviewer should understand whether closed or changed facility rows affect service capacity, contract delivery, or merely historical licensing records."
         if any("audit" in area for area in areas):
             return "CalDS sees audit-control context that can bear directly on stewardship of public funds, especially if findings, management responses, or corrective-action status remain unresolved."
-        return self._why_it_matters(rows[0])
+        return self._why_it_matters(substantive[0])
 
     def _briefing_limits(self, rows: list[OversightRiskIndicator]) -> str:
         if not rows:
             return "The current matrix does not prove or disprove a substantive issue."
-        limits = self._dedupe(self._not_proven_text(item) for item in rows[:4])
+        substantive = self._substantive_rows(rows)
+        if not substantive:
+            return "The current matrix does not prove or disprove possible waste, fraud, abuse, or mismanagement; it shows source gaps that must be resolved before stronger ranking."
+        limits = self._dedupe(self._not_proven_text(item) for item in substantive[:4])
         return " ".join(limits[:2])
 
     def _briefing_next_step(self, rows: list[OversightRiskIndicator]) -> str:
         if not rows:
             return "Collect additional source material and rerun the matrix before briefing this beyond internal triage."
-        for item in rows:
+        substantive = self._substantive_rows(rows)
+        if not substantive:
+            gaps = self._gap_area_summary(self._data_gap_rows(rows))
+            return f"Collect the missing official source series ({gaps}) and rerun the matrix before ranking this entity as a possible waste, fraud, abuse, or mismanagement lead."
+        for item in substantive:
             if item.risk_level == "High":
                 return self._indicator_next_step(item)
-        return self._indicator_next_step(rows[0])
+        return self._indicator_next_step(substantive[0])
 
     def _matrix_refs_for_many(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> str:
         refs: list[str] = []
@@ -530,19 +767,19 @@ class CaseDossierService:
         refs = self._matrix_refs(item, labels)
         source_text = self._format_source_uris(item.source_uris)
         return [
-            f"{index}. {item.risk_level} - {item.risk_area}: {item.observed_fact}",
+            f"{index}. {item.risk_level} - {item.risk_area}: {self._plain_language(item.observed_fact)}",
             f"   - When/where: {self._when_where(item)}",
             f"   - How it triggered: {self._trigger_text(item)}",
             f"   - Evidence: {refs}; source: {source_text}",
-            f"   - Why it matters: {self._why_it_matters(item)}",
+            f"   - Why it matters: {self._plain_language(self._why_it_matters(item))}",
             "",
         ]
 
     def _entity_posture(self, counts: Counter[str]) -> str:
         if counts.get("High", 0):
-            return "high-priority WFA review subject"
+            return "high-priority possible waste, fraud, abuse, or mismanagement review subject"
         if counts.get("Medium", 0):
-            return "moderate-priority WFA review subject"
+            return "moderate-priority possible waste, fraud, abuse, or mismanagement review subject"
         if counts.get("Data gap", 0):
             return "source-gap review subject"
         return "context-only subject"
@@ -590,7 +827,7 @@ class CaseDossierService:
     def _system_opinion(self, item: OversightRiskIndicator) -> str:
         if item.risk_level == "Data gap":
             return f"CalDS flags this as a data blocker because {item.observed_fact} Without the missing source, the system cannot responsibly downgrade or clear the issue."
-        return f"CalDS flags this as a {item.risk_level.lower()} WFA review priority because {item.observed_fact} This source fact matches the implemented {item.risk_area.lower()} screen and should stay in the active review queue."
+        return f"CalDS flags this as a {item.risk_level.lower()} possible waste, fraud, abuse, or mismanagement review priority because {item.observed_fact} This source fact matches the implemented {item.risk_area.lower()} screen and should stay in the active review queue."
 
     def _why_it_matters(self, item: OversightRiskIndicator) -> str:
         area = item.risk_area.lower()
@@ -603,7 +840,7 @@ class CaseDossierService:
         if "award" in area or "public-funds" in area:
             return "Large public-funds exposure raises the stakes of any control, deliverable, or outcome weakness because taxpayer dollars are material."
         if "growth" in area:
-            return "Rapid revenue or expense growth becomes a WFA review concern when it outpaces visible service capacity, documented outcomes, or clear grant-scope explanations."
+            return "Rapid revenue or expense growth becomes a possible waste, fraud, abuse, or mismanagement review concern when it outpaces visible service capacity, documented outcomes, or clear grant-scope explanations."
         if "spend-versus-results" in area:
             return "Spending growth next to worsening county-level outcomes is not provider-attributable by itself, but it is exactly the mismatch CalDS should force into review."
         if "statement" in area or "scope" in area:
@@ -923,19 +1160,3 @@ def _archive_path_remaps(run_dir: Path) -> dict[str, str]:
         if archived_artifacts.exists() and archived_artifacts != project_artifacts and archived_artifacts != run_dir / "artifacts":
             return {str(project_artifacts): str(archived_artifacts)}
     return {}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

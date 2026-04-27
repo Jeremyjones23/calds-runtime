@@ -28,7 +28,7 @@ CalDS treats retrieved material as evidence context, not conclusions. The runtim
 - sentinel gating before review packaging,
 - explicit human review as the terminal workflow state.
 
-Review packets may use WFA screening language, but rows are screening prompts only. County/CoC outcome movements are contextual and are not provider-attributable results without direct program outcome evidence.
+Review packets use possible waste, fraud, abuse, or mismanagement screening language, but rows are screening prompts only. County or Continuum of Care outcome movements are contextual and are not provider-attributable results without direct program outcome evidence.
 
 ## Quick Start
 
