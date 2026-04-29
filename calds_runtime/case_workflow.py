@@ -16,6 +16,7 @@ from .contracts import (
     AgentRole,
     AgentTask,
     CaseRequest,
+    EntityTriageResult,
     HumanDecision,
     Plane,
     ReviewDecision,
@@ -25,6 +26,7 @@ from .contracts import (
     stable_id,
     utc_now,
 )
+from .forensic_triage import HomelessnessTriageService
 from .review import ReviewArtifactService
 from .risk_matrix import OversightRiskMatrixService
 from .scoring import LeadScoringService
@@ -44,6 +46,7 @@ class CaseWorkflow:
         self.review_artifacts = ReviewArtifactService()
         self.case_dossiers = CaseDossierService()
         self.risk_matrix_service = OversightRiskMatrixService()
+        self.triage_service = HomelessnessTriageService()
         self.sentinel_policy = SentinelPolicy()
         self.provider = LocalProviderAdapter()
         self.runs_dir = runs_dir
@@ -104,7 +107,73 @@ class CaseWorkflow:
             metadata=self.provider.describe_role_call(AgentRole.RETRIEVAL_STRATEGIST.value),
         )
 
+        triage_results = self.triage_service.build(request, self.truth_store.records)
+        triage_path = store.write_artifact("entity_triage_results.json", {"results": triage_results})
+        forensic_plan = self.triage_service.build_plan(request, triage_results)
+        forensic_plan_path = store.write_artifact("forensic_investigation_plan.json", forensic_plan)
+        forensic_findings = self.triage_service.build_forensic_findings(request, triage_results, forensic_plan)
+        forensic_findings_path = store.write_artifact("forensic_findings.json", {"findings": forensic_findings})
+        handoff = self.triage_service.build_handoff(
+            request,
+            "top_15_triage",
+            "deep_forensic_investigation",
+            [str(triage_path), str(forensic_plan_path), str(forensic_findings_path)],
+            [
+                "case_id",
+                "entities",
+                "source_families",
+                "triage_results",
+                "selected_entities",
+                "evidence_record_ids",
+                "source_uris",
+                "caveats",
+                "next_steps",
+            ],
+        )
+        handoff_path = store.write_artifact("context_handoff_ledger.json", handoff)
+        self._write_task(
+            store,
+            request,
+            AgentRole.TRIAGE_SCREENER,
+            "Screen all top-15 entities before deep investigation.",
+            [str(triage_path), str(forensic_plan_path)],
+        )
+        self._write_task(
+            store,
+            request,
+            AgentRole.FORENSIC_SYNTHESIS_ANALYST,
+            "Synthesize private forensic investigation hypotheses from triage results.",
+            [str(forensic_findings_path)],
+        )
+        self._write_task(
+            store,
+            request,
+            AgentRole.CONTEXT_STEWARD,
+            "Verify required context survives the triage-to-forensic handoff.",
+            [str(handoff_path)],
+        )
+        artifacts["entity_triage_results"] = str(triage_path)
+        artifacts["forensic_investigation_plan"] = str(forensic_plan_path)
+        artifacts["forensic_findings"] = str(forensic_findings_path)
+        artifacts["context_handoff_ledger"] = str(handoff_path)
+        completed_steps.append("triaged")
+        store.trace(
+            request.case_id,
+            Plane.TRUTH,
+            "HomelessnessTriageService",
+            "entity_triage_completed",
+            "Truth plane screened all named entities before search-result narrowing.",
+            outputs={
+                "entity_count": len(triage_results),
+                "deep_dive_entities": forensic_plan.selected_entities,
+                "handoff_status": handoff.status,
+            },
+            artifacts=[str(triage_path), str(forensic_plan_path), str(forensic_findings_path), str(handoff_path)],
+        )
+        store.write_state(request, WorkflowStatus.TRIAGED, completed_steps, artifacts)
+
         hits = self._ensure_entity_context_hits(request, self.search_index.search(search_plan))
+        hits = self._ensure_triage_priority_hits(triage_results, hits)
         hits_path = store.write_artifact("search_hits.json", {"hits": hits})
         artifacts["search_hits"] = str(hits_path)
         completed_steps.append("retrieved")
@@ -326,6 +395,16 @@ class CaseWorkflow:
             context_hits.append(SearchHit(record_id=record.record_id, relevance_score=1.0, matched_terms=terms or ["service"]))
             selected_ids.add(record.record_id)
         return [*hits, *context_hits]
+
+    def _ensure_triage_priority_hits(self, triage_results: list[EntityTriageResult], hits: list[SearchHit]) -> list[SearchHit]:
+        selected_ids = {hit.record_id for hit in hits}
+        additional: list[SearchHit] = []
+        for record_id in self.triage_service.priority_record_ids(triage_results):
+            if record_id in selected_ids:
+                continue
+            additional.append(SearchHit(record_id=record_id, relevance_score=1.0, matched_terms=["triage", "priority"]))
+            selected_ids.add(record_id)
+        return [*additional, *hits]
 
     def _normalize_entity(self, value: str) -> str:
         tokens = [token for token in tokenize(value) if token not in {"inc", "of", "the"}]

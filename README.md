@@ -8,7 +8,7 @@ This repository is not an autonomous accusation engine. It produces reviewer-saf
 
 - `calds_runtime/` - core contracts, deterministic truth/search/scoring/review services, local workflow adapter, bounded role adapters, sentinel gate, and CLI.
 - `scripts/` - source ingestion, deterministic extraction, gap recovery, official outcome ingestion, and live pipeline orchestration.
-- `cases/` - live case configuration for the California recovery NGO workflow.
+- `cases/` - live case configurations for the California recovery NGO and homelessness top-15 workflows.
 - `data/sample_corpus/` - small synthetic/sample corpus for tests and evals.
 - `evals/` - three-case regression harness: easy, messy low-linkage, and adversarial/politically charged cases.
 - `tests/` - runtime spine tests.
@@ -29,6 +29,8 @@ CalDS treats retrieved material as evidence context, not conclusions. The runtim
 - explicit human review as the terminal workflow state.
 
 Review packets use possible waste, fraud, abuse, or mismanagement screening language, but rows are screening prompts only. County or Continuum of Care outcome movements are contextual and are not provider-attributable results without direct program outcome evidence.
+
+The homelessness workflow now includes a first-pass top-15 triage gate before deep investigation. The gate records entity-level source-family findings, deep-dive selection, and context handoff status before the normal evidence bundle, sentinel, dossier, public-site, and human-review pause steps.
 
 ## Quick Start
 
@@ -59,6 +61,14 @@ A full live replay is possible but can take significantly longer because it fetc
 
 ```powershell
 python scripts\run_live_case_pipeline.py --runs-dir runs\live-full-local
+```
+
+Run the homelessness top-15 corpus refresh and workflow:
+
+```powershell
+python scripts\ingest_homelessness_top15_sources.py --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2
+python -m calds_runtime run-case --case-file cases\live_ca_homelessness_top15_case.json --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2 --runs-dir runs\live-homelessness-forensic-local
+python -m calds_runtime publish-case-site --run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --output-dir site\cases\live_ca_homelessness_top15_2026_04_29
 ```
 
 ## Current Verification Baseline

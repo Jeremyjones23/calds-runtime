@@ -26,10 +26,10 @@ class OversightRiskMatrixService:
 
     METHODOLOGY = (
         "Waste, fraud, and abuse (WFA) risk-screening matrix generated from parsed IRS Form 990, "
-        "Federal Audit Clearinghouse, DHCS facility-status, HCD Homekey/Homekey+ state-award, county/document index, and retrieved "
+        "Federal Audit Clearinghouse, DHCS facility-status, HCD Homekey/Homekey+ state-award, official enforcement/docket records, county/document index, and retrieved "
         "service-page records. The matrix tests observable risk proxies: year-over-year financial "
         "growth, spending growth, public-funds concentration, executive compensation, payroll scale, "
-        "political/lobbying indicators, audit-control flags, award concentration, facility closure "
+        "political/lobbying indicators, audit-control flags, enforcement/docket source flags, award concentration, facility closure "
         "patterns, off-scope web-language checks, official county/CoC outcome context, "
         "and remaining provider-attributable outcome gaps."
     )
@@ -49,16 +49,19 @@ class OversightRiskMatrixService:
         spend_join = self._load_json_for_type("source_extraction_spend_vs_results_table") or {}
         outcome_manifest = self._load_json_for_type("source_extraction_official_outcome_table") or {}
         state_awards = self._load_json_for_type("source_extraction_state_homeless_award_table") or {}
+        enforcement = self._load_json_for_type("source_extraction_enforcement_docket_table") or {}
 
         irs_rows = list(irs.get("rows", [])) if isinstance(irs, dict) else []
         fac_rows = list(fac.get("audit_summary", [])) if isinstance(fac, dict) else []
         award_rows = list(fac.get("award_summary", [])) if isinstance(fac, dict) else []
         dhcs_rows = list(dhcs.get("rows", [])) if isinstance(dhcs, dict) else []
         state_award_rows = list(state_awards.get("entity_award_summary", [])) if isinstance(state_awards, dict) else []
+        enforcement_rows = list(enforcement.get("rows", [])) if isinstance(enforcement, dict) else []
 
         entities = self._entities(request, irs_rows, fac_rows, dhcs_rows)
         indicators: list[OversightRiskIndicator] = []
         for entity in entities:
+            indicators.extend(self._enforcement_docket_indicators(request, entity, enforcement_rows))
             indicators.extend(self._state_homeless_award_indicators(request, entity, state_award_rows))
             indicators.extend(self._irs_indicators(request, entity, irs_rows))
             indicators.extend(self._fac_indicators(request, entity, fac_rows, award_rows))
@@ -153,6 +156,61 @@ class OversightRiskMatrixService:
         indicators.append(self._compensation_indicator(request, entity, entity_rows, record_ids))
         indicators.append(self._payroll_growth_indicator(request, entity, entity_rows, record_ids))
         indicators.append(self._political_lobbying_indicator(request, entity, entity_rows, record_ids))
+        return indicators
+
+    def _enforcement_docket_indicators(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+    ) -> list[OversightRiskIndicator]:
+        entity_rows = [row for row in rows if row.get("entity") == entity]
+        record_ids = self._record_ids_for_entity_and_source_types(
+            entity,
+            "source_extraction_enforcement_docket_table",
+            "enforcement_or_docket_source",
+            "court_docket_manifest",
+        )
+        if not entity_rows:
+            return [
+                self._indicator(
+                    request,
+                    "Enforcement and docket history",
+                    entity,
+                    "Official enforcement, prosecution, violation, and docket source coverage",
+                    "No official enforcement, prosecution, violation, or docket row is present for this entity in the current corpus.",
+                    "Data gap",
+                    "missing_source",
+                    "Run official enforcement and docket source acquisition before clearing or downgrading this source family.",
+                    record_ids,
+                    ["No recovered row is not a clearance; it only states current corpus coverage."],
+                )
+            ]
+        indicators: list[OversightRiskIndicator] = []
+        for row in entity_rows:
+            level = str(row.get("risk_level") or "Medium")
+            if level not in {"High", "Medium", "Low", "Data gap"}:
+                level = "Medium"
+            source_status = str(row.get("legal_status") or row.get("data_status") or "observed")
+            official = bool(row.get("official_source"))
+            observed = str(row.get("observed_fact") or "")
+            caveats = list(row.get("caveats") or [])
+            if official:
+                caveats.append("Use exact legal status from the official source; do not convert third-party charges into entity-level findings.")
+            indicators.append(
+                self._indicator(
+                    request,
+                    "Enforcement and docket history",
+                    entity,
+                    str(row.get("test_name") or "Official enforcement or docket source screen"),
+                    observed,
+                    level,
+                    source_status,
+                    str(row.get("reviewer_action") or "Open the official source and verify legal status, case posture, named parties, dates, and relationship to the nonprofit before escalation."),
+                    record_ids,
+                    caveats,
+                )
+            )
         return indicators
 
     def _growth_indicator(
@@ -642,7 +700,7 @@ class OversightRiskMatrixService:
         record_ids = [record.record_id for record in records]
         body = "\n".join(record.body for record in records).lower()
         high_terms = ["voter registration", "political action", "power building", "campaign contribution", "ballot measure", "electioneering"]
-        medium_terms = ["lobbying", "advocacy", "policy and public affairs", "public affairs", "criminal justice", "reentry", "equity"]
+        medium_terms = ["lobbying", "policy advocacy", "public affairs", "community organizing", "voter engagement"]
         found_high = [term for term in high_terms if term in body]
         found_medium = [term for term in medium_terms if term in body]
         if found_high:

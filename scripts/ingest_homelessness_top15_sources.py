@@ -31,6 +31,9 @@ CA_SPM_SOURCE_URL = "https://lab.data.ca.gov/dataset/ca-system-performance-measu
 CA_SPM_RESOURCE_ID = "e02178d9-1d34-4798-9979-f50af9f1742e"
 CA_SPM_API = "https://data.ca.gov/api/3/action/datastore_search"
 HDIS_URL = "https://bcsh.ca.gov/calich/hdis.html"
+FHFA_OIG_HOMELESSNESS_FUNDS_PRESS_RELEASE_URL = "https://www.fhfaoig.gov/sites/default/files/Beverly-Hills-Man-Arrested%2C-Brentwood-Man-Charged-in-Separate-Criminal-Cases-Linked-to-Fraud-in-Public-Homelessness-Funds.pdf"
+LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL = "https://cityclerk.lacity.org/onlinedocs/2021/21-0112-S3_misc_6-16-23.pdf"
+LA_CITY_SHELBY_2026_OPERATIONS_URL = "https://cityclerk.lacity.org/onlinedocs/2023/23-1022-s27_rpt_cao_2-10-26.pdf"
 
 
 class TextExtractor(HTMLParser):
@@ -406,20 +409,90 @@ def download_source_docs() -> dict[str, dict[str, Any]]:
     for name, url in {
         "homekey_round3_awardee_list": HCD_ROUND3_URL,
         "homekey_plus_awardee_list": HCD_PLUS_URL,
+        "fhfa_oig_homelessness_funds_press_release": FHFA_OIG_HOMELESSNESS_FUNDS_PRESS_RELEASE_URL,
+        "la_city_homekey3_shelby_authorization": LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL,
+        "la_city_shelby_2026_operations": LA_CITY_SHELBY_2026_OPERATIONS_URL,
     }.items():
-        raw, final_url, content_type = fetch_bytes(url, timeout=120)
         path = RAW_DIR / f"{name}.pdf"
-        path.write_bytes(raw)
-        manifest[name] = {
-            "source_url": url,
-            "final_url": final_url,
-            "content_type": content_type,
-            "local_path": str(path),
-            "byte_count": len(raw),
-            "sha256": sha256_bytes(raw),
-        }
+        try:
+            raw, final_url, content_type = fetch_bytes(url, timeout=120)
+            path.write_bytes(raw)
+            manifest[name] = {
+                "source_url": url,
+                "final_url": final_url,
+                "content_type": content_type,
+                "local_path": str(path),
+                "byte_count": len(raw),
+                "sha256": sha256_bytes(raw),
+                "fetched": True,
+                "error": "",
+            }
+        except Exception as exc:
+            manifest[name] = {
+                "source_url": url,
+                "final_url": "",
+                "content_type": "",
+                "local_path": str(path),
+                "byte_count": 0,
+                "sha256": "",
+                "fetched": False,
+                "error": repr(exc),
+            }
     write_json(RAW_DIR / "download_manifest.json", manifest)
     return manifest
+
+
+def enforcement_docket_artifacts() -> dict[str, Any]:
+    """Curated official-source rows for enforcement/docket triage.
+
+    This is not a live docket parser yet. It is a deterministic official-source
+    table for known high-value records recovered during source review.
+    """
+
+    rows = [
+        {
+            "entity": "Weingart Center Association",
+            "risk_level": "High",
+            "test_name": "Official federal criminal-case source and City project linkage screen",
+            "legal_status": "third_party_charged_presumption_of_innocence",
+            "official_source": True,
+            "observed_fact": (
+                "An official federal press release dated October 16, 2025 says Steven Taylor was charged with seven counts of bank fraud, "
+                "one count of aggravated identity theft, and one count of money laundering, and describes a Cheviot Hills property originally "
+                "acquired for $11.2 million and contracted to sell to a homeless housing developer using City of Los Angeles and State of California "
+                "public funds for $27.3 million in a double-escrow transaction hidden from the lender. Los Angeles City Clerk records identify "
+                "the Cheviot Hills/Shelby Homekey 3 project as Weingart-related and later describe The Weingart Shelby at 3340 Shelby Drive."
+            ),
+            "reviewer_action": (
+                "Open the federal press release, City Clerk Homekey authorization, and 2026 operations report; verify case number, named parties, "
+                "property address, project agreements, payment flows, due diligence records, and whether any official source names Weingart as charged or only as transaction counterparty/operator."
+            ),
+            "source_urls": [
+                FHFA_OIG_HOMELESSNESS_FUNDS_PRESS_RELEASE_URL,
+                LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL,
+                LA_CITY_SHELBY_2026_OPERATIONS_URL,
+            ],
+            "caveats": [
+                "The official federal source charges Taylor, not Weingart Center Association.",
+                "The row is a deep-dive trigger because public homelessness funds and a Weingart-linked project appear in the official-source chain.",
+                "A criminal charge is an allegation; every defendant is presumed innocent unless and until proven guilty in court.",
+            ],
+        }
+    ]
+    table = {
+        "created_at": now(),
+        "case_id": CASE_ID,
+        "methodology": (
+            "Official enforcement and docket triage rows are manually curated from official federal and municipal sources when live docket parsing is not yet implemented. "
+            "Rows trigger deep review only; they do not create legal conclusions."
+        ),
+        "rows": rows,
+        "source_family": "enforcement_or_docket",
+        "source_gap_policy": "Targets without an official row remain un-cleared; the run must record that official enforcement and docket acquisition is incomplete.",
+    }
+    path = RAW_DIR / "enforcement_docket_source_summary.json"
+    write_json(path, table)
+    return table
 
 
 def fetch_page_rows(target: dict[str, Any], kind: str) -> list[dict[str, Any]]:
@@ -435,7 +508,20 @@ def fetch_page_rows(target: dict[str, Any], kind: str) -> list[dict[str, Any]]:
             stem = f"{target['slug']}_{kind}_{index}"
             (base_dir / f"{stem}.html").write_bytes(raw)
             (base_dir / f"{stem}.txt").write_text(text, encoding="utf-8")
-            terms = ["homeless", "housing", "supportive", "services", "advocacy", "lobbying", "policy", "voter registration", "power building", "political action"]
+            terms = [
+                "homeless",
+                "housing",
+                "supportive",
+                "services",
+                "advocacy",
+                "lobbying",
+                "policy",
+                "policy advocacy",
+                "community organizing",
+                "voter registration",
+                "power building",
+                "political action",
+            ]
             row.update(
                 {
                     "fetched": True,
@@ -658,6 +744,7 @@ def write_corpus(corpus_dir: Path) -> None:
     write_json(award_table_path, award_table)
 
     outcome_manifest, join_summary = outcome_artifacts(summary_rows)
+    enforcement_table = enforcement_docket_artifacts()
 
     records: list[dict[str, Any]] = []
     entities = [target["name"] for target in TARGETS]
@@ -727,6 +814,59 @@ def write_corpus(corpus_dir: Path) -> None:
     )
     records.append(join_record)
 
+    enforcement_rows = list(enforcement_table.get("rows", []))
+    enforcement_entities = sorted({row["entity"] for row in enforcement_rows})
+    records.append(
+        build_record(
+            "source_table_enforcement_docket",
+            "Parsed official enforcement and docket source table",
+            str(RAW_DIR / "enforcement_docket_source_summary.json"),
+            "source_extraction_enforcement_docket_table",
+            "2025-10-16",
+            enforcement_entities,
+            "\n".join(
+                [
+                    "Official enforcement and docket source table for top-15 homelessness triage.",
+                    "This table creates deep-dive triggers only. It does not create legal conclusions.",
+                    json.dumps(enforcement_table, indent=2, sort_keys=True),
+                ]
+            ),
+            {"source_extraction_table": True, "official_enforcement_or_docket_table": True},
+            {"table_path": str(RAW_DIR / "enforcement_docket_source_summary.json"), "row_count": len(enforcement_rows)},
+        )
+    )
+    for index, row in enumerate(enforcement_rows, start=1):
+        entity = row["entity"]
+        records.append(
+            build_record(
+                f"enforcement_docket_{slugify(entity)}_{index}",
+                f"Official enforcement/docket triage source: {entity}",
+                row["source_urls"][0],
+                "enforcement_or_docket_source",
+                "2025-10-16",
+                [entity],
+                "\n".join(
+                    [
+                        row["observed_fact"],
+                        "Official source URLs:",
+                        *row["source_urls"],
+                        "Caveats:",
+                        *[f"- {caveat}" for caveat in row.get("caveats", [])],
+                    ]
+                ),
+                {
+                    "official_enforcement_or_docket_flag": True,
+                    "third_party_charged": "third_party_charged" in str(row.get("legal_status", "")),
+                    "missing_data": True,
+                },
+                {
+                    "legal_status": row.get("legal_status"),
+                    "source_urls": row.get("source_urls", []),
+                    "reviewer_action": row.get("reviewer_action", ""),
+                },
+            )
+        )
+
     service_rows = page_manifest["service"]
     statement_rows = page_manifest["statement"]
     for target in TARGETS:
@@ -792,7 +932,15 @@ def write_corpus(corpus_dir: Path) -> None:
 
         statement_for_target = [row for row in statement_rows if row["slug"] == target["slug"]]
         fetched_statement = [row for row in statement_for_target if row.get("fetched")]
-        terms = sorted({term for row in statement_for_target for term in row.get("matched_terms", []) if term in {"advocacy", "lobbying", "policy", "voter registration", "power building", "political action"}})
+        review_terms = {
+            "lobbying",
+            "policy advocacy",
+            "voter registration",
+            "power building",
+            "political action",
+            "community organizing",
+        }
+        terms = sorted({term for row in statement_for_target for term in row.get("matched_terms", []) if term in review_terms})
         statement_lines = [
             f"Public or official statement pages fetched: {len(fetched_statement)} of {len(statement_for_target)}.",
             f"Matched review terms: {', '.join(terms) if terms else 'none from configured list'}.",
@@ -827,6 +975,7 @@ def write_corpus(corpus_dir: Path) -> None:
             "record_count": len(records),
             "target_count": len(TARGETS),
             "source_documents": source_manifest,
+            "enforcement_or_docket_rows": enforcement_table.get("rows", []),
             "service_fetch_failures": [row for row in service_rows if not row.get("fetched")],
             "statement_fetch_failures": [row for row in statement_rows if not row.get("fetched")],
         },

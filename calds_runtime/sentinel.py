@@ -71,6 +71,9 @@ class SentinelPolicy:
         if "court-calendar" in combined_output or "docket-search" in combined_output:
             flags.append("docket_context_required")
             repair_instructions.append("Treat docket pointers as follow-up tasks until the docket is directly verified.")
+        if "official enforcement or docket source" in combined_output or "third-party charges" in combined_output:
+            flags.append("legal_status_context_required")
+            repair_instructions.append("Use exact legal status and named-party scope from official sources; do not convert third-party charges into entity-level conclusions.")
         objective = request.objective.lower()
         if any(term in objective for term in PUBLICATION_PRESSURE_TERMS):
             flags.append("publication_pressure_in_request")

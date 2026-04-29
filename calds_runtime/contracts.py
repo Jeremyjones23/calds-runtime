@@ -33,6 +33,12 @@ class Plane(str, Enum):
 class AgentRole(str, Enum):
     CASE_DIRECTOR = "Case Director"
     RETRIEVAL_STRATEGIST = "Retrieval Strategist"
+    CONTEXT_STEWARD = "Context Steward"
+    TRIAGE_SCREENER = "Triage Screener"
+    ENFORCEMENT_DOCKET_ANALYST = "Enforcement and Docket Analyst"
+    TAX_AUDIT_ANALYST = "Tax and Audit Analyst"
+    WEB_SOCIAL_STATEMENTS_ANALYST = "Web and Social Statements Analyst"
+    FORENSIC_SYNTHESIS_ANALYST = "Forensic Synthesis Analyst"
     ENTITY_NETWORK_ANALYST = "Entity and Network Analyst"
     EVIDENCE_ANALYST = "Evidence Analyst"
     LEAD_SCORER = "Lead Scorer"
@@ -43,6 +49,8 @@ class AgentRole(str, Enum):
 
 class WorkflowStatus(str, Enum):
     OPENED = "OPENED"
+    TRIAGED = "TRIAGED"
+    FORENSIC_INVESTIGATED = "FORENSIC_INVESTIGATED"
     RETRIEVED = "RETRIEVED"
     EVIDENCE_BUNDLED = "EVIDENCE_BUNDLED"
     LEAD_CANDIDATE_READY = "LEAD_CANDIDATE_READY"
@@ -242,6 +250,74 @@ class OversightRiskMatrix:
     methodology: str
     score_scale: str
     indicators: list[OversightRiskIndicator]
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class TriageFinding:
+    finding_id: str
+    case_id: str
+    entity: str
+    source_family: str
+    finding_type: str
+    observed_fact: str
+    risk_level: str
+    data_status: str
+    trigger_reason: str
+    source_uris: list[str] = field(default_factory=list)
+    record_ids: list[str] = field(default_factory=list)
+    caveats: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EntityTriageResult:
+    result_id: str
+    case_id: str
+    entity: str
+    triage_priority: str
+    deep_dive_recommended: bool
+    rationale: str
+    findings: list[TriageFinding]
+    missing_source_families: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class ForensicInvestigationPlan:
+    plan_id: str
+    case_id: str
+    selected_entities: list[str]
+    selection_rule: str
+    source_families: list[str]
+    entity_rationales: dict[str, str]
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class ForensicFinding:
+    finding_id: str
+    case_id: str
+    entity: str
+    hypothesis: str
+    basis: str
+    confidence: str
+    evidence_record_ids: list[str]
+    source_uris: list[str]
+    caveats: list[str] = field(default_factory=list)
+    next_steps: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ContextHandoffLedger:
+    ledger_id: str
+    case_id: str
+    from_step: str
+    to_step: str
+    required_fields: list[str]
+    present_fields: list[str]
+    missing_fields: list[str]
+    artifact_refs: list[str]
+    status: str
     created_at: str = field(default_factory=utc_now)
 
 

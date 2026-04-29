@@ -89,6 +89,10 @@ class CaseDossierService:
             "",
             *self._top_source_findings(bundle, labels, risk_matrix),
             "",
+            "### Triage Gate",
+            "",
+            *self._triage_gate_lines(source_artifact_refs),
+            "",
             "### Why This Is On A Reviewer's Desk",
             "",
             *self._why_on_desk_lines(risk_matrix, labels),
@@ -330,9 +334,10 @@ class CaseDossierService:
         gaps = self._data_gap_rows(matrix.indicators)
         if substantive:
             top = substantive[0]
+            fact = self._plain_language(top.observed_fact)
             return (
-                f"CalDS flags {entities} for possible waste, fraud, abuse, or mismanagement review because "
-                f"{self._plain_language(top.observed_fact)} Evidence: {self._matrix_refs(top, labels)}. "
+                f"CalDS keeps {top.entity or entities} at the top of this {len(request.entities) or 'multi'}-entity case for possible waste, fraud, abuse, or mismanagement review because the top source-backed trigger is: "
+                f"{fact} Evidence: {self._matrix_refs(top, labels)}. "
                 f"The lead score is {lead.score} / 100 and the sentinel posture is `{sentinel.decision.value}`; "
                 "this is a review priority, not a formal conclusion."
             )
@@ -394,6 +399,56 @@ class CaseDossierService:
                 f"- Source blockers to resolve before stronger ranking: {self._gap_area_summary(gaps)}. These are collection blockers, not adverse findings."
             )
         return lines or ["- The current run did not produce a reviewable source-backed desk rationale."]
+
+    def _triage_gate_lines(self, source_artifact_refs: list[str]) -> list[str]:
+        triage = self._load_artifact_json(source_artifact_refs, "entity_triage_results.json")
+        plan = self._load_artifact_json(source_artifact_refs, "forensic_investigation_plan.json")
+        handoff = self._load_artifact_json(source_artifact_refs, "context_handoff_ledger.json")
+        forensic = self._load_artifact_json(source_artifact_refs, "forensic_findings.json")
+        if not triage:
+            return ["- This run does not include the new top-15 triage artifact. Rerun the workflow to populate the triage gate."]
+
+        results = list(triage.get("results", []))
+        selected = list(plan.get("selected_entities", [])) if isinstance(plan, dict) else []
+        high = [item for item in results if item.get("triage_priority") == "High"]
+        medium = [item for item in results if str(item.get("triage_priority", "")).startswith("Medium")]
+        lines = [
+            f"- First-pass triage screened {len(results)} named entities before deep investigation.",
+            f"- Deep-dive selection: {', '.join(selected) if selected else 'none selected by implemented thresholds'}.",
+        ]
+        if handoff:
+            missing = list(handoff.get("missing_fields", []))
+            lines.append(f"- Context handoff check: {handoff.get('status', 'unknown')}. Missing fields: {', '.join(missing) if missing else 'none'}.")
+        for item in [*high, *medium][:8]:
+            findings = [finding for finding in item.get("findings", []) if finding.get("risk_level") in {"High", "Medium"}]
+            top = findings[0] if findings else {}
+            entity = item.get("entity", "unknown entity")
+            opinion = "selected for deep forensic review" if item.get("deep_dive_recommended") else "held in watch status pending more source coverage"
+            observed = self._short_excerpt(str(top.get("observed_fact", item.get("rationale", ""))), 320)
+            source = self._format_source_uris(list(top.get("source_uris", [])))
+            lines.append(
+                f"- {entity}: {item.get('triage_priority')} triage priority, {opinion}. Why: {item.get('rationale')} Trigger: {observed} Source: {source}"
+            )
+        if forensic:
+            private_findings = list(forensic.get("findings", []))
+            if private_findings:
+                lines.append(
+                    f"- Private forensic synthesis created {len(private_findings)} source-cited investigation hypothesis item(s). These stay internal and require sentinel/human review before publication."
+                )
+        if not high and not medium:
+            lines.append("- No high or medium triage trigger fired; the case should focus on source completion rather than ranking.")
+        return lines
+
+    def _load_artifact_json(self, source_artifact_refs: list[str], filename: str) -> dict[str, object]:
+        for ref in source_artifact_refs:
+            path = Path(ref)
+            if path.name != filename or not path.exists():
+                continue
+            try:
+                return read_json(path)
+            except Exception:
+                return {}
+        return {}
 
     def _brief_score_meaning(self, score: float) -> str:
         if score >= 75:

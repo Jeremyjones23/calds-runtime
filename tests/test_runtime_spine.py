@@ -9,6 +9,7 @@ from uuid import uuid4
 from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json
+from calds_runtime.forensic_triage import HomelessnessTriageService
 from calds_runtime.publication import publish_case_site_from_run
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
 from calds_runtime.sentinel import find_escalated_language
@@ -39,6 +40,14 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("score_scale", matrix)
             self.assertTrue(any(item["risk_area"] == "Spend-versus-results" for item in matrix["indicators"]))
 
+            triage = read_json(Path(state["artifacts"]["entity_triage_results"]))
+            forensic_plan = read_json(Path(state["artifacts"]["forensic_investigation_plan"]))
+            handoff = read_json(Path(state["artifacts"]["context_handoff_ledger"]))
+            self.assertIn("results", triage)
+            self.assertIn("selected_entities", forensic_plan)
+            self.assertEqual(handoff["status"], "PASS")
+            self.assertIn("triaged", state["completed_steps"])
+
             dossier_path = Path(state["artifacts"]["case_dossier_markdown"])
             dossier = read_json(Path(state["artifacts"]["case_dossier"]))
             self.assertEqual(dossier["compiler_role"], "Case Compiler")
@@ -56,6 +65,7 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("Checksum", dossier_text)
             self.assertIn("CalDS flags", dossier_text)
             self.assertIn("What CalDS Found First", dossier_text)
+            self.assertIn("Triage Gate", dossier_text)
             self.assertIn("Decision Needed", dossier_text)
             self.assertIn("possible waste, fraud, abuse, or mismanagement", dossier_text)
             self.assertIn("Plain-Language Source Glossary", dossier_text)
@@ -212,6 +222,41 @@ class RuntimeSpineTests(unittest.TestCase):
         )
 
         self.assertEqual([hit.record_id for hit in hits], ["low_b", "low_c"])
+
+    def test_weingart_style_official_enforcement_source_triggers_triage(self) -> None:
+        record = CanonicalRecord(
+            record_id="enforcement_docket_weingart_center_1",
+            title="Official enforcement/docket triage source: Weingart Center Association",
+            body=(
+                "Official federal source describes a charged third-party Cheviot Hills transaction "
+                "and municipal records identify the Weingart Shelby project."
+            ),
+            source_uri="https://www.fhfaoig.gov/example.pdf",
+            source_type="enforcement_or_docket_source",
+            published_at="2025-10-16",
+            entities=["Weingart Center Association"],
+            attributes={"signals": {"official_enforcement_or_docket_flag": True, "missing_data": True}},
+            provenance=Provenance(
+                record_id="enforcement_docket_weingart_center_1",
+                source_uri="https://www.fhfaoig.gov/example.pdf",
+                source_type="enforcement_or_docket_source",
+                collected_at="2026-04-29T00:00:00+00:00",
+                checksum="enforcement",
+                corpus_name="test",
+                chunk_id="enforcement#body",
+            ),
+        )
+        case = CaseRequest(
+            case_id="triage_test",
+            title="Triage regression",
+            objective="Find official enforcement misses.",
+            entities=["Weingart Center Association"],
+        )
+        results = HomelessnessTriageService().build(case, [record])
+        self.assertEqual(results[0].triage_priority, "High")
+        self.assertTrue(results[0].deep_dive_recommended)
+        self.assertEqual(results[0].findings[0].source_family, "enforcement_or_docket")
+        self.assertIn("presumed innocent", " ".join(results[0].findings[0].caveats))
 
 
 if __name__ == "__main__":

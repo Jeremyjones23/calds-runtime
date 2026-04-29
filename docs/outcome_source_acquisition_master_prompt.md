@@ -1,9 +1,9 @@
 INPUT TYPE: ITERATE
 
 <decomposition>
-  <task_summary>Add an outcome-source and public-statement ingestion increment to CalDS without weakening the workflow-first architecture.</task_summary>
-  <inputs>Existing IRS/FAC/DHCS/county artifacts, target entity list, official outcome-series sources, public NGO statement pages, and current case workflow.</inputs>
-  <outputs>A reproducible source-acquisition contract, deterministic ingestor stage, provenance-bearing corpus records, spend-versus-results join artifact, and reviewer-facing matrix rows.</outputs>
+  <task_summary>Add an outcome-source, enforcement/docket, web/social, and public-statement ingestion increment to CalDS without weakening the workflow-first architecture.</task_summary>
+  <inputs>Existing IRS/FAC/DHCS/county artifacts, target entity list, official enforcement and docket sources, official outcome-series sources, public NGO statement pages, web/social pages, and current case workflow.</inputs>
+  <outputs>A reproducible source-acquisition contract, deterministic ingestor stage, provenance-bearing corpus records, source-family coverage records, spend-versus-results join artifact, enforcement/docket triage rows, and reviewer-facing matrix rows.</outputs>
   <constraints>Use official/public sources first. Do not turn county outcomes into provider-attributable findings. Keep public statements as evidence records, not model memory. Preserve sentinel/human-review gates. Avoid accusations unless thresholds and evidence policy justify them.</constraints>
   <ambiguities>Some outcome datasets are CoC-level rather than county-level. CalOMS/DATAR raw outcomes appear restricted. DHCS adverse-action pages are not consistently machine-readable. Public statement pages vary by entity and may be missing or blocked.</ambiguities>
   <assumptions>
@@ -21,9 +21,9 @@ INPUT TYPE: ITERATE
 </decomposition>
 
 <optimized_prompt>
-  <role>You are the CalDS deterministic source-acquisition engineer for outcome-series and public-statement evidence.</role>
+  <role>You are the CalDS deterministic source-acquisition engineer for outcome-series, enforcement/docket, web/social, and public-statement evidence.</role>
   <context>CalDS separates truth, search, workflow, agent reasoning, and provider calls. This increment must add official outcome data and public statements while preserving reviewer-safe leads and human review.</context>
-  <task>Implement a bounded ingestion stage that fetches official outcome sources, archives public statement pages, creates provenance-bearing corpus records, and computes a spend-versus-results join against existing entity financial and facility data.</task>
+  <task>Implement a bounded ingestion stage that fetches official outcome sources, archives official enforcement/docket records, archives public statement and web/social pages, creates provenance-bearing corpus records, and computes spend-versus-results plus enforcement/docket triage artifacts against existing entity financial and facility data.</task>
   <constraints>Use official/public sources where possible. Capture source URL, final URL, local path, checksum, row counts, collection time, and source caveats. Treat county and CoC outcomes as context only. Mark restricted or non-machine-readable sources as blockers. Do not infer misconduct from public statements or outcome movement.</constraints>
   <reasoning>Prefer reversible adapters and explicit data gaps over broad crawling. Place joins in deterministic services. Keep agent roles bounded to source discovery and interpretation only.</reasoning>
   <placement>Ingestion lives in scripts and corpus artifacts. Matrix interpretation lives in calds_runtime/risk_matrix.py. Review formatting lives in calds_runtime/review.py. Sentinel continues gating language.</placement>
@@ -34,6 +34,7 @@ INPUT TYPE: ITERATE
     <rule>Never attribute county or CoC outcome changes to a provider without a direct program-level outcome source.</rule>
     <rule>Every harvested page or dataset must have provenance, source URI, and collection metadata.</rule>
     <rule>Restricted, blocked, or non-machine-readable sources must become explicit data-gap artifacts.</rule>
+    <rule>Official enforcement or prosecution sources must preserve named-party status and cannot be converted into entity-level legal conclusions unless the source names that entity in that status.</rule>
     <rule>All new WFA rows remain reviewer prompts until sentinel and human review complete.</rule>
   </execution_rules>
 </optimized_prompt>

@@ -34,7 +34,10 @@ SOURCE_TYPE_LABELS = {
     "county_contract_or_monitoring": "County contract or monitoring source",
     "state_homelessness_award": "California Department of Housing and Community Development homelessness award record",
     "court_docket_manifest": "Court docket search manifest",
+    "enforcement_or_docket_source": "Official enforcement or docket source",
+    "social_media_source": "Social media source",
     "source_extraction_state_homeless_award_table": "Parsed California state homelessness award table",
+    "source_extraction_enforcement_docket_table": "Parsed enforcement and docket source table",
     "source_extraction_irs_990_table": "Parsed Internal Revenue Service source table",
     "source_extraction_fac_audit_table": "Parsed Federal Audit Clearinghouse audit table",
     "source_extraction_fac_award_table": "Parsed Federal Audit Clearinghouse award table",
@@ -43,6 +46,7 @@ SOURCE_TYPE_LABELS = {
     "source_extraction_official_outcome_table": "Parsed official outcome source table",
     "source_extraction_spend_vs_results_table": "Parsed spend-versus-results join",
     "source_extraction_public_statement_table": "Parsed public statement source table",
+    "source_extraction_social_web_table": "Parsed social and website source table",
     "public_statement_source": "Public statement source",
     "org_service_page": "Organization service page",
 }
@@ -557,6 +561,10 @@ class ReviewArtifactService:
             return "Official state Homekey or Homekey+ award row names the entity as a project co-applicant or partner; this flags material public-funds exposure and a direct-allocation verification need."
         if item.source_type == "court_docket_manifest":
             return "Court calendar or docket-search pointer requiring direct docket verification."
+        if item.source_type == "enforcement_or_docket_source":
+            return "Official enforcement or docket record requiring exact legal-status review."
+        if item.source_type == "social_media_source":
+            return "Public social-media source context requiring timestamped scope and attribution review."
         if item.source_type == "source_extraction_irs_990_table":
             return "Parsed Internal Revenue Service financial table flags year-window coverage and missing return fields."
         if item.source_type == "source_extraction_fac_audit_table":
@@ -575,6 +583,10 @@ class ReviewArtifactService:
             return "Spend-versus-results join flags county or Continuum of Care outcome movement next to entity spending and facility footprint."
         if item.source_type == "source_extraction_public_statement_table":
             return "Public-statement source table flags harvested pages and matched review terms."
+        if item.source_type == "source_extraction_enforcement_docket_table":
+            return "Parsed enforcement and docket table flags official case, violation, prosecution, or legal-status source coverage."
+        if item.source_type == "source_extraction_social_web_table":
+            return "Parsed social and website table flags account/page coverage and source gaps."
         if item.source_type == "public_statement_source":
             return "Public statement page provides attributable context and off-scope keyword screening."
         if item.source_type == "org_service_page":
@@ -602,6 +614,10 @@ class ReviewArtifactService:
             return "Verify the HCD award row, standard agreement, eligible applicant, co-applicant role, and any subrecipient or operating-allocation record before treating this as direct entity receipt."
         if item.source_type == "court_docket_manifest":
             return "Confirm the docket directly before treating the pointer as meaningful."
+        if item.source_type == "enforcement_or_docket_source":
+            return "Open the official source and verify named parties, legal status, dates, case numbers, and whether the nonprofit itself is named before escalation."
+        if item.source_type == "social_media_source":
+            return "Archive the page and compare claims or activity to grant scope, disclosures, and cost allocation."
         if item.source_type.startswith("source_extraction_"):
             return "Use this table as an index into source material; raw source controls."
         if item.source_type == "public_statement_source":

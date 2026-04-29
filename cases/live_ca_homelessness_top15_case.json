@@ -20,7 +20,11 @@
     "fac_federal_awards",
     "source_extraction_fac_audit_table",
     "source_extraction_fac_award_table",
-    "county_contract_or_monitoring"
+    "county_contract_or_monitoring",
+    "source_extraction_enforcement_docket_table",
+    "enforcement_or_docket_source",
+    "source_extraction_social_web_table",
+    "social_media_source"
   ],
   "entities": [
     "Hope the Mission",

@@ -214,6 +214,10 @@ class LeadScorerAgent:
             uncertainty.append("PDF layout/table extraction provides navigation aids only; raw PDFs remain controlling source documents.")
         if signal_counts.get("court_docket_manifest"):
             uncertainty.append("A court-calendar or docket-search manifest is present; treat it only as a pointer for docket follow-up.")
+        if signal_counts.get("official_enforcement_or_docket_flag"):
+            uncertainty.append("At least one official enforcement or docket source is present; verify named parties, legal status, and whether the source names the nonprofit before escalation.")
+        if signal_counts.get("social_media_source_checked"):
+            uncertainty.append("Social or public web context is present; treat it as attributable context only until spending, scope, or disclosure records are checked.")
         if score_inputs.contradiction_count:
             uncertainty.append("At least one record preserves a conflicting or corrective signal.")
         if score_inputs.missing_data_count:
@@ -244,6 +248,10 @@ class LeadScorerAgent:
             review_questions.append("Check county monitoring records for agency responses, corrective-action status, and current contract context.")
         if signal_counts.get("court_docket_manifest"):
             review_questions.append("Confirm the docket directly before treating any court-calendar pointer as meaningful.")
+        if signal_counts.get("official_enforcement_or_docket_flag"):
+            review_questions.append("Open the official enforcement or docket source and separate third-party charges from any entity-level findings.")
+        if signal_counts.get("social_media_source_checked"):
+            review_questions.append("Compare social or public web claims to contract scope, grant restrictions, disclosures, and cost allocation.")
 
         return LeadCandidate(
             lead_id=stable_id("lead", request.case_id, *evidence_ids),

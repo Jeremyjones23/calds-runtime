@@ -45,6 +45,10 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
         "case_request",
         "retrieval_plan",
         "search_hits",
+        "entity_triage_results",
+        "forensic_investigation_plan",
+        "forensic_findings",
+        "context_handoff_ledger",
         "evidence_bundle",
         "lead_candidate",
         "oversight_risk_matrix",
@@ -63,6 +67,13 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
     for item in bundle["items"]:
         assert_true(item["source_uri"], "evidence item missing source_uri")
         assert_true(item["provenance"]["checksum"], "evidence item missing checksum")
+
+    triage = read_json(Path(artifacts["entity_triage_results"]))
+    plan = read_json(Path(artifacts["forensic_investigation_plan"]))
+    handoff = read_json(Path(artifacts["context_handoff_ledger"]))
+    assert_true("results" in triage, "triage artifact missing results")
+    assert_true("selected_entities" in plan, "forensic plan missing selected entities")
+    assert_true(handoff["status"] == "PASS", "context handoff did not pass")
 
     lead = read_json(Path(artifacts["lead_candidate"]))
     lead_text = json.dumps(lead)
@@ -98,6 +109,7 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
     assert_true("Evidence Detail By Entity" in dossier_text, "case dossier missing entity evidence detail")
     assert_true("CalDS flags" in dossier_text, "case dossier missing active system opinion")
     assert_true("What CalDS Found First" in dossier_text, "case dossier missing source-first brief")
+    assert_true("Triage Gate" in dossier_text, "case dossier missing triage gate")
     assert_true("Decision Needed" in dossier_text, "case dossier missing decision-needed section")
     assert_true("possible waste, fraud, abuse, or mismanagement" in dossier_text, "case dossier missing spelled-out review language")
     assert_true("Plain-Language Source Glossary" in dossier_text, "case dossier missing source glossary")
