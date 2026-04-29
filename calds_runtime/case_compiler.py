@@ -31,6 +31,25 @@ from .review import SOURCE_TYPE_LABELS
 
 
 RISK_ORDER = {"High": 0, "Medium": 1, "Data gap": 2, "Low": 3}
+GENERIC_ENTITY_TOKENS = {
+    "association",
+    "california",
+    "center",
+    "community",
+    "corporation",
+    "development",
+    "enterprises",
+    "housing",
+    "humanity",
+    "inc",
+    "northern",
+    "services",
+    "service",
+    "social",
+    "southern",
+    "supportive",
+    "the",
+}
 
 
 
@@ -383,7 +402,7 @@ class CaseDossierService:
             return "Reviewable triage priority with caveats or missing data."
         if score >= 25:
             return "Limited triage priority; repair likely needed before escalation."
-        return "Insufficient current support for a review lead."
+        return "Low deterministic score because unresolved source gaps outweigh the retrieved source coverage under the current formula."
 
     def _supervisor_next_action(
         self,
@@ -557,7 +576,7 @@ class CaseDossierService:
         growth_text = f" Parsed entity growth context: {growth.rstrip('.')}." if growth else ""
         refs = self._matrix_refs_for_many(rows, labels)
         return (
-            "- Spend-versus-results: official county/CoC outcome context worsened in the entity's matched DHCS footprint: "
+            "- Spend-versus-results: official county/CoC outcome context worsened in the entity's matched project geography: "
             + "; ".join(segments)
             + more
             + "."
@@ -591,14 +610,13 @@ class CaseDossierService:
 
     def _entity_related_evidence_items(self, entity: str, bundle: EvidenceBundle) -> list[EvidenceItem]:
         entity_norm = self._normalize(entity)
-        tokens = [token for token in re.findall(r"[a-z0-9]+", entity.lower()) if token not in {"inc", "of", "california", "the"}]
+        tokens = self._distinctive_entity_tokens(entity)
         aliases = {
             entity_norm,
             entity_norm.removesuffix("inc"),
             entity_norm.replace("ofcalifornia", ""),
             "".join(tokens),
         }
-        aliases.update(token for token in tokens if len(token) >= 7)
         aliases = {alias for alias in aliases if len(alias) >= 6}
         matches: list[EvidenceItem] = []
         for item in bundle.items:
@@ -622,7 +640,7 @@ class CaseDossierService:
 
     def _entity_evidence_items(self, entity: str, bundle: EvidenceBundle) -> list[EvidenceItem]:
         entity_norm = self._normalize(entity)
-        tokens = [token for token in re.findall(r"[a-z0-9]+", entity.lower()) if token not in {"inc", "of", "california", "the"}]
+        tokens = self._distinctive_entity_tokens(entity)
         aliases = {
             entity_norm,
             entity_norm.removesuffix("inc"),
@@ -638,6 +656,13 @@ class CaseDossierService:
             if any(alias and alias in haystack for alias in aliases):
                 matches.append(item)
         return matches
+
+    def _distinctive_entity_tokens(self, entity: str) -> list[str]:
+        return [
+            token
+            for token in re.findall(r"[a-z0-9]+", entity.lower())
+            if token not in GENERIC_ENTITY_TOKENS and len(token) >= 4
+        ]
 
 
     def _briefing_why_flagged(self, rows: list[OversightRiskIndicator]) -> str:
@@ -897,7 +922,7 @@ class CaseDossierService:
             return "Interpretation: reviewable triage lead with meaningful source coverage, but caveats or missing data prevent upgrade without human verification."
         if score >= 25:
             return "Interpretation: limited triage lead; source coverage or entity linkage is thin and repair may be needed before escalation."
-        return "Interpretation: insufficient retrieved support for a review lead from the current corpus."
+        return "Interpretation: low deterministic score because unresolved source gaps outweigh the retrieved source coverage under the current scoring formula."
 
     def _not_proven_text(self, item: OversightRiskIndicator) -> str:
         area = item.risk_area.lower()

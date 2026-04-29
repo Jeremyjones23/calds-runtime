@@ -1,0 +1,55 @@
+{
+  "case_id": "live_ca_homelessness_top15_2026_04_29",
+  "evaluation_case_id": "live_web_homelessness_top15",
+  "title": "Live web case: top California homelessness nonprofits by state Homekey award exposure",
+  "objective": "Using official California Department of Housing and Community Development Homekey and Homekey+ award lists, official homelessness outcome series, and public organization pages, identify reviewer-safe possible waste, fraud, abuse, or mismanagement screening signals among the top source-listed homelessness nonprofit co-applicants by state project-award exposure. Keep the result internal, source-cited, and clear that co-applicant project-award exposure is not the same as verified direct payment to the nonprofit.",
+  "jurisdiction": "California",
+  "allowed_sources": [
+    "state_homelessness_award",
+    "source_extraction_state_homeless_award_table",
+    "source_extraction_official_outcome_table",
+    "source_extraction_spend_vs_results_table",
+    "org_service_page",
+    "public_statement_source",
+    "irs_990_summary",
+    "irs_990_xml",
+    "source_extraction_irs_990_table",
+    "fac_audit_summary",
+    "fac_audit_pdf",
+    "fac_findings",
+    "fac_federal_awards",
+    "source_extraction_fac_audit_table",
+    "source_extraction_fac_award_table",
+    "county_contract_or_monitoring"
+  ],
+  "entities": [
+    "Hope the Mission",
+    "Weingart Center Association",
+    "DignityMoves",
+    "The People Concern",
+    "California Supportive Housing",
+    "Self-Help Enterprises",
+    "PATH Ventures",
+    "Abode Housing Development",
+    "TLCS, Inc.",
+    "Swords to Plowshares",
+    "Community Revitalization and Development Corporation",
+    "Burbank Housing Development Corporation",
+    "Service First Northern California",
+    "Habitat for Humanity Yuba/Sutter, Inc.",
+    "Lutheran Social Services of Southern California"
+  ],
+  "requested_by": "live-web-test",
+  "max_results": 80,
+  "metadata": {
+    "ranking_proxy": "California HCD Homekey and Homekey+ source-listed co-applicant project-award exposure",
+    "evidence_posture": "leads, not allegations",
+    "award_exposure_caveat": "HCD award lists identify eligible applicants and co-applicants; this case ranks co-applicant project-award exposure and does not claim direct payment allocation without standard agreements or payment ledgers.",
+    "outcome_join_sources": [
+      "CA System Performance Measures by Continuum of Care",
+      "California Homeless Data Integration System context",
+      "target organization public service pages",
+      "target organization public statement pages"
+    ]
+  }
+}

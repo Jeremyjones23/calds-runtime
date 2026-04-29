@@ -109,8 +109,10 @@ class JsonCorpusTruthStore:
                     hit.matched_terms,
                     radius=900
                     if record.source_type.startswith("source_extraction_")
-                    or record.source_type in {"irs_990_full_text_fallback", "dhcs_adverse_status_discovery", "org_service_page"}
+                    or record.source_type in {"irs_990_full_text_fallback", "dhcs_adverse_status_discovery", "org_service_page", "public_statement_source"}
                     else 190,
+                    prefer_start=record.source_type.startswith("source_extraction_")
+                    or record.source_type in {"org_service_page", "public_statement_source"},
                 ),
                 relevance_score=round(hit.relevance_score, 3),
                 matched_terms=hit.matched_terms,
@@ -160,9 +162,14 @@ class JsonCorpusTruthStore:
             )
         return links
 
-    def _excerpt(self, body: str, terms: list[str], radius: int = 190) -> str:
+    def _excerpt(self, body: str, terms: list[str], radius: int = 190, prefer_start: bool = False) -> str:
         if not body:
             return ""
+        if prefer_start:
+            excerpt = body[: radius * 2].strip()
+            if len(body) > radius * 2:
+                excerpt = excerpt + "..."
+            return excerpt
         lowered = body.lower()
         match_index = -1
         for term in terms:

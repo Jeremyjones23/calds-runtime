@@ -26,7 +26,7 @@ class OversightRiskMatrixService:
 
     METHODOLOGY = (
         "Waste, fraud, and abuse (WFA) risk-screening matrix generated from parsed IRS Form 990, "
-        "Federal Audit Clearinghouse, DHCS facility-status, county/document index, and retrieved "
+        "Federal Audit Clearinghouse, DHCS facility-status, HCD Homekey/Homekey+ state-award, county/document index, and retrieved "
         "service-page records. The matrix tests observable risk proxies: year-over-year financial "
         "growth, spending growth, public-funds concentration, executive compensation, payroll scale, "
         "political/lobbying indicators, audit-control flags, award concentration, facility closure "
@@ -48,15 +48,18 @@ class OversightRiskMatrixService:
         dhcs = self._load_json_for_type("source_extraction_dhcs_status_table") or {}
         spend_join = self._load_json_for_type("source_extraction_spend_vs_results_table") or {}
         outcome_manifest = self._load_json_for_type("source_extraction_official_outcome_table") or {}
+        state_awards = self._load_json_for_type("source_extraction_state_homeless_award_table") or {}
 
         irs_rows = list(irs.get("rows", [])) if isinstance(irs, dict) else []
         fac_rows = list(fac.get("audit_summary", [])) if isinstance(fac, dict) else []
         award_rows = list(fac.get("award_summary", [])) if isinstance(fac, dict) else []
         dhcs_rows = list(dhcs.get("rows", [])) if isinstance(dhcs, dict) else []
+        state_award_rows = list(state_awards.get("entity_award_summary", [])) if isinstance(state_awards, dict) else []
 
         entities = self._entities(request, irs_rows, fac_rows, dhcs_rows)
         indicators: list[OversightRiskIndicator] = []
         for entity in entities:
+            indicators.extend(self._state_homeless_award_indicators(request, entity, state_award_rows))
             indicators.extend(self._irs_indicators(request, entity, irs_rows))
             indicators.extend(self._fac_indicators(request, entity, fac_rows, award_rows))
             indicators.extend(self._dhcs_indicators(request, entity, dhcs_rows))
@@ -473,6 +476,78 @@ class OversightRiskMatrixService:
             )
         ]
 
+    def _state_homeless_award_indicators(
+        self,
+        request: CaseRequest,
+        entity: str,
+        rows: list[dict[str, Any]],
+    ) -> list[OversightRiskIndicator]:
+        record_ids = self._record_ids_for_entity_and_source_types(
+            entity,
+            "source_extraction_state_homeless_award_table",
+            "state_homelessness_award",
+        )
+        row = next((item for item in rows if item.get("entity") == entity), None)
+        if not row:
+            return [
+                self._indicator(
+                    request,
+                    "State homelessness award exposure",
+                    entity,
+                    "Homekey/Homekey+ co-applicant project-award exposure",
+                    "No parsed HCD Homekey or Homekey+ state award row is present for this entity in the current corpus.",
+                    "Data gap",
+                    "missing_source",
+                    "Recover official HCD award rows before ranking state homelessness award exposure.",
+                    record_ids,
+                    ["Absence of a parsed row is not evidence that the entity lacked state funding exposure."],
+                )
+            ]
+
+        total = self._number(row.get("total_award_exposure")) or 0.0
+        project_count = int(self._number(row.get("project_count")) or 0)
+        programs = self._list_text(list(row.get("programs") or []))
+        projects = self._list_text(list(row.get("projects") or []))
+        counties = self._list_text(list(row.get("counties") or []))
+        years = self._list_text(list(row.get("award_years") or []))
+        level = "High" if total >= 50_000_000 else "Medium" if total >= 25_000_000 else "Low"
+        return [
+            self._indicator(
+                request,
+                "State homelessness award exposure",
+                entity,
+                "Homekey/Homekey+ co-applicant project-award exposure",
+                (
+                    f"HCD award lists name {entity} as a co-applicant or project partner on {project_count} "
+                    f"Homekey/Homekey+ project row(s), with total project-award exposure of {self._money(total)}. "
+                    f"Programs: {programs}. Award year(s): {years}. Counties: {counties}. Projects: {projects}."
+                ),
+                level,
+                "observed",
+                "Verify HCD source rows, standard agreements, eligible applicant, co-applicant role, draw records, and any subrecipient allocation before treating project-award exposure as direct receipt.",
+                record_ids,
+                [
+                    "This is project-award exposure assigned to source-listed co-applicants; allocation among co-applicants is not stated in the award lists.",
+                    "The screen prioritizes materiality and follow-up, not a finding that funds were mishandled.",
+                ],
+            ),
+            self._indicator(
+                request,
+                "Direct funding verification",
+                entity,
+                "State award direct-recipient and subrecipient allocation coverage",
+                (
+                    f"The HCD award list identifies eligible public applicant(s) and co-applicant(s) for {entity}, "
+                    "but this run does not recover the standard agreement, payment ledger, subrecipient ledger, or operating-cost draw records needed to verify the exact dollars received by the nonprofit."
+                ),
+                "Data gap",
+                "missing_source_or_field",
+                "Pull the state standard agreement, draw/payment records, and local subrecipient contracts before making direct-recipient or cost-allowability claims.",
+                record_ids,
+                ["The award-list role field supports exposure ranking but not direct-payment allocation."],
+            ),
+        ]
+
     def _service_page_indicators(self, request: CaseRequest, entity: str) -> list[OversightRiskIndicator]:
         records = [record for record in self.records if record.source_type == "org_service_page" and entity in record.entities]
         record_ids = [record.record_id for record in records]
@@ -537,9 +612,12 @@ class OversightRiskMatrixService:
             spending = row.get("spending_growth_pct")
             revenue = row.get("revenue_growth_pct")
             grants = row.get("government_grant_growth_pct")
+            state_award_exposure = self._number(row.get("state_award_exposure"))
+            state_award_text = f" State project-award exposure={self._money(state_award_exposure)}." if state_award_exposure is not None else ""
+            geography_phrase = "state-award project geography" if state_award_exposure is not None else "matched service geography"
             observed = (
-                f"{entity} has DHCS facility footprint in {county}; official county/CoC context flags {', '.join(flags)}. "
-                f"Parsed entity growth context: spending={self._pct_text(spending)}, revenue={self._pct_text(revenue)}, government grants={self._pct_text(grants)}."
+                f"{entity} has {geography_phrase} in {county}; official county/CoC context flags {', '.join(flags)}. "
+                f"Parsed entity growth context: spending={self._pct_text(spending)}, revenue={self._pct_text(revenue)}, government grants={self._pct_text(grants)}.{state_award_text}"
             )
             indicators.append(
                 self._indicator(
@@ -550,7 +628,7 @@ class OversightRiskMatrixService:
                     observed,
                     level if level in {"High", "Medium", "Low"} else "Medium",
                     "observed_contextual_join",
-                    "Review underlying county/CoC outcome rows, facility footprint, contract geography, and provider-specific outcome records before drawing any conclusion.",
+                    "Review underlying county/CoC outcome rows, state-award project geography, contract geography, and provider-specific outcome records before drawing any conclusion.",
                     record_ids,
                     list(row.get("join_caveats") or ["County outcomes are not provider-attributable without direct program outcome data."]),
                 )
@@ -713,6 +791,19 @@ class OversightRiskMatrixService:
 
     def _record_ids_for_source_types(self, *source_types: str) -> list[str]:
         return [record.record_id for record in self.records if record.source_type in source_types]
+
+    def _record_ids_for_entity_and_source_types(self, entity: str, *source_types: str) -> list[str]:
+        entity_lower = entity.lower()
+        return [
+            record.record_id
+            for record in self.records
+            if record.source_type in source_types
+            and (
+                entity in record.entities
+                or entity_lower in record.title.lower()
+                or entity_lower in record.record_id.lower()
+            )
+        ]
 
     def _latest_numeric_pair(self, rows: list[dict[str, Any]], field: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
         numeric_rows = [row for row in rows if row.get("downloaded") and self._number(row.get(field)) is not None]

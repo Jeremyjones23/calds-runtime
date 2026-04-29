@@ -184,6 +184,8 @@ def source_family(source_type: str, record_id: str) -> str:
         return "fac"
     if "outcome" in value or "spend_vs_results" in value:
         return "outcome"
+    if "homekey" in value or "hcd" in value or "state_homeless" in value:
+        return "state_homelessness_award"
     if "public_statement" in value or "service_page" in value:
         return "public_statement"
     if "county" in value:

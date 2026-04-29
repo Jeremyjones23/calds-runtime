@@ -32,7 +32,9 @@ SOURCE_TYPE_LABELS = {
     "dhcs_adverse_status_manifest": "California Department of Health Care Services adverse-status page manifest",
     "dhcs_adverse_status_discovery": "California Department of Health Care Services adverse-status source discovery",
     "county_contract_or_monitoring": "County contract or monitoring source",
+    "state_homelessness_award": "California Department of Housing and Community Development homelessness award record",
     "court_docket_manifest": "Court docket search manifest",
+    "source_extraction_state_homeless_award_table": "Parsed California state homelessness award table",
     "source_extraction_irs_990_table": "Parsed Internal Revenue Service source table",
     "source_extraction_fac_audit_table": "Parsed Federal Audit Clearinghouse audit table",
     "source_extraction_fac_award_table": "Parsed Federal Audit Clearinghouse award table",
@@ -441,6 +443,11 @@ class ReviewArtifactService:
             bullets.append(
                 f"- County oversight context: monitoring or contract records are present. Review use: check agency response, corrective-action status, and current contract status. Cited refs: {refs}."
             )
+        if signals.get("state_homelessness_award_exposure") or signals.get("state_homelessness_award_table"):
+            refs = self._refs_for(bundle, labels, "state_homelessness_award_exposure", "state_homelessness_award_table")
+            bullets.append(
+                f"- State homelessness award context: California Department of Housing and Community Development Homekey or Homekey+ award rows are present. Review use: verify eligible applicant, co-applicant role, project amount, units, and any standard agreement or subrecipient allocation before treating award exposure as direct receipt. Cited refs: {refs}."
+            )
         if signals.get("pdf_layout_extracted") or signals.get("pdf_text_extracted"):
             refs = self._refs_for(bundle, labels, "pdf_layout_extracted", "pdf_text_extracted")
             bullets.append(
@@ -505,6 +512,8 @@ class ReviewArtifactService:
             return f"{label}: fallback only until official Internal Revenue Service machine-readable filing data or source document is recovered"
         if item.source_type.startswith("source_extraction_"):
             return f"{label}: deterministic parser output; raw source controls"
+        if item.source_type == "state_homelessness_award":
+            return f"{label}: official state project-award context; co-applicant exposure is not the same as verified direct receipt"
         if item.source_type in {"fac_audit_pdf", "fac_findings", "fac_federal_awards", "fac_audit_summary"}:
             return f"{label}: audit or award context requiring year-specific review"
         if item.source_type.startswith("dhcs"):
@@ -544,6 +553,8 @@ class ReviewArtifactService:
             return "California Department of Health Care Services adverse-status source discovery remains incomplete or machine-readability is unresolved."
         if item.source_type == "county_contract_or_monitoring":
             return "County monitoring, contract, or ledger document is available for current-status review."
+        if item.source_type == "state_homelessness_award":
+            return "Official state Homekey or Homekey+ award row names the entity as a project co-applicant or partner; this flags material public-funds exposure and a direct-allocation verification need."
         if item.source_type == "court_docket_manifest":
             return "Court calendar or docket-search pointer requiring direct docket verification."
         if item.source_type == "source_extraction_irs_990_table":
@@ -556,6 +567,8 @@ class ReviewArtifactService:
             return "Parsed California Department of Health Care Services table flags facility counts, active/closed status counts, and counties."
         if item.source_type == "source_extraction_pdf_text_index":
             return "PDF extraction index flags where reviewer navigation aids are available."
+        if item.source_type == "source_extraction_state_homeless_award_table":
+            return "Parsed state homelessness award table ranks source-listed co-applicant project-award exposure and preserves direct-receipt caveats."
         if item.source_type == "source_extraction_official_outcome_table":
             return "Official outcome-source manifest flags which county or Continuum of Care datasets were ingested or blocked."
         if item.source_type == "source_extraction_spend_vs_results_table":
@@ -585,6 +598,8 @@ class ReviewArtifactService:
             return "Verify facility-level meaning directly with California Department of Health Care Services source records or an export before entity-level use."
         if item.source_type == "county_contract_or_monitoring":
             return "Check agency response, corrective-action status, and current contract status."
+        if item.source_type == "state_homelessness_award":
+            return "Verify the HCD award row, standard agreement, eligible applicant, co-applicant role, and any subrecipient or operating-allocation record before treating this as direct entity receipt."
         if item.source_type == "court_docket_manifest":
             return "Confirm the docket directly before treating the pointer as meaningful."
         if item.source_type.startswith("source_extraction_"):
@@ -613,4 +628,3 @@ class ReviewArtifactService:
 
     def _code_text(self, value: str) -> str:
         return value.replace("```", "` ` `").strip()
-
