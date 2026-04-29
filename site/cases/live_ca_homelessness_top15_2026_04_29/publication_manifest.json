@@ -6,9 +6,9 @@
     "index_html": "index.html",
     "source_ledger_json": "source_ledger.json"
   },
-  "generated_at": "2026-04-29T19:00:59+00:00",
+  "generated_at": "2026-04-29T19:43:32+00:00",
   "human_review_required": true,
-  "publication_id": "publication_e90f81f6580fc404",
+  "publication_id": "publication_2443fc501d70c940",
   "safety": {
     "checked_files": [
       "case_dossier.md",

@@ -138,8 +138,8 @@
     {
       "active_signal_count": 2,
       "anchor": "evidence-E07",
-      "checksum": "0461f806885d5f7624b5f3717f9844b91a880a6e78c5dd54b333b276ef6cdf33",
-      "excerpt": "Official enforcement and docket source table for top-15 homelessness triage. This table creates deep-dive triggers only. It does not create legal conclusions. { \"case_id\": \"live_ca_homelessness_top15_2026_04_29\", \"created_at\": \"2026-04-29T18:59:21+00:00\", \"methodology\": \"Official enforcement and docket triage rows are manually curated from official federal and municipal sources when live docket parsing is not yet implemented. Rows trigger deep review only; they do not create legal conclusions.\", \"rows\": [ { \"caveats\": [ \"The official federal source charges Taylor, not Weingart Center Associ...",
+      "checksum": "060ede757454378ec67a86be5f5c8af80b44136ee22d82eee5c09aa02fed0b01",
+      "excerpt": "Official enforcement and docket source table for top-15 homelessness triage. This table creates deep-dive triggers only. It does not create legal conclusions. { \"case_id\": \"live_ca_homelessness_top15_2026_04_29\", \"created_at\": \"2026-04-29T19:43:07+00:00\", \"methodology\": \"Official enforcement and docket triage rows are manually curated from official federal and municipal sources when live docket parsing is not yet implemented. Rows trigger deep review only; they do not create legal conclusions.\", \"rows\": [ { \"caveats\": [ \"The official federal source charges Taylor, not Weingart Center Associ...",
       "internal_evidence_id": "evidence_a98f846f1a9e2142",
       "link_note": "This evidence item is a parsed local artifact; external links point to upstream official or public sources used by the run.",
       "link_status": "derived_external_source_linked",
