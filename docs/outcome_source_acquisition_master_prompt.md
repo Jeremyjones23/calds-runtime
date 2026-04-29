@@ -15,7 +15,7 @@ INPUT TYPE: ITERATE
     <failure_mode>Provider attribution error: county outcome deterioration is incorrectly treated as proof of entity failure.</failure_mode>
     <failure_mode>Source-plane collapse: scraped pages are summarized without provenance or checksums.</failure_mode>
     <failure_mode>Restricted-source overclaim: CalOMS/DATAR gaps are hidden or represented as complete.</failure_mode>
-    <failure_mode>Method drift: WFA proxy thresholds change without deterministic tests.</failure_mode>
+    <failure_mode>Method drift: waste, fraud, abuse, and mismanagement proxy thresholds change without deterministic tests.</failure_mode>
   </failure_modes>
   <reasoning_tier>high</reasoning_tier>
 </decomposition>
@@ -35,7 +35,7 @@ INPUT TYPE: ITERATE
     <rule>Every harvested page or dataset must have provenance, source URI, and collection metadata.</rule>
     <rule>Restricted, blocked, or non-machine-readable sources must become explicit data-gap artifacts.</rule>
     <rule>Official enforcement or prosecution sources must preserve named-party status and cannot be converted into entity-level legal conclusions unless the source names that entity in that status.</rule>
-    <rule>All new WFA rows remain reviewer prompts until sentinel and human review complete.</rule>
+    <rule>All new waste, fraud, abuse, and mismanagement rows remain reviewer prompts until sentinel and human review complete.</rule>
   </execution_rules>
 </optimized_prompt>
 
@@ -43,7 +43,7 @@ INPUT TYPE: ITERATE
   <phase name="Literal Misread">Misread: scrape any website and quote executives without provenance. Fix: require source URI, final URL, checksum, and local path.</phase>
   <phase name="Scope Drift">Misread: build a statewide crawler. Fix: configure a bounded page list for seven target entities.</phase>
   <phase name="Boundary Violation">Misread: county overdose increases prove provider failure. Fix: label all outcome joins as contextual and non-attributive.</phase>
-  <phase name="Adversarial Reinterpretation">Misread: WFA screening means fraud allegation. Fix: sentinel blocks accusatory patterns and packet states screening-only posture.</phase>
+  <phase name="Adversarial Reinterpretation">Misread: waste, fraud, abuse, and mismanagement screening means fraud allegation. Fix: sentinel blocks accusatory patterns and packet states screening-only posture.</phase>
   <phase name="Truncation and Format Failure">Misread: omit data gaps when a source is blocked. Fix: write explicit source manifest rows and data-gap records.</phase>
 </stress_test>
 

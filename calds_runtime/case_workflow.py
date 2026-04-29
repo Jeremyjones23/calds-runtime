@@ -221,7 +221,7 @@ class CaseWorkflow:
             Plane.TRUTH,
             "OversightRiskMatrixService",
             "oversight_risk_matrix_created",
-            "Truth plane computed deterministic WFA screening indicators from parsed source facts.",
+            "Truth plane computed deterministic waste, fraud, abuse, and mismanagement screening indicators from parsed source facts.",
             outputs={
                 "indicator_count": len(risk_matrix.indicators),
                 "high_count": sum(1 for item in risk_matrix.indicators if item.risk_level == "High"),

@@ -51,7 +51,7 @@ class SentinelPolicy:
         if find_escalated_language(combined_output):
             flags.append("escalated_language_in_output")
             repair_instructions.append(
-                "Replace accusatory wording with neutral WFA screening language unless a formal threshold policy is implemented."
+                "Replace accusatory wording with neutral waste, fraud, abuse, and mismanagement screening language unless a formal threshold policy is implemented."
             )
 
         if (

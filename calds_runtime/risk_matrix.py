@@ -16,7 +16,7 @@ from .contracts import (
 
 
 class OversightRiskMatrixService:
-    """Deterministic WFA screening matrix built from source records, not model memory."""
+    """Deterministic waste, fraud, abuse, and mismanagement screening matrix built from source records."""
 
     SCORE_SCALE = (
         "Indicator levels: High=immediate reviewer follow-up, Medium=review queue, "
@@ -25,7 +25,7 @@ class OversightRiskMatrixService:
     )
 
     METHODOLOGY = (
-        "Waste, fraud, and abuse (WFA) risk-screening matrix generated from parsed IRS Form 990, "
+        "Waste, fraud, abuse, and mismanagement risk-screening matrix generated from parsed IRS Form 990, "
         "Federal Audit Clearinghouse, DHCS facility-status, HCD Homekey/Homekey+ state-award, official enforcement/docket records, county/document index, and retrieved "
         "service-page records. The matrix tests observable risk proxies: year-over-year financial "
         "growth, spending growth, public-funds concentration, executive compensation, payroll scale, "
