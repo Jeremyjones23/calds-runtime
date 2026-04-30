@@ -74,6 +74,7 @@ class OversightRiskMatrixService:
         self.records_by_id = {record.record_id: record for record in self.records}
         self.items_by_record = {item.record_id: item for item in bundle.items}
         irs = self._load_json_for_type("source_extraction_irs_990_table") or {}
+        irs_raw = self._load_json_for_type("source_extraction_irs_990_raw_artifact_table") or {}
         fac = self._load_json_for_type("source_extraction_fac_audit_table") or {}
         dhcs = self._load_json_for_type("source_extraction_dhcs_status_table") or {}
         spend_join = self._load_json_for_type("source_extraction_spend_vs_results_table") or {}
@@ -82,6 +83,8 @@ class OversightRiskMatrixService:
         enforcement = self._load_json_for_type("source_extraction_enforcement_docket_table") or {}
 
         irs_rows = list(irs.get("rows", [])) if isinstance(irs, dict) else []
+        raw_irs_rows = list(irs_raw.get("rows", [])) if isinstance(irs_raw, dict) else []
+        irs_rows = self._merge_irs_raw_rows(irs_rows, raw_irs_rows)
         fac_rows = list(fac.get("audit_summary", [])) if isinstance(fac, dict) else []
         award_rows = list(fac.get("award_summary", [])) if isinstance(fac, dict) else []
         dhcs_rows = list(dhcs.get("rows", [])) if isinstance(dhcs, dict) else []
@@ -132,6 +135,35 @@ class OversightRiskMatrixService:
                     return json.loads(path.read_text(encoding="utf-8"))
         return None
 
+    def _merge_irs_raw_rows(self, irs_rows: list[dict[str, Any]], raw_irs_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        merged = [dict(row) for row in irs_rows]
+        by_key = {(str(row.get("entity") or ""), str(row.get("tax_period_year") or "")): row for row in merged}
+        for raw_row in raw_irs_rows:
+            entity = str(raw_row.get("entity") or "")
+            year = str(raw_row.get("tax_period_year") or "")
+            if not entity or not year:
+                continue
+            row = by_key.get((entity, year))
+            if row is None:
+                row = {
+                    "entity": entity,
+                    "ein": raw_row.get("ein"),
+                    "tax_period": raw_row.get("tax_period"),
+                    "tax_period_year": raw_row.get("tax_period_year"),
+                    "downloaded": bool(raw_row.get("xml_downloaded") or raw_row.get("pdf_downloaded")),
+                    "source": "Official IRS raw Form 990 artifact extraction",
+                }
+                merged.append(row)
+                by_key[(entity, year)] = row
+            parsed = dict(raw_row.get("parsed_detail_fields") or {})
+            for key, value in parsed.items():
+                if value is not None and value != "":
+                    row[key] = value
+            row["raw_irs_xml_downloaded"] = bool(raw_row.get("xml_downloaded"))
+            row["raw_irs_xml_local_path"] = raw_row.get("xml_local_path") or ""
+            row["raw_irs_xml_sha256"] = raw_row.get("xml_sha256") or ""
+        return merged
+
     def _entities(
         self,
         request: CaseRequest,
@@ -151,7 +183,7 @@ class OversightRiskMatrixService:
             [row for row in rows if row.get("entity") == entity],
             key=lambda row: int(row.get("tax_period_year") or 0),
         )
-        record_ids = self._record_ids_for_source_types("source_extraction_irs_990_table")
+        record_ids = self._record_ids_for_source_types("source_extraction_irs_990_table", "source_extraction_irs_990_raw_artifact_table")
         indicators: list[OversightRiskIndicator] = []
 
         indicators.append(

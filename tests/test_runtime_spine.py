@@ -408,13 +408,69 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("ice enforcement", module.HOMELESSNESS_SCOPE_HIGH_TERMS)
         self.assertEqual(module.propublica_org_page("956054617"), "https://projects.propublica.org/nonprofits/organizations/956054617")
         self.assertTrue(str(module.IRS_RAW_DIR).endswith("irs_raw"))
+        self.assertTrue(str(module.FAC_DIR).endswith("fac"))
         self.assertTrue(str(module.CONTRACT_DIR).endswith("contracts"))
         self.assertTrue(str(module.DOCKET_DIR).endswith("enforcement_dockets"))
+        self.assertIn("app.fac.gov/dissemination/public-data/gsa/full/general.csv", module.FAC_GENERAL_CSV_URL)
+        self.assertTrue(any(source["entity"] == "DignityMoves" for source in module.LOCAL_CONTRACT_MONITORING_SOURCES))
+        self.assertTrue(any(source["entity"] == "The People Concern" for source in module.LOCAL_CONTRACT_MONITORING_SOURCES))
         self.assertEqual(
             module.extract_object_id_from_pdf_url("https://projects.propublica.org/nonprofits/download-filing?path=IRS%2F956054617_202304_990_2024040522347579.pdf"),
             "2024040522347579",
         )
         self.assertTrue(module.irs_xml_candidate_urls({"pdf_url": "https://projects.propublica.org/nonprofits/download-filing?path=IRS%2F956054617_202304_990_2024040522347579.pdf", "ein": "956054617", "tax_period": "202304"}))
+
+    def test_risk_matrix_uses_raw_irs_xml_fields(self) -> None:
+        temp_dir = PROJECT_ROOT / "runs" / "tests" / f"calds-raw-irs-test-{uuid4().hex}"
+        try:
+            table_path = temp_dir / "raw_irs_990_artifact_summary.json"
+            write_json(
+                table_path,
+                {
+                    "rows": [
+                        {
+                            "entity": "Shelter Group",
+                            "ein": "123456789",
+                            "tax_period": "202304",
+                            "tax_period_year": 2023,
+                            "xml_downloaded": True,
+                            "xml_local_path": str(temp_dir / "return.xml"),
+                            "xml_sha256": "abc123",
+                            "parsed_detail_fields": {
+                                "total_revenue": 1000000,
+                                "government_grants": 900000,
+                                "total_expenses": 800000,
+                                "top_compensation_total": 525000,
+                                "top_compensation_person": "Jane Doe",
+                                "top_compensation_title": "CEO",
+                                "compensation_is_aggregate": False,
+                                "political_campaign_activity": False,
+                                "lobbying_activities": True,
+                            },
+                        }
+                    ]
+                },
+            )
+            provenance = Provenance("raw_table", str(table_path), "source_extraction_irs_990_raw_artifact_table", "2026-04-30", "abc123", "test", "raw_table")
+            record = CanonicalRecord(
+                record_id="raw_table",
+                title="Raw IRS table",
+                body="Raw IRS XML fields",
+                source_uri=str(table_path),
+                source_type="source_extraction_irs_990_raw_artifact_table",
+                published_at="2026-04-30",
+                entities=["Shelter Group"],
+                attributes={"table_path": str(table_path), "signals": {}},
+                provenance=provenance,
+            )
+            case = CaseRequest(case_id="raw_irs_case", title="Raw IRS case", objective="Use raw XML fields.", entities=["Shelter Group"])
+            matrix = OversightRiskMatrixService().build(case, [record], EvidenceBundle(bundle_id="bundle", case_id="raw_irs_case", query_terms=[], items=[], entity_links=[]))
+            facts = "\n".join(item.observed_fact for item in matrix.indicators)
+            self.assertIn("government grants $900,000 / total revenue $1,000,000 = 90.0%", facts)
+            self.assertIn("Jane Doe (CEO)", facts)
+            self.assertIn("LobbyingActivitiesInd=yes", facts)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_public_url_extractor_stops_at_escaped_newline(self) -> None:
         value = "ProPublica API: https://projects.propublica.org/nonprofits/api/\\nIRS source: https://www.irs.gov/example"

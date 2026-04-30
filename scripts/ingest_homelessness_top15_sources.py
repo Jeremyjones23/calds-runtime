@@ -6,12 +6,16 @@ from pathlib import Path
 import argparse
 import csv
 import hashlib
+import io
 import json
 import re
 import ssl
+import struct
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+import zlib
 from typing import Any
 
 
@@ -23,6 +27,7 @@ OUTCOME_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_2
 WEB_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "web"
 PROPUBLICA_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "propublica"
 IRS_RAW_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "irs_raw"
+FAC_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "fac"
 CONTRACT_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "contracts"
 DOCKET_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "enforcement_dockets"
 DEFAULT_CORPUS_DIR = PROJECT_ROOT / "data" / "live_corpus" / f"{CASE_ID}_stage1"
@@ -46,10 +51,22 @@ IRS_FORM_990_DOWNLOADS_URL = "https://www.irs.gov/charities-non-profits/form-990
 IRS_TEOS_BULK_URL = "https://www.irs.gov/charities-non-profits/tax-exempt-organization-search-bulk-data-downloads"
 FAC_DATA_URL = "https://www.fac.gov/data/"
 FAC_API_URL = "https://www.fac.gov/api"
+FAC_DOWNLOAD_CURRENT_URL = "https://www.fac.gov/data/download/current/"
+FAC_GENERAL_CSV_URL = "https://app.fac.gov/dissemination/public-data/gsa/full/general.csv"
+FAC_AWARDS_CSV_URL = "https://app.fac.gov/dissemination/public-data/gsa/full/federal_awards.csv"
+FAC_FINDINGS_CSV_URL = "https://app.fac.gov/dissemination/public-data/gsa/full/findings.csv"
+FAC_FINDINGS_TEXT_CSV_URL = "https://app.fac.gov/dissemination/public-data/gsa/full/findings_text.csv"
+FAC_CORRECTIVE_ACTION_CSV_URL = "https://app.fac.gov/dissemination/public-data/gsa/full/corrective_action_plans.csv"
 LA_CITY_CLERK_BASE_URL = "https://cityclerk.lacity.org/"
 US_DOJ_BASE_URL = "https://www.justice.gov/"
 US_COURTS_PACER_URL = "https://pcl.uscourts.gov/pcl/index.jsf"
 CA_COURTS_URL = "https://www.courts.ca.gov/"
+OAKLAND_HOMEKEY_R2H2_URL = "https://www.oaklandca.gov/Business/For-Developers%E2%80%8B/City-Homekey-Rapid-Response-Homeless-Housing-R2H2-Program"
+OAKLAND_DIGNITY_VILLAGE_URL = "https://www.oaklandca.gov/News-Releases/HCD/Oakland-awarded-14.3-million-in-Homekey-funds-to-create-40-new-permanent-supportive-housing-units"
+OAKLAND_QUALITY_INN_URL = "https://www.oaklandca.gov/News-Releases/HCD/Oakland-awarded-20.4-million-in-Homekey-Round-3-funds-for-the-Quality-Inn"
+LA_HOMEKEY_PLUS_SAFE_HARBOR_REPORT_URL = "https://cityclerk.lacity.org/onlinedocs/2025/25-0269_rpt_hci_3-6-25.pdf"
+LA_HOMEKEY_PLUS_SAFE_HARBOR_I_RESOLUTION_URL = "https://cityclerk.lacity.org/onlinedocs/2025/25-0269_misc_05-28-25.pdf"
+LA_HOMEKEY_PLUS_SAFE_HARBOR_II_RESOLUTION_URL = "https://cityclerk.lacity.org/onlinedocs/2025/25-0269_misc_07-22-25.pdf"
 
 HOMELESSNESS_SCOPE_HIGH_TERMS = [
     "voter registration",
@@ -909,13 +926,271 @@ def probe_url(url: str, timeout: int = 20) -> dict[str, Any]:
         }
 
 
+def fetch_range(url: str, start: int, end: int, timeout: int = 120) -> bytes:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "CalDS official source acquisition/1.0",
+            "Accept": "application/zip,application/octet-stream,*/*",
+            "Range": f"bytes={start}-{end}",
+        },
+    )
+    context = ssl.create_default_context()
+    with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+        status = int(getattr(response, "status", response.getcode()))
+        if status != 206:
+            raise RuntimeError(f"Server did not honor byte range for {url}: HTTP {status}")
+        return response.read()
+
+
+def remote_content_length(url: str, timeout: int = 45) -> int:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "CalDS official source acquisition/1.0", "Accept": "application/zip,*/*"},
+        method="HEAD",
+    )
+    context = ssl.create_default_context()
+    with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+        return int(response.headers["Content-Length"])
+
+
+def remote_zip_entries(zip_url: str) -> list[dict[str, Any]]:
+    size = remote_content_length(zip_url)
+    tail_size = min(size, 131072)
+    tail = fetch_range(zip_url, size - tail_size, size - 1)
+    eocd_index = tail.rfind(b"PK\x05\x06")
+    if eocd_index < 0:
+        raise RuntimeError(f"ZIP end-of-central-directory record not found for {zip_url}")
+    eocd = tail[eocd_index : eocd_index + 22]
+    if len(eocd) < 22:
+        raise RuntimeError(f"Incomplete ZIP end-of-central-directory record for {zip_url}")
+    (
+        _signature,
+        _disk_number,
+        _central_disk,
+        _disk_entries,
+        total_entries,
+        central_size,
+        central_offset,
+        _comment_length,
+    ) = struct.unpack("<4s4H2IH", eocd)
+    if total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
+        locator_index = tail.rfind(b"PK\x06\x07", 0, eocd_index)
+        if locator_index < 0 or locator_index + 20 > len(tail):
+            raise RuntimeError(f"ZIP64 locator not found for {zip_url}")
+        locator = tail[locator_index : locator_index + 20]
+        _locator_sig, _locator_disk, zip64_eocd_offset, _locator_disks = struct.unpack("<4sIQI", locator)
+        zip64 = fetch_range(zip_url, zip64_eocd_offset, zip64_eocd_offset + 55)
+        if len(zip64) < 56 or zip64[:4] != b"PK\x06\x06":
+            raise RuntimeError(f"ZIP64 end-of-central-directory record not found for {zip_url}")
+        (
+            _zip64_sig,
+            _zip64_size,
+            _made_by,
+            _needed,
+            _disk_num,
+            _central_disk_num,
+            _entries_on_disk,
+            zip64_total_entries,
+            zip64_central_size,
+            zip64_central_offset,
+        ) = struct.unpack("<4sQ2H2I4Q", zip64[:56])
+        total_entries = int(zip64_total_entries)
+        central_size = int(zip64_central_size)
+        central_offset = int(zip64_central_offset)
+    central = fetch_range(zip_url, central_offset, central_offset + central_size - 1)
+    entries: list[dict[str, Any]] = []
+    offset = 0
+    for _ in range(total_entries):
+        header = central[offset : offset + 46]
+        if len(header) < 46 or header[:4] != b"PK\x01\x02":
+            raise RuntimeError(f"Malformed ZIP central directory for {zip_url} at offset {offset}")
+        (
+            _sig,
+            _version_made,
+            _version_needed,
+            flags,
+            compression_method,
+            _mod_time,
+            _mod_date,
+            crc32,
+            compressed_size,
+            uncompressed_size,
+            filename_len,
+            extra_len,
+            comment_len,
+            _disk_start,
+            _internal_attrs,
+            _external_attrs,
+            local_header_offset,
+        ) = struct.unpack("<4s6H3I5H2I", header)
+        filename_start = offset + 46
+        filename_end = filename_start + filename_len
+        filename = central[filename_start:filename_end].decode("utf-8", "replace")
+        entries.append(
+            {
+                "filename": filename,
+                "flags": flags,
+                "compression_method": compression_method,
+                "crc32": crc32,
+                "compressed_size": compressed_size,
+                "uncompressed_size": uncompressed_size,
+                "local_header_offset": local_header_offset,
+                "zip_url": zip_url,
+            }
+        )
+        offset = filename_end + extra_len + comment_len
+    return entries
+
+
+def remote_zip_extract_entry(zip_url: str, entry: dict[str, Any]) -> bytes:
+    local_offset = int(entry["local_header_offset"])
+    local = fetch_range(zip_url, local_offset, local_offset + 64)
+    if len(local) < 30 or local[:4] != b"PK\x03\x04":
+        raise RuntimeError(f"Malformed local ZIP header for {entry.get('filename')}")
+    (
+        _sig,
+        _version_needed,
+        _flags,
+        compression_method,
+        _mod_time,
+        _mod_date,
+        _crc32,
+        _compressed_size,
+        _uncompressed_size,
+        filename_len,
+        extra_len,
+    ) = struct.unpack("<4s5H3I2H", local[:30])
+    data_start = local_offset + 30 + filename_len + extra_len
+    compressed_size = int(entry["compressed_size"])
+    compressed = fetch_range(zip_url, data_start, data_start + compressed_size - 1)
+    if compression_method == 0:
+        return compressed
+    if compression_method == 8:
+        return zlib.decompress(compressed, -15)
+    raise RuntimeError(f"Unsupported ZIP compression method {compression_method} for {entry.get('filename')}")
+
+
+def remote_zip_extract_irs_xml(zip_url: str, object_id: str, cache: dict[str, list[dict[str, Any]]]) -> tuple[bytes, dict[str, Any]]:
+    entries = cache.get(zip_url)
+    if entries is None:
+        entries = remote_zip_entries(zip_url)
+        cache[zip_url] = entries
+    candidates = [entry for entry in entries if object_id and object_id in str(entry.get("filename") or "")]
+    if not candidates:
+        raise RuntimeError(f"Object ID {object_id} not found in IRS XML ZIP {zip_url}")
+    entry = candidates[0]
+    raw = remote_zip_extract_entry(zip_url, entry)
+    return raw, entry
+
+
+def xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def xml_first_text(root: ET.Element, names: set[str]) -> str:
+    for element in root.iter():
+        if xml_local_name(element.tag) in names and element.text and element.text.strip():
+            return normalize_space(element.text)
+    return ""
+
+
+def xml_first_number(root: ET.Element, names: set[str]) -> float | None:
+    value = xml_first_text(root, names)
+    return number(value)
+
+
+def xml_boolish(value: object) -> bool | None:
+    text = str(value or "").strip().lower()
+    if text in {"1", "true", "yes", "y", "x"}:
+        return True
+    if text in {"0", "false", "no", "n"}:
+        return False
+    return None
+
+
+def parse_irs_990_xml(raw: bytes) -> dict[str, Any]:
+    root = ET.fromstring(raw)
+    fields: dict[str, Any] = {
+        "activity_or_mission": xml_first_text(root, {"ActivityOrMissionDesc", "MissionDesc", "Desc"}),
+        "total_revenue": xml_first_number(root, {"CYTotalRevenueAmt", "TotalRevenueAmt"}),
+        "previous_total_revenue": xml_first_number(root, {"PYTotalRevenueAmt"}),
+        "total_expenses": xml_first_number(root, {"CYTotalExpensesAmt", "TotalFunctionalExpensesAmt"}),
+        "previous_total_expenses": xml_first_number(root, {"PYTotalExpensesAmt"}),
+        "contributions_gifts_grants": xml_first_number(root, {"CYContributionsGrantsAmt", "ContriRptFundraisingEventAmt"}),
+        "previous_contributions_gifts_grants": xml_first_number(root, {"PYContributionsGrantsAmt"}),
+        "government_grants": xml_first_number(root, {"GovernmentGrantsAmt"}),
+        "salaries_comp_benefits_current_year": xml_first_number(
+            root,
+            {
+                "CYSalariesCompEmpBnftPaidAmt",
+                "CYSalariesCompEmpBnftAmt",
+                "TotalCompGreaterThan100KGrp",
+                "CompCurrentOfcrDirectorsGrp",
+            },
+        ),
+        "total_employee_count": xml_first_number(root, {"TotalEmployeeCnt", "EmployeeCnt"}),
+        "political_campaign_activity": xml_boolish(xml_first_text(root, {"PoliticalCampaignActyInd"})),
+        "lobbying_activities": xml_boolish(xml_first_text(root, {"LobbyingActivitiesInd"})),
+        "federal_grant_audit_required": xml_boolish(xml_first_text(root, {"FederalGrantAuditRequiredInd"})),
+        "federal_grant_audit_performed": xml_boolish(xml_first_text(root, {"FederalGrantAuditPerformedInd"})),
+        "grant_records_maintained": xml_boolish(xml_first_text(root, {"GrantRecordsMaintainedInd"})),
+    }
+
+    compensation_people: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, float]] = set()
+    for parent in root.iter():
+        child_values: dict[str, str] = {}
+        for child in list(parent):
+            name = xml_local_name(child.tag)
+            text = normalize_space(child.text or "")
+            if text:
+                child_values[name] = text
+        person = child_values.get("PersonNm") or child_values.get("BusinessNameLine1Txt") or child_values.get("BusinessNameLine1")
+        if not person:
+            continue
+        title = child_values.get("TitleTxt") or child_values.get("Title") or ""
+        org_comp = number(child_values.get("ReportableCompFromOrgAmt")) or 0.0
+        related_comp = number(child_values.get("ReportableCompFromRltdOrgAmt")) or 0.0
+        other_comp = number(child_values.get("OtherCompensationAmt")) or 0.0
+        total_comp = number(child_values.get("TotalCompensationFilingOrgAmt"))
+        if total_comp is None:
+            total_comp = org_comp + related_comp + other_comp
+        if not total_comp:
+            continue
+        key = (person, title, float(total_comp))
+        if key in seen:
+            continue
+        seen.add(key)
+        compensation_people.append(
+            {
+                "person": person,
+                "title": title,
+                "reportable_comp_from_org": org_comp or None,
+                "reportable_comp_from_related_orgs": related_comp or None,
+                "other_compensation": other_comp or None,
+                "total_compensation": float(total_comp),
+            }
+        )
+    compensation_people = sorted(compensation_people, key=lambda item: float(item.get("total_compensation") or 0), reverse=True)
+    fields["compensation_people"] = compensation_people[:10]
+    if compensation_people:
+        top = compensation_people[0]
+        fields["top_compensation_total"] = top.get("total_compensation")
+        fields["top_compensation_person"] = top.get("person")
+        fields["top_compensation_title"] = top.get("title")
+        fields["compensation_is_aggregate"] = False
+    return fields
+
+
 def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
     """Acquire raw filing artifacts where public URLs are available.
 
     This keeps the raw-return work in deterministic source acquisition. It
     archives the latest ProPublica-linked full 990 PDF per entity when possible
-    and probes plausible IRS XML object URLs without treating missing XML as a
-    successful source hit.
+    and extracts the official IRS XML object from the TEOS bulk ZIP when the
+    IRS index identifies the batch. Large ZIPs are read by byte range so source
+    acquisition stays deterministic without downloading entire yearly archives.
     """
 
     IRS_RAW_DIR.mkdir(parents=True, exist_ok=True)
@@ -931,6 +1206,7 @@ def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
 
     rows: list[dict[str, Any]] = []
     index_entries = irs_index_entries_for_rows(list(latest_by_entity.values()))
+    zip_entry_cache: dict[str, list[dict[str, Any]]] = {}
     for entity, row in sorted(latest_by_entity.items()):
         slug = slugify(entity)
         year = int(row.get("tax_period_year") or 0)
@@ -963,6 +1239,25 @@ def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
         xml_downloaded = False
         xml_path = IRS_RAW_DIR / f"{slug}_{ein}_{year}_form_990.xml"
         xml_sha256 = ""
+        xml_final_url = ""
+        xml_content_type = ""
+        xml_error = ""
+        xml_zip_entry: dict[str, Any] = {}
+        parsed_detail_fields = {
+            "total_revenue": row.get("total_revenue"),
+            "total_expenses": row.get("total_expenses"),
+            "officer_compensation_total": row.get("officer_compensation_total"),
+            "top_compensation_total": row.get("top_compensation_total"),
+            "top_compensation_person": row.get("top_compensation_person"),
+            "top_compensation_title": row.get("top_compensation_title"),
+            "compensation_is_aggregate": row.get("compensation_is_aggregate"),
+            "salaries_comp_benefits_current_year": row.get("salaries_comp_benefits_current_year"),
+            "contributions_gifts_grants": row.get("contributions_gifts_grants"),
+            "government_grants": row.get("government_grants"),
+            "total_employee_count": row.get("total_employee_count"),
+            "political_campaign_activity": row.get("political_campaign_activity"),
+            "lobbying_activities": row.get("lobbying_activities"),
+        }
         for check in xml_checks:
             if not check.get("reachable"):
                 continue
@@ -972,9 +1267,24 @@ def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
                 check.update({"downloaded": True, "final_url": final_url, "content_type": content_type})
                 xml_downloaded = True
                 xml_sha256 = sha256_bytes(raw)
+                xml_final_url = final_url
+                xml_content_type = content_type
+                parsed_detail_fields.update({key: value for key, value in parse_irs_990_xml(raw).items() if value is not None and value != ""})
                 break
             except Exception as exc:
                 check["download_error"] = repr(exc)
+                xml_error = repr(exc)
+        if not xml_downloaded and xml_zip_url and str(index_entry.get("object_id") or ""):
+            try:
+                raw, xml_zip_entry = remote_zip_extract_irs_xml(xml_zip_url, str(index_entry["object_id"]), zip_entry_cache)
+                xml_path.write_bytes(raw)
+                xml_downloaded = True
+                xml_sha256 = sha256_bytes(raw)
+                xml_final_url = xml_zip_url
+                xml_content_type = "application/xml"
+                parsed_detail_fields.update({key: value for key, value in parse_irs_990_xml(raw).items() if value is not None and value != ""})
+            except Exception as exc:
+                xml_error = repr(exc)
 
         rows.append(
             {
@@ -999,9 +1309,15 @@ def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
                 "xml_downloaded": xml_downloaded,
                 "xml_local_path": str(xml_path) if xml_downloaded else "",
                 "xml_sha256": xml_sha256,
+                "xml_final_url": xml_final_url,
+                "xml_content_type": xml_content_type,
+                "xml_zip_entry": xml_zip_entry,
+                "xml_error": xml_error,
                 "raw_source_status": (
                     "pdf_and_xml_downloaded"
                     if pdf_downloaded and xml_downloaded
+                    else "official_irs_xml_extracted"
+                    if xml_downloaded
                     else "pdf_downloaded_xml_index_confirmed"
                     if pdf_downloaded and xml_index_confirmed
                     else "xml_index_confirmed_zip_not_downloaded"
@@ -1010,16 +1326,10 @@ def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
                     if pdf_downloaded
                     else "raw_artifact_missing"
                 ),
-                "parsed_detail_fields": {
-                    "total_revenue": row.get("total_revenue"),
-                    "total_expenses": row.get("total_expenses"),
-                    "officer_compensation_total": row.get("officer_compensation_total"),
-                    "salaries_comp_benefits_current_year": row.get("salaries_comp_benefits_current_year"),
-                    "contributions_gifts_grants": row.get("contributions_gifts_grants"),
-                },
+                "parsed_detail_fields": parsed_detail_fields,
                 "caveats": [
                     "PDF acquisition archives the public filing for human or downstream parser review; it is not itself a parsed line-item extraction.",
-                    "IRS XML index confirmation identifies the official IRS bulk XML batch; this pass does not download very large bulk ZIP files unless the direct object URL is reachable.",
+                    "IRS XML byte-range extraction uses the official IRS index and bulk ZIP entry; parsed line items remain parser outputs that should be checked against the raw XML/PDF for high-stakes conclusions.",
                 ],
             }
         )
@@ -1027,7 +1337,7 @@ def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
     table = {
         "created_at": now(),
         "case_id": CASE_ID,
-        "methodology": "Archive latest full Form 990 PDF per matched entity when a public filing URL is available; probe candidate IRS XML URLs and preserve misses as source gaps.",
+        "methodology": "Archive latest full Form 990 PDF per matched entity when a public filing URL is available; use official IRS TEOS index rows and byte-range ZIP extraction to recover the raw XML object where available.",
         "rows": rows,
         "row_count": len(rows),
         "pdf_downloaded_count": len([row for row in rows if row["pdf_downloaded"]]),
@@ -1040,15 +1350,306 @@ def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
     return table
 
 
+def normalize_ein(value: object) -> str:
+    return re.sub(r"[^0-9]", "", str(value or "")).lstrip("0")
+
+
+def stream_fac_csv(url: str, timeout: int = 240):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 CalDS official source acquisition/1.0",
+            "Accept": "text/csv,*/*",
+        },
+    )
+    context = ssl.create_default_context()
+    response = urllib.request.urlopen(request, timeout=timeout, context=context)
+    return response, csv.DictReader(io.TextIOWrapper(response, encoding="utf-8", newline=""))
+
+
+def fac_audit_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
+    """Filter official Federal Audit Clearinghouse data for matched target EINs."""
+
+    FAC_DIR.mkdir(parents=True, exist_ok=True)
+    target_by_ein: dict[str, str] = {}
+    for match in tax_table.get("matches", []):
+        ein = normalize_ein(match.get("ein"))
+        entity = str(match.get("entity") or "")
+        if ein and entity:
+            target_by_ein[ein] = entity
+    for row in tax_table.get("rows", []):
+        ein = normalize_ein(row.get("ein"))
+        entity = str(row.get("entity") or "")
+        if ein and entity:
+            target_by_ein[ein] = entity
+
+    matched_general: list[dict[str, Any]] = []
+    report_to_entity: dict[str, str] = {}
+    report_to_ein: dict[str, str] = {}
+    errors: list[dict[str, str]] = []
+    try:
+        response, reader = stream_fac_csv(FAC_GENERAL_CSV_URL)
+        with response:
+            for row in reader:
+                ein = normalize_ein(row.get("auditee_ein"))
+                entity = target_by_ein.get(ein)
+                if not entity:
+                    continue
+                normalized = dict(row)
+                normalized["entity"] = entity
+                normalized["matched_ein"] = ein
+                matched_general.append(normalized)
+                report_id = str(row.get("report_id") or "")
+                if report_id:
+                    report_to_entity[report_id] = entity
+                    report_to_ein[report_id] = ein
+    except Exception as exc:
+        errors.append({"source_url": FAC_GENERAL_CSV_URL, "error": repr(exc)})
+
+    report_ids = set(report_to_entity)
+    finding_rows: list[dict[str, Any]] = []
+    finding_text_rows: list[dict[str, Any]] = []
+    corrective_rows: list[dict[str, Any]] = []
+    award_rows: list[dict[str, Any]] = []
+
+    def collect_by_report(url: str, target: list[dict[str, Any]], kind: str) -> None:
+        if not report_ids:
+            return
+        try:
+            response, reader = stream_fac_csv(url)
+            with response:
+                for row in reader:
+                    report_id = str(row.get("report_id") or "")
+                    if report_id not in report_ids:
+                        continue
+                    normalized = dict(row)
+                    normalized["entity"] = report_to_entity[report_id]
+                    normalized["matched_ein"] = report_to_ein.get(report_id, "")
+                    normalized["source_kind"] = kind
+                    target.append(normalized)
+        except Exception as exc:
+            errors.append({"source_url": url, "error": repr(exc)})
+
+    collect_by_report(FAC_FINDINGS_CSV_URL, finding_rows, "findings")
+    collect_by_report(FAC_FINDINGS_TEXT_CSV_URL, finding_text_rows, "findings_text")
+    collect_by_report(FAC_CORRECTIVE_ACTION_CSV_URL, corrective_rows, "corrective_action_plans")
+    collect_by_report(FAC_AWARDS_CSV_URL, award_rows, "federal_awards")
+
+    by_entity: dict[str, dict[str, Any]] = {}
+    for entity in target_by_ein.values():
+        by_entity.setdefault(
+            entity,
+            {
+                "entity": entity,
+                "matched_eins": sorted({ein for ein, candidate in target_by_ein.items() if candidate == entity}),
+                "report_ids": [],
+                "audit_years": [],
+                "fac_report_count": 0,
+                "fac_findings_row_count": 0,
+                "material_weakness_years": [],
+                "internal_control_deficiency_years": [],
+                "material_noncompliance_years": [],
+                "not_low_risk_years": [],
+                "fac_award_amount_total": 0.0,
+                "status": "no_fac_report_found_for_matched_ein",
+            },
+        )
+    for row in matched_general:
+        entity = str(row["entity"])
+        summary = by_entity.setdefault(entity, {"entity": entity})
+        report_id = str(row.get("report_id") or "")
+        audit_year = str(row.get("audit_year") or "")
+        summary.setdefault("matched_eins", [])
+        summary.setdefault("report_ids", [])
+        summary.setdefault("audit_years", [])
+        summary.setdefault("material_weakness_years", [])
+        summary.setdefault("internal_control_deficiency_years", [])
+        summary.setdefault("material_noncompliance_years", [])
+        summary.setdefault("not_low_risk_years", [])
+        if report_id and report_id not in summary["report_ids"]:
+            summary["report_ids"].append(report_id)
+        if audit_year and audit_year not in summary["audit_years"]:
+            summary["audit_years"].append(audit_year)
+        if xml_boolish(row.get("is_internal_control_material_weakness_disclosed")) and audit_year not in summary["material_weakness_years"]:
+            summary["material_weakness_years"].append(audit_year)
+        if xml_boolish(row.get("is_internal_control_deficiency_disclosed")) and audit_year not in summary["internal_control_deficiency_years"]:
+            summary["internal_control_deficiency_years"].append(audit_year)
+        if xml_boolish(row.get("is_material_noncompliance_disclosed")) and audit_year not in summary["material_noncompliance_years"]:
+            summary["material_noncompliance_years"].append(audit_year)
+        if xml_boolish(row.get("is_low_risk_auditee")) is False and audit_year not in summary["not_low_risk_years"]:
+            summary["not_low_risk_years"].append(audit_year)
+        summary["fac_report_count"] = len(summary["report_ids"])
+        summary["status"] = "fac_report_found"
+
+    findings_by_entity: dict[str, int] = {}
+    for row in finding_rows:
+        entity = str(row.get("entity") or "")
+        findings_by_entity[entity] = findings_by_entity.get(entity, 0) + 1
+    award_total_by_entity: dict[str, float] = {}
+    award_top_by_entity: dict[str, dict[str, Any]] = {}
+    for row in award_rows:
+        entity = str(row.get("entity") or "")
+        amount = number(row.get("amount_expended")) or number(row.get("amount_expended_total")) or 0.0
+        award_total_by_entity[entity] = award_total_by_entity.get(entity, 0.0) + amount
+        existing = award_top_by_entity.get(entity)
+        if existing is None or amount > float(existing.get("amount_expended_total") or 0):
+            award_top_by_entity[entity] = {
+                "entity": entity,
+                "report_id": row.get("report_id"),
+                "federal_program_name": row.get("federal_program_name") or row.get("program_name") or row.get("cluster_name") or "",
+                "amount_expended_total": amount,
+                "assistance_listing": row.get("assistance_listing_number") or row.get("federal_award_reference_number") or "",
+            }
+    for entity, summary in by_entity.items():
+        summary["fac_findings_row_count"] = findings_by_entity.get(entity, 0)
+        summary["fac_award_amount_total"] = award_total_by_entity.get(entity, 0.0)
+        for key in ["report_ids", "audit_years", "material_weakness_years", "internal_control_deficiency_years", "material_noncompliance_years", "not_low_risk_years"]:
+            summary[key] = sorted(summary.get(key, []))
+
+    write_json(FAC_DIR / "fac_general_filtered.json", {"source_url": FAC_GENERAL_CSV_URL, "rows": matched_general, "row_count": len(matched_general)})
+    write_json(FAC_DIR / "fac_findings_filtered.json", {"source_url": FAC_FINDINGS_CSV_URL, "rows": finding_rows, "row_count": len(finding_rows)})
+    write_json(FAC_DIR / "fac_findings_text_filtered.json", {"source_url": FAC_FINDINGS_TEXT_CSV_URL, "rows": finding_text_rows, "row_count": len(finding_text_rows)})
+    write_json(FAC_DIR / "fac_corrective_actions_filtered.json", {"source_url": FAC_CORRECTIVE_ACTION_CSV_URL, "rows": corrective_rows, "row_count": len(corrective_rows)})
+    write_json(FAC_DIR / "fac_federal_awards_filtered.json", {"source_url": FAC_AWARDS_CSV_URL, "rows": award_rows, "row_count": len(award_rows)})
+
+    table = {
+        "created_at": now(),
+        "case_id": CASE_ID,
+        "methodology": "Filter official Federal Audit Clearinghouse public CSV extracts by matched ProPublica/IRS EINs only; preserve no-report rows as coverage results rather than adverse findings. Name fallback is intentionally disabled to avoid broad false positives on common nonprofit words.",
+        "source_urls": [
+            FAC_DOWNLOAD_CURRENT_URL,
+            FAC_DATA_URL,
+            FAC_API_URL,
+            FAC_GENERAL_CSV_URL,
+            FAC_AWARDS_CSV_URL,
+            FAC_FINDINGS_CSV_URL,
+            FAC_FINDINGS_TEXT_CSV_URL,
+            FAC_CORRECTIVE_ACTION_CSV_URL,
+        ],
+        "target_eins": target_by_ein,
+        "audit_summary": sorted(by_entity.values(), key=lambda item: str(item.get("entity", ""))),
+        "award_summary": sorted(award_top_by_entity.values(), key=lambda item: str(item.get("entity", ""))),
+        "general_rows": matched_general[:200],
+        "findings_rows": finding_rows[:200],
+        "findings_text_rows": finding_text_rows[:200],
+        "corrective_action_rows": corrective_rows[:200],
+        "errors": errors,
+        "row_count": len(by_entity),
+        "source_family": "audit",
+    }
+    write_json(FAC_DIR / "fac_audit_summary.json", table)
+    return table
+
+
+LOCAL_CONTRACT_MONITORING_SOURCES: list[dict[str, Any]] = [
+    {
+        "entity": "Hope the Mission",
+        "source_url": LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL,
+        "source_title": "Los Angeles City Administrative Officer Homekey Round 3 recommendations",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": (
+            "Los Angeles City records authorize Homekey Round 3 applications and funding actions for Motel 6 North Hills and Oak Tree Inn, "
+            "two source-listed projects where Hope the Mission appears in the HCD award exposure table."
+        ),
+        "project_context": "Motel 6 North Hills; Oak Tree Inn",
+        "money_context": "City report table lists Homekey request and City match amounts by project; direct nonprofit receipt still requires agreement/payment records.",
+    },
+    {
+        "entity": "Weingart Center Association",
+        "source_url": LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL,
+        "source_title": "Los Angeles City Administrative Officer Homekey Round 3 recommendations",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": (
+            "Los Angeles City records identify Cheviot Hills/Shelby as a Homekey Round 3 site and include an authorizing resolution for joint application with Weingart Center Association."
+        ),
+        "project_context": "Cheviot Hills/Shelby; 3340 Shelby Drive",
+        "money_context": "City report table lists Homekey request and City match amounts for the Shelby project; direct payment tracing still requires agreements, escrow, draw, and operating records.",
+    },
+    {
+        "entity": "Weingart Center Association",
+        "source_url": LA_CITY_SHELBY_2026_OPERATIONS_URL,
+        "source_title": "Los Angeles FY 2025-26 Third Homelessness Funding Report",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": "Los Angeles City records state the Weingart Shelby at 3340 Shelby Drive was expected to begin operations on March 26, 2026.",
+        "project_context": "The Weingart Shelby operations",
+        "money_context": "Operations report context; exact draw and operating-cost ledger remains a source request.",
+    },
+    {
+        "entity": "DignityMoves",
+        "source_url": OAKLAND_DIGNITY_VILLAGE_URL,
+        "source_title": "Oakland awarded $14.3 million in Homekey funds for Dignity Village",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": (
+            "City of Oakland records state the Dignity Village Oakland project received $14.266 million in State Homekey funds and that DignityMoves and Housing Consortium of the East Bay are co-developing the site."
+        ),
+        "project_context": "Dignity Village Oakland, 9418 Edes Ave/606 Clara St.",
+        "money_context": "Official local project award and partner role; direct nonprofit receipts and operating ledgers remain unresolved.",
+    },
+    {
+        "entity": "The People Concern",
+        "source_url": LA_HOMEKEY_PLUS_SAFE_HARBOR_REPORT_URL,
+        "source_title": "Los Angeles Homekey+ Program Recommendations",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": (
+            "Los Angeles City records describe Safe Harbor I and Safe Harbor II as collaborative ventures with The People Concern serving as lead service provider."
+        ),
+        "project_context": "Safe Harbor I at 828 W Anaheim Street; Safe Harbor II at 728 N Lagoon Avenue",
+        "money_context": "Report identifies approximate Homekey+ capital funding requests; final standard agreements and payments remain unresolved.",
+    },
+    {
+        "entity": "The People Concern",
+        "source_url": LA_HOMEKEY_PLUS_SAFE_HARBOR_I_RESOLUTION_URL,
+        "source_title": "Los Angeles Safe Harbor I authorizing resolution",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": "The Safe Harbor I resolution names The People Concern as a co-applicant for Homekey+ funds and states an application amount not to exceed $17.5 million.",
+        "project_context": "Safe Harbor I, 828 W Anaheim Street",
+        "money_context": "Application authority only; standard agreement, allowability, and draw records remain unresolved.",
+    },
+    {
+        "entity": "The People Concern",
+        "source_url": LA_HOMEKEY_PLUS_SAFE_HARBOR_II_RESOLUTION_URL,
+        "source_title": "Los Angeles Safe Harbor II authorizing resolution",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": "The Safe Harbor II resolution names The People Concern as a co-applicant for Homekey+ funds and states an application amount not to exceed $17.04 million.",
+        "project_context": "Safe Harbor II, 728 N Lagoon Avenue",
+        "money_context": "Application authority only; standard agreement, allowability, and draw records remain unresolved.",
+    },
+    {
+        "entity": "California Supportive Housing",
+        "source_url": OAKLAND_QUALITY_INN_URL,
+        "source_title": "Oakland awarded $20.4 million in Homekey Round 3 funds for Quality Inn",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": (
+            "City of Oakland records state Oakland received $20.368 million in State Homekey funds for the Quality Inn and that California Supportive Housing will develop and own the property."
+        ),
+        "project_context": "Quality Inn, 8471 Enterprise Way, Oakland",
+        "money_context": "Official local project award and owner/developer role; direct receipts, draws, and performance records remain unresolved.",
+    },
+    {
+        "entity": "California Supportive Housing",
+        "source_url": OAKLAND_HOMEKEY_R2H2_URL,
+        "source_title": "Oakland City Homekey and Rapid Response Homeless Housing Program",
+        "source_type": "city_contract_monitoring_source",
+        "observed_fact": "Oakland's Homekey program page identifies Quality Inn as a Round 3 project in partnership with California Supportive Housing.",
+        "project_context": "Oakland Homekey/R2H2 project index",
+        "money_context": "Program index context; agreement/payment records remain unresolved.",
+    },
+]
+
+
 def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Create a contract/payment-ledger acquisition scaffold without counting it as proof."""
 
     CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
     by_entity = {row["entity"]: row for row in summary_rows}
+    recovered_by_entity: dict[str, list[dict[str, Any]]] = {}
+    for source in LOCAL_CONTRACT_MONITORING_SOURCES:
+        recovered_by_entity.setdefault(str(source["entity"]), []).append(dict(source))
     for target in TARGETS:
         summary = by_entity.get(target["name"], {})
         official_sources = sorted({award["source_url"] for award in target["awards"]})
+        recovered_sources = recovered_by_entity.get(target["name"], [])
         query_terms = [
             f"{target['name']} standard agreement",
             f"{target['name']} payment ledger",
@@ -1057,6 +1658,7 @@ def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> 
         ]
         if any(award.get("county") == "Los Angeles" for award in target["awards"]):
             official_sources.extend([LA_CITY_CLERK_BASE_URL, LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL, LA_CITY_SHELBY_2026_OPERATIONS_URL])
+        official_sources.extend(source["source_url"] for source in recovered_sources)
         rows.append(
             {
                 "entity": target["name"],
@@ -1064,10 +1666,12 @@ def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> 
                 "state_award_exposure": summary.get("total_award_exposure"),
                 "project_count": summary.get("project_count"),
                 "counties": summary.get("counties", []),
-                "contract_or_payment_record_recovered": False,
+                "contract_or_payment_record_recovered": bool(recovered_sources),
                 "standard_agreement_status": "not_recovered",
                 "payment_ledger_status": "not_recovered",
-                "monitoring_or_corrective_action_status": "not_recovered",
+                "monitoring_or_corrective_action_status": "local_project_or_application_source_recovered" if recovered_sources else "not_recovered",
+                "recovered_source_count": len(recovered_sources),
+                "recovered_sources": recovered_sources,
                 "official_sources_to_search": sorted(set(official_sources + [HCD_ROUND3_ELIGIBILITY_URL, HCD_PLUS_ELIGIBILITY_URL, HCD_HOMEKEY_FUNDING_URL])),
                 "query_terms": query_terms,
                 "source_gap": True,
@@ -1080,6 +1684,7 @@ def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> 
         "methodology": "Systematic contract/payment-ledger discovery scaffold for every top-15 entity. Rows preserve acquisition gaps and do not count as citation-ready contract evidence.",
         "rows": rows,
         "row_count": len(rows),
+        "recovered_local_source_count": sum(len(row.get("recovered_sources") or []) for row in rows),
         "source_family": "county_contract_monitoring",
     }
     write_json(CONTRACT_DIR / "contract_payment_discovery_summary.json", table)
@@ -1329,6 +1934,7 @@ def write_corpus(corpus_dir: Path) -> None:
     enforcement_table = enforcement_docket_artifacts()
     tax_table = propublica_artifacts()
     raw_tax_table = raw_irs_990_artifacts(tax_table)
+    fac_table = fac_audit_artifacts(tax_table)
     contract_discovery_table = contract_payment_discovery_artifacts(summary_rows)
     enforcement_discovery_table = enforcement_docket_discovery_artifacts(enforcement_table)
 
@@ -1503,7 +2109,8 @@ def write_corpus(corpus_dir: Path) -> None:
                         f"IRS object ID: {row.get('irs_object_id') or 'not available'}.",
                         f"Official IRS XML index confirmed: {row.get('irs_index_confirmed')} batch ZIP: {row.get('irs_xml_zip_url') or 'not available'}.",
                         f"Candidate IRS XML URLs checked: {', '.join(row.get('xml_candidate_urls') or []) or 'none'}",
-                        f"IRS XML downloaded: {row.get('xml_downloaded')}.",
+                        f"IRS XML downloaded: {row.get('xml_downloaded')} local path: {row.get('xml_local_path') or 'not archived'}; ZIP entry: {row.get('xml_zip_entry', {}).get('filename') if isinstance(row.get('xml_zip_entry'), dict) else ''}.",
+                        f"IRS XML SHA256: {row.get('xml_sha256') or 'not available'}.",
                         f"Parsed summary fields from ProPublica/IRS extract: {json.dumps(row.get('parsed_detail_fields', {}), sort_keys=True)}",
                         "Caveats:",
                         *[f"- {caveat}" for caveat in row.get("caveats", [])],
@@ -1531,6 +2138,95 @@ def write_corpus(corpus_dir: Path) -> None:
                     "xml_probe_results": row.get("xml_probe_results", []),
                     "parsed_detail_fields": row.get("parsed_detail_fields", {}),
                     "source_urls": [row.get("pdf_url"), row.get("irs_xml_zip_url"), *row.get("xml_candidate_urls", [])],
+                },
+            )
+        )
+
+    fac_audit_rows = list(fac_table.get("audit_summary", []))
+    fac_award_rows = list(fac_table.get("award_summary", []))
+    fac_entities = sorted({row.get("entity") for row in fac_audit_rows if row.get("entity")})
+    records.append(
+        build_record(
+            "source_table_fac_audit",
+            "Federal Audit Clearinghouse target audit-source extraction table",
+            str(FAC_DIR / "fac_audit_summary.json"),
+            "source_extraction_fac_audit_table",
+            "2026-04-30",
+            fac_entities or tax_entities or entities,
+            "\n".join(
+                [
+                    "Official Federal Audit Clearinghouse CSV extracts filtered to matched top-15 target EINs only. Name fallback is disabled to avoid broad false positives.",
+                    "Rows with no Federal Audit Clearinghouse report are coverage results, not adverse findings. Row-level findings and corrective-action text are preserved when matching report IDs are found.",
+                    f"FAC current download page: {FAC_DOWNLOAD_CURRENT_URL}",
+                    f"Matched audit-summary rows: {len(fac_audit_rows)}.",
+                    f"Matched top federal-award rows: {len(fac_award_rows)}.",
+                    markdown_table(
+                        fac_audit_rows,
+                        [
+                            "entity",
+                            "status",
+                            "audit_years",
+                            "fac_report_count",
+                            "fac_findings_row_count",
+                            "fac_award_amount_total",
+                            "material_weakness_years",
+                            "internal_control_deficiency_years",
+                            "material_noncompliance_years",
+                        ],
+                        limit=40,
+                    ),
+                ]
+            ),
+            {
+                "source_extraction_table": True,
+                "fac_audit_table": True,
+                "fac_official_csv_filtered": True,
+                "audit_source_coverage": True,
+                "missing_data": bool(fac_table.get("errors")),
+            },
+            {
+                "table_path": str(FAC_DIR / "fac_audit_summary.json"),
+                "row_count": len(fac_audit_rows),
+                "award_row_count": len(fac_award_rows),
+                "source_urls": fac_table.get("source_urls", []),
+                "errors": fac_table.get("errors", []),
+            },
+        )
+    )
+    for row in fac_audit_rows:
+        entity = str(row.get("entity") or "")
+        if not entity:
+            continue
+        records.append(
+            build_record(
+                f"fac_audit_summary_{slugify(entity)}",
+                f"Federal Audit Clearinghouse coverage: {entity}",
+                FAC_DOWNLOAD_CURRENT_URL,
+                "fac_audit_summary",
+                "2026-04-30",
+                [entity],
+                "\n".join(
+                    [
+                        f"FAC coverage status for {entity}: {row.get('status')}.",
+                        f"Matched report IDs: {', '.join(row.get('report_ids') or []) or 'none'}; audit years: {', '.join(row.get('audit_years') or []) or 'none'}.",
+                        f"Findings rows: {row.get('fac_findings_row_count')}; federal award amount total in matched rows: {money(float(row.get('fac_award_amount_total') or 0))}.",
+                        f"Material weakness years: {', '.join(row.get('material_weakness_years') or []) or 'none'}.",
+                        f"Internal-control deficiency years: {', '.join(row.get('internal_control_deficiency_years') or []) or 'none'}.",
+                        f"Material noncompliance years: {', '.join(row.get('material_noncompliance_years') or []) or 'none'}.",
+                    ]
+                ),
+                {
+                    "fac_audit_summary": True,
+                    "fac_report_found": row.get("status") == "fac_report_found",
+                    "fac_no_report_found": row.get("status") == "no_fac_report_found_for_matched_ein",
+                    "missing_data": False,
+                },
+                {
+                    "report_ids": row.get("report_ids", []),
+                    "audit_years": row.get("audit_years", []),
+                    "matched_eins": row.get("matched_eins", []),
+                    "source_urls": fac_table.get("source_urls", []),
+                    "table_path": str(FAC_DIR / "fac_audit_summary.json"),
                 },
             )
         )
@@ -1629,6 +2325,38 @@ def write_corpus(corpus_dir: Path) -> None:
             {"table_path": str(CONTRACT_DIR / "contract_payment_discovery_summary.json"), "row_count": len(contract_rows)},
         )
     )
+    for source_index, source in enumerate(LOCAL_CONTRACT_MONITORING_SOURCES, start=1):
+        entity = str(source["entity"])
+        records.append(
+            build_record(
+                f"local_contract_monitoring_{slugify(entity)}_{source_index}",
+                f"Official local project/funding source: {entity}",
+                str(source["source_url"]),
+                str(source.get("source_type") or "city_contract_monitoring_source"),
+                "2026-04-30",
+                [entity],
+                "\n".join(
+                    [
+                        str(source["observed_fact"]),
+                        f"Project context: {source.get('project_context')}.",
+                        f"Money context: {source.get('money_context')}.",
+                        "Control caveat: this record confirms a local official project, application, authorization, or operating-context source; it does not by itself prove direct receipt, cost allowability, or performance.",
+                    ]
+                ),
+                {
+                    "city_contract_monitoring_source": True,
+                    "local_project_source_recovered": True,
+                    "standard_agreement_or_payment_ledger_missing": True,
+                    "missing_data": True,
+                },
+                {
+                    "source_title": source.get("source_title"),
+                    "project_context": source.get("project_context"),
+                    "money_context": source.get("money_context"),
+                    "source_urls": [source.get("source_url")],
+                },
+            )
+        )
     for row in contract_rows:
         entity = row["entity"]
         records.append(
@@ -1922,6 +2650,10 @@ def write_corpus(corpus_dir: Path) -> None:
             "propublica_irs_990_filing_entities": tax_entities,
             "propublica_irs_990_rows": len(tax_rows),
             "propublica_irs_990_match_errors": [match for match in tax_matches if match.get("status") != "matched"],
+            "irs_raw_xml_downloaded_count": raw_tax_table.get("xml_downloaded_count", 0),
+            "fac_audit_summary_rows": len(fac_audit_rows),
+            "fac_filter_errors": fac_table.get("errors", []),
+            "local_contract_monitoring_source_count": len(LOCAL_CONTRACT_MONITORING_SOURCES),
             "service_fetch_failures": [row for row in service_rows if not row.get("fetched")],
             "statement_fetch_failures": [row for row in statement_rows if not row.get("fetched")],
         },
