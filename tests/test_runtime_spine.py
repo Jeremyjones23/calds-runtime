@@ -8,9 +8,10 @@ from uuid import uuid4
 
 from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
-from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json
+from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
 from calds_runtime.publication import extract_urls, publish_case_site_from_run
+from calds_runtime.quality_gates import CompletionGuardService, RunReadinessService
 from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
 from calds_runtime.sentinel import find_escalated_language
@@ -276,6 +277,91 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("mandatory deep-dive trigger", results[0].findings[0].trigger_reason)
         self.assertIn("presumed innocent", " ".join(results[0].findings[0].caveats))
 
+    def test_completion_guard_does_not_count_discovery_only_records(self) -> None:
+        record = CanonicalRecord(
+            record_id="enforcement_docket_discovery_shelter_group",
+            title="Systematic enforcement search target: Shelter Group",
+            body="Search target row only; no official enforcement record recovered.",
+            source_uri="https://www.justice.gov/",
+            source_type="enforcement_docket_discovery",
+            published_at="2026-04-30",
+            entities=["Shelter Group"],
+            attributes={"signals": {"discovery_only_source_gap": True, "source_gap_only": True, "not_citation_ready": True}},
+            provenance=Provenance(
+                record_id="enforcement_docket_discovery_shelter_group",
+                source_uri="https://www.justice.gov/",
+                source_type="enforcement_docket_discovery",
+                collected_at="2026-04-30T00:00:00+00:00",
+                checksum="discovery",
+                corpus_name="test",
+                chunk_id="discovery#body",
+            ),
+        )
+        case = CaseRequest(case_id="guard_test", title="Guard regression", objective="Do not count discovery gaps.", entities=["Shelter Group"])
+        ledger = CompletionGuardService().build_acquisition_ledger(case, [record], ["Shelter Group"], ["enforcement_or_docket"])
+        self.assertEqual(ledger[0].status, "miss")
+        self.assertEqual(ledger[0].matched_record_ids, [])
+        self.assertIn("Only discovery/source-gap", ledger[0].blocker_reason)
+
+    def test_workflow_adds_selected_entity_deep_source_context_hits(self) -> None:
+        temp_dir = PROJECT_ROOT / "runs" / "tests" / f"deep-source-context-{uuid4().hex}"
+        corpus = temp_dir / "corpus"
+        try:
+            write_json(
+                corpus / "contract_payment_discovery_shelter_group.json",
+                {
+                    "record_id": "contract_payment_discovery_shelter_group",
+                    "title": "Contract/payment acquisition gap: Shelter Group",
+                    "source_uri": "https://www.hcd.ca.gov/funding/homekey/funding-overview",
+                    "source_type": "contract_payment_discovery",
+                    "published_at": "2026-04-30",
+                    "entities": ["Shelter Group"],
+                    "attributes": {"signals": {"discovery_only_source_gap": True}},
+                    "body": "No direct standard agreement, payment ledger, monitoring letter, or corrective-action record was recovered in this pass.",
+                },
+            )
+            workflow = CaseWorkflow(corpus, temp_dir / "runs")
+            hits = workflow._ensure_source_acquisition_context_hits(["Shelter Group"], [])
+            self.assertEqual([hit.record_id for hit in hits], ["contract_payment_discovery_shelter_group"])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_run_readiness_detects_material_change(self) -> None:
+        temp_dir = PROJECT_ROOT / "runs" / "tests" / f"readiness-{uuid4().hex}"
+        baseline = temp_dir / "baseline" / "case"
+        current = temp_dir / "current" / "case"
+        try:
+            for run_dir, evidence_count, source_type, high_count, guard_hits in [
+                (baseline, 1, "state_homelessness_award", 0, 1),
+                (current, 2, "irs_990_raw_artifact", 1, 2),
+            ]:
+                artifacts = run_dir / "artifacts"
+                write_json(run_dir / "workflow_state.json", {"case_id": "readiness_case", "status": "AWAITING_HUMAN_REVIEW"})
+                write_json(
+                    artifacts / "evidence_bundle.json",
+                    {"case_id": "readiness_case", "items": [{"source_type": source_type} for _ in range(evidence_count)]},
+                )
+                write_json(
+                    artifacts / "oversight_risk_matrix.json",
+                    {
+                        "case_id": "readiness_case",
+                        "indicators": [{"risk_level": "High" if index < high_count else "Medium", "data_status": "Complete"} for index in range(evidence_count)],
+                    },
+                )
+                write_json(artifacts / "completion_guard.json", {"status": "PASS", "hit_count": guard_hits, "blocker_count": 0, "missing_required": []})
+                write_json(artifacts / "acquisition_ledger.json", {"searches": [{"status": "hit"} for _ in range(guard_hits)]})
+                write_json(artifacts / "citation_verification.json", {"status": "PASS", "error_count": 0})
+                write_json(artifacts / "forensic_investigation_plan.json", {"selected_entities": ["Shelter Group"]})
+                write_json(run_dir / "public_site" / "publication_manifest.json", {"passed": True})
+            output = current / "artifacts" / "run_readiness.json"
+            result = RunReadinessService().compare(current, baseline, output)
+            self.assertEqual(result.status, "MATERIAL_CHANGE_READY")
+            self.assertTrue(output.exists())
+            self.assertTrue(any("evidence item count" in item for item in result.material_changes))
+            self.assertEqual(result.blockers, [])
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_homelessness_scope_mismatch_flags_voter_registration(self) -> None:
         record = CanonicalRecord(
             record_id="public_statements_shelter_group",
@@ -321,6 +407,14 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("citizenship", module.HOMELESSNESS_SCOPE_HIGH_TERMS)
         self.assertIn("ice enforcement", module.HOMELESSNESS_SCOPE_HIGH_TERMS)
         self.assertEqual(module.propublica_org_page("956054617"), "https://projects.propublica.org/nonprofits/organizations/956054617")
+        self.assertTrue(str(module.IRS_RAW_DIR).endswith("irs_raw"))
+        self.assertTrue(str(module.CONTRACT_DIR).endswith("contracts"))
+        self.assertTrue(str(module.DOCKET_DIR).endswith("enforcement_dockets"))
+        self.assertEqual(
+            module.extract_object_id_from_pdf_url("https://projects.propublica.org/nonprofits/download-filing?path=IRS%2F956054617_202304_990_2024040522347579.pdf"),
+            "2024040522347579",
+        )
+        self.assertTrue(module.irs_xml_candidate_urls({"pdf_url": "https://projects.propublica.org/nonprofits/download-filing?path=IRS%2F956054617_202304_990_2024040522347579.pdf", "ein": "956054617", "tax_period": "202304"}))
 
     def test_public_url_extractor_stops_at_escaped_newline(self) -> None:
         value = "ProPublica API: https://projects.propublica.org/nonprofits/api/\\nIRS source: https://www.irs.gov/example"

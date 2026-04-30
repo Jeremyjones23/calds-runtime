@@ -356,6 +356,21 @@ class CompletionGuardResult:
 
 
 @dataclass(frozen=True)
+class RunReadinessResult:
+    readiness_id: str
+    case_id: str
+    status: str
+    current_run_dir: str
+    baseline_run_dir: str
+    current_metrics: dict[str, Any]
+    baseline_metrics: dict[str, Any]
+    material_changes: list[str]
+    blockers: list[str]
+    recommendation: str
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
 class CitationCheck:
     check_id: str
     case_id: str

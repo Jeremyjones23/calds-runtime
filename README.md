@@ -32,11 +32,12 @@ Review packets use possible waste, fraud, abuse, or mismanagement screening lang
 
 The homelessness workflow now includes a first-pass top-15 triage gate before deep investigation. The gate records entity-level source-family findings, deep-dive selection, and context handoff status before the normal evidence bundle, sentinel, dossier, public-site, and human-review pause steps.
 
-The workflow also includes three anti-drift quality gates:
+The workflow also includes four anti-drift quality gates:
 
 - `CompletionGuardService` records source-family acquisition hits and misses before synthesis, so missing searches become explicit blockers rather than silent omissions.
 - `CitationVerifierService` checks the compiled dossier for unresolved evidence labels, missing traceability, named-party legal-status drift, and provider-attribution overclaim.
 - `LinkIntegrityService` checks public source links during static-site publication and blocks publication when external citation links are broken.
+- `RunReadinessService` compares a rerun against a baseline and reports whether the new run is materially deeper before treating it as an improved result.
 
 ## Quick Start
 
@@ -75,6 +76,7 @@ Run the homelessness top-15 corpus refresh and workflow:
 python scripts\ingest_homelessness_top15_sources.py --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2
 python -m calds_runtime run-case --case-file cases\live_ca_homelessness_top15_case.json --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2 --runs-dir runs\live-homelessness-forensic-local
 python -m calds_runtime publish-case-site --run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --output-dir site\cases\live_ca_homelessness_top15_2026_04_29
+python -m calds_runtime compare-run-readiness --current-run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --baseline-run-dir runs\<baseline-run>\live_ca_homelessness_top15_2026_04_29 --output-file runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29\artifacts\run_readiness.json
 ```
 
 ## Current Verification Baseline
@@ -92,7 +94,7 @@ The latest live workflow reached `AWAITING_HUMAN_REVIEW` with sentinel decision 
 
 ## Source Notes
 
-The live pipeline can ingest public official and public-access sources such as California HDIS homelessness/SPM datasets, CHHS MAT and overdose profile datasets, DOJ OpenJustice crime data, DHCS CalOMS/adverse-action pages, ProPublica Nonprofit Explorer API summaries linked to IRS Form 990 filings, IRS Form 990 XML/PDF sources, Federal Audit Clearinghouse reports, county records, and target organization public statement pages.
+The live pipeline can ingest public official and public-access sources such as California HDIS homelessness/SPM datasets, CHHS MAT and overdose profile datasets, DOJ OpenJustice crime data, DHCS CalOMS/adverse-action pages, ProPublica Nonprofit Explorer API summaries linked to IRS Form 990 filings, IRS Form 990 XML index and bulk-batch sources, full Form 990 PDFs when public endpoints permit download, Federal Audit Clearinghouse reports, county records, and target organization public statement pages.
 
 The homelessness triage model treats connected-party official legal records as mandatory deep-review triggers while preserving named-party status. It also screens voter registration, citizenship, immigration, advocacy, lobbying, and political-language matches as homelessness funding-scope and cost-allocation questions rather than automatic illegality.
 

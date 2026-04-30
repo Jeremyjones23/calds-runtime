@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 import argparse
+import csv
 import hashlib
 import json
 import re
@@ -21,6 +22,9 @@ RAW_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" /
 OUTCOME_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "outcomes"
 WEB_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "web"
 PROPUBLICA_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "propublica"
+IRS_RAW_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "irs_raw"
+CONTRACT_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "contracts"
+DOCKET_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "enforcement_dockets"
 DEFAULT_CORPUS_DIR = PROJECT_ROOT / "data" / "live_corpus" / f"{CASE_ID}_stage1"
 
 HCD_ROUND3_URL = "https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/homekey-round-3-awardee-list.pdf"
@@ -42,6 +46,10 @@ IRS_FORM_990_DOWNLOADS_URL = "https://www.irs.gov/charities-non-profits/form-990
 IRS_TEOS_BULK_URL = "https://www.irs.gov/charities-non-profits/tax-exempt-organization-search-bulk-data-downloads"
 FAC_DATA_URL = "https://www.fac.gov/data/"
 FAC_API_URL = "https://www.fac.gov/api"
+LA_CITY_CLERK_BASE_URL = "https://cityclerk.lacity.org/"
+US_DOJ_BASE_URL = "https://www.justice.gov/"
+US_COURTS_PACER_URL = "https://pcl.uscourts.gov/pcl/index.jsf"
+CA_COURTS_URL = "https://www.courts.ca.gov/"
 
 HOMELESSNESS_SCOPE_HIGH_TERMS = [
     "voter registration",
@@ -787,6 +795,342 @@ def propublica_artifacts() -> dict[str, Any]:
     return table
 
 
+def extract_object_id_from_pdf_url(pdf_url: str) -> str:
+    parsed = urllib.parse.urlparse(pdf_url or "")
+    path_values = urllib.parse.parse_qs(parsed.query).get("path", [])
+    path = path_values[0] if path_values else parsed.path
+    match = re.search(r"([0-9]{12,})\.pdf", path)
+    return match.group(1) if match else ""
+
+
+def irs_xml_candidate_urls(row: dict[str, Any]) -> list[str]:
+    object_id = extract_object_id_from_pdf_url(str(row.get("pdf_url") or ""))
+    if not object_id:
+        return []
+    filing_year = object_id[:4]
+    ein = re.sub(r"[^0-9]", "", str(row.get("ein") or ""))
+    tax_period = re.sub(r"[^0-9]", "", str(row.get("tax_period") or ""))
+    candidates = [f"https://apps.irs.gov/pub/epostcard/990/xml/{filing_year}/{object_id}_public.xml"]
+    if ein and tax_period:
+        candidates.append(f"https://apps.irs.gov/pub/epostcard/990/xml/{filing_year}/{ein}_{tax_period}_990_{object_id}_public.xml")
+    return candidates
+
+
+def irs_index_url(year: str) -> str:
+    return f"https://apps.irs.gov/pub/epostcard/990/xml/{year}/index_{year}.csv"
+
+
+def irs_xml_zip_url(year: str, batch_id: str) -> str:
+    return f"https://apps.irs.gov/pub/epostcard/990/xml/{year}/{batch_id.upper()}.zip"
+
+
+def irs_index_entries_for_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    target_object_ids = {extract_object_id_from_pdf_url(str(row.get("pdf_url") or "")) for row in rows}
+    target_object_ids.discard("")
+    target_pairs = {
+        (re.sub(r"[^0-9]", "", str(row.get("ein") or "")), re.sub(r"[^0-9]", "", str(row.get("tax_period") or "")))
+        for row in rows
+        if row.get("ein") and row.get("tax_period")
+    }
+    years = sorted({object_id[:4] for object_id in target_object_ids if len(object_id) >= 4})
+    matches: dict[str, dict[str, Any]] = {}
+    for year in years:
+        index_path = IRS_RAW_DIR / f"index_{year}.csv"
+        source_url = irs_index_url(year)
+        try:
+            if not index_path.exists():
+                raw, final_url, content_type = fetch_bytes(source_url, timeout=180, attempts=2)
+                index_path.write_bytes(raw)
+                write_json(
+                    IRS_RAW_DIR / f"index_{year}_manifest.json",
+                    {
+                        "source_url": source_url,
+                        "final_url": final_url,
+                        "content_type": content_type,
+                        "byte_count": len(raw),
+                        "sha256": sha256_bytes(raw),
+                    },
+                )
+            with index_path.open("r", encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for index_row in reader:
+                    object_id = str(index_row.get("OBJECT_ID") or "")
+                    pair = (str(index_row.get("EIN") or ""), str(index_row.get("TAX_PERIOD") or ""))
+                    if object_id in target_object_ids or pair in target_pairs:
+                        batch_id = str(index_row.get("XML_BATCH_ID") or "")
+                        normalized = {
+                            "return_id": index_row.get("RETURN_ID"),
+                            "ein": index_row.get("EIN"),
+                            "tax_period": index_row.get("TAX_PERIOD"),
+                            "taxpayer_name": index_row.get("TAXPAYER_NAME"),
+                            "return_type": index_row.get("RETURN_TYPE"),
+                            "object_id": object_id,
+                            "xml_batch_id": batch_id,
+                            "index_url": source_url,
+                            "index_local_path": str(index_path),
+                            "xml_zip_url": irs_xml_zip_url(year, batch_id) if batch_id else "",
+                        }
+                        if object_id:
+                            matches[object_id] = normalized
+                        matches[f"{pair[0]}:{pair[1]}"] = normalized
+        except Exception as exc:
+            write_json(
+                IRS_RAW_DIR / f"index_{year}_error.json",
+                {"source_url": source_url, "error": repr(exc), "target_object_ids": sorted(target_object_ids)},
+            )
+    return matches
+
+
+def probe_url(url: str, timeout: int = 20) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "CalDS source acquisition checker/1.0", "Accept": "application/xml,text/xml,*/*"},
+        method="HEAD",
+    )
+    context = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+            return {
+                "url": url,
+                "reachable": 200 <= int(response.status) < 400,
+                "http_status": int(response.status),
+                "content_type": response.headers.get("content-type", ""),
+                "final_url": response.geturl(),
+                "error": "",
+            }
+    except Exception as exc:
+        return {
+            "url": url,
+            "reachable": False,
+            "http_status": getattr(exc, "code", None),
+            "content_type": "",
+            "final_url": "",
+            "error": repr(exc),
+        }
+
+
+def raw_irs_990_artifacts(tax_table: dict[str, Any]) -> dict[str, Any]:
+    """Acquire raw filing artifacts where public URLs are available.
+
+    This keeps the raw-return work in deterministic source acquisition. It
+    archives the latest ProPublica-linked full 990 PDF per entity when possible
+    and probes plausible IRS XML object URLs without treating missing XML as a
+    successful source hit.
+    """
+
+    IRS_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    latest_by_entity: dict[str, dict[str, Any]] = {}
+    for row in tax_table.get("rows", []):
+        entity = str(row.get("entity") or "")
+        if not entity:
+            continue
+        year = int(row.get("tax_period_year") or 0)
+        existing = latest_by_entity.get(entity)
+        if existing is None or year > int(existing.get("tax_period_year") or 0):
+            latest_by_entity[entity] = dict(row)
+
+    rows: list[dict[str, Any]] = []
+    index_entries = irs_index_entries_for_rows(list(latest_by_entity.values()))
+    for entity, row in sorted(latest_by_entity.items()):
+        slug = slugify(entity)
+        year = int(row.get("tax_period_year") or 0)
+        ein = str(row.get("ein") or "")
+        tax_period = re.sub(r"[^0-9]", "", str(row.get("tax_period") or ""))
+        pdf_url = str(row.get("pdf_url") or "")
+        object_id = extract_object_id_from_pdf_url(pdf_url)
+        index_entry = index_entries.get(object_id) or index_entries.get(f"{re.sub(r'[^0-9]', '', ein)}:{tax_period}") or {}
+        xml_index_confirmed = bool(index_entry)
+        xml_zip_url = str(index_entry.get("xml_zip_url") or "")
+        pdf_path = IRS_RAW_DIR / f"{slug}_{ein}_{year}_form_990.pdf"
+        pdf_downloaded = False
+        pdf_error = ""
+        pdf_sha256 = ""
+        pdf_byte_count = 0
+        pdf_content_type = ""
+        pdf_final_url = ""
+        if pdf_url:
+            try:
+                raw, pdf_final_url, pdf_content_type = fetch_bytes(pdf_url, timeout=120, attempts=2)
+                pdf_path.write_bytes(raw)
+                pdf_downloaded = True
+                pdf_sha256 = sha256_bytes(raw)
+                pdf_byte_count = len(raw)
+            except Exception as exc:
+                pdf_error = repr(exc)
+
+        xml_candidates = irs_xml_candidate_urls(row)
+        xml_checks = [probe_url(url) for url in xml_candidates[:2]]
+        xml_downloaded = False
+        xml_path = IRS_RAW_DIR / f"{slug}_{ein}_{year}_form_990.xml"
+        xml_sha256 = ""
+        for check in xml_checks:
+            if not check.get("reachable"):
+                continue
+            try:
+                raw, final_url, content_type = fetch_bytes(str(check["url"]), timeout=60, attempts=1)
+                xml_path.write_bytes(raw)
+                check.update({"downloaded": True, "final_url": final_url, "content_type": content_type})
+                xml_downloaded = True
+                xml_sha256 = sha256_bytes(raw)
+                break
+            except Exception as exc:
+                check["download_error"] = repr(exc)
+
+        rows.append(
+            {
+                "entity": entity,
+                "ein": ein,
+                "tax_period": row.get("tax_period"),
+                "tax_period_year": year,
+                "irs_object_id": object_id,
+                "irs_index_confirmed": xml_index_confirmed,
+                "irs_index_entry": index_entry,
+                "irs_xml_zip_url": xml_zip_url,
+                "pdf_url": pdf_url,
+                "pdf_downloaded": pdf_downloaded,
+                "pdf_final_url": pdf_final_url,
+                "pdf_local_path": str(pdf_path) if pdf_downloaded else "",
+                "pdf_content_type": pdf_content_type,
+                "pdf_byte_count": pdf_byte_count,
+                "pdf_sha256": pdf_sha256,
+                "pdf_error": pdf_error,
+                "xml_candidate_urls": xml_candidates,
+                "xml_probe_results": xml_checks,
+                "xml_downloaded": xml_downloaded,
+                "xml_local_path": str(xml_path) if xml_downloaded else "",
+                "xml_sha256": xml_sha256,
+                "raw_source_status": (
+                    "pdf_and_xml_downloaded"
+                    if pdf_downloaded and xml_downloaded
+                    else "pdf_downloaded_xml_index_confirmed"
+                    if pdf_downloaded and xml_index_confirmed
+                    else "xml_index_confirmed_zip_not_downloaded"
+                    if xml_index_confirmed
+                    else "pdf_downloaded_xml_missing"
+                    if pdf_downloaded
+                    else "raw_artifact_missing"
+                ),
+                "parsed_detail_fields": {
+                    "total_revenue": row.get("total_revenue"),
+                    "total_expenses": row.get("total_expenses"),
+                    "officer_compensation_total": row.get("officer_compensation_total"),
+                    "salaries_comp_benefits_current_year": row.get("salaries_comp_benefits_current_year"),
+                    "contributions_gifts_grants": row.get("contributions_gifts_grants"),
+                },
+                "caveats": [
+                    "PDF acquisition archives the public filing for human or downstream parser review; it is not itself a parsed line-item extraction.",
+                    "IRS XML index confirmation identifies the official IRS bulk XML batch; this pass does not download very large bulk ZIP files unless the direct object URL is reachable.",
+                ],
+            }
+        )
+
+    table = {
+        "created_at": now(),
+        "case_id": CASE_ID,
+        "methodology": "Archive latest full Form 990 PDF per matched entity when a public filing URL is available; probe candidate IRS XML URLs and preserve misses as source gaps.",
+        "rows": rows,
+        "row_count": len(rows),
+        "pdf_downloaded_count": len([row for row in rows if row["pdf_downloaded"]]),
+        "xml_index_confirmed_count": len([row for row in rows if row["irs_index_confirmed"]]),
+        "xml_downloaded_count": len([row for row in rows if row["xml_downloaded"]]),
+        "source_family": "irs_990",
+        "source_urls": [PROPUBLICA_API_DOC_URL, IRS_FORM_990_DOWNLOADS_URL, IRS_TEOS_BULK_URL],
+    }
+    write_json(IRS_RAW_DIR / "raw_irs_990_artifact_summary.json", table)
+    return table
+
+
+def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Create a contract/payment-ledger acquisition scaffold without counting it as proof."""
+
+    CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, Any]] = []
+    by_entity = {row["entity"]: row for row in summary_rows}
+    for target in TARGETS:
+        summary = by_entity.get(target["name"], {})
+        official_sources = sorted({award["source_url"] for award in target["awards"]})
+        query_terms = [
+            f"{target['name']} standard agreement",
+            f"{target['name']} payment ledger",
+            f"{target['name']} monitoring letter",
+            f"{target['name']} corrective action Homekey",
+        ]
+        if any(award.get("county") == "Los Angeles" for award in target["awards"]):
+            official_sources.extend([LA_CITY_CLERK_BASE_URL, LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL, LA_CITY_SHELBY_2026_OPERATIONS_URL])
+        rows.append(
+            {
+                "entity": target["name"],
+                "rank": summary.get("rank"),
+                "state_award_exposure": summary.get("total_award_exposure"),
+                "project_count": summary.get("project_count"),
+                "counties": summary.get("counties", []),
+                "contract_or_payment_record_recovered": False,
+                "standard_agreement_status": "not_recovered",
+                "payment_ledger_status": "not_recovered",
+                "monitoring_or_corrective_action_status": "not_recovered",
+                "official_sources_to_search": sorted(set(official_sources + [HCD_ROUND3_ELIGIBILITY_URL, HCD_PLUS_ELIGIBILITY_URL, HCD_HOMEKEY_FUNDING_URL])),
+                "query_terms": query_terms,
+                "source_gap": True,
+                "reviewer_action": "Request or retrieve standard agreements, amendments, payment ledgers, monitoring letters, corrective actions, and deliverable records before making entity-level findings.",
+            }
+        )
+    table = {
+        "created_at": now(),
+        "case_id": CASE_ID,
+        "methodology": "Systematic contract/payment-ledger discovery scaffold for every top-15 entity. Rows preserve acquisition gaps and do not count as citation-ready contract evidence.",
+        "rows": rows,
+        "row_count": len(rows),
+        "source_family": "county_contract_monitoring",
+    }
+    write_json(CONTRACT_DIR / "contract_payment_discovery_summary.json", table)
+    return table
+
+
+def enforcement_docket_discovery_artifacts(enforcement_table: dict[str, Any]) -> dict[str, Any]:
+    """Record systematic official-source enforcement/docket search targets for all entities."""
+
+    DOCKET_DIR.mkdir(parents=True, exist_ok=True)
+    official_entities = {str(row.get("entity")) for row in enforcement_table.get("rows", [])}
+    rows: list[dict[str, Any]] = []
+    for target in TARGETS:
+        entity = target["name"]
+        has_official_row = entity in official_entities
+        rows.append(
+            {
+                "entity": entity,
+                "official_enforcement_row_recovered": has_official_row,
+                "status": "citation_ready_official_row_present" if has_official_row else "systematic_search_gap",
+                "source_gap": not has_official_row,
+                "official_sources_to_search": [
+                    US_DOJ_BASE_URL,
+                    FHFA_OIG_HOMELESSNESS_FUNDS_PRESS_RELEASE_URL,
+                    US_COURTS_PACER_URL,
+                    CA_COURTS_URL,
+                    LA_CITY_CLERK_BASE_URL,
+                ],
+                "query_terms": [
+                    f'"{entity}" indictment',
+                    f'"{entity}" prosecution',
+                    f'"{entity}" settlement',
+                    f'"{entity}" violation',
+                    f'"{entity}" corrective action',
+                    f'"{entity}" monitoring letter',
+                ],
+                "reviewer_action": "Search official agency, court, inspector-general, and municipal records; preserve named-party distinctions and presumption-of-innocence caveats.",
+            }
+        )
+    table = {
+        "created_at": now(),
+        "case_id": CASE_ID,
+        "methodology": "Every top-15 entity receives a systematic official-source enforcement/docket search target row. Only recovered official rows count as evidence hits.",
+        "rows": rows,
+        "row_count": len(rows),
+        "source_family": "enforcement_or_docket",
+    }
+    write_json(DOCKET_DIR / "enforcement_docket_discovery_summary.json", table)
+    return table
+
+
 def fetch_spm_rows() -> list[dict[str, Any]]:
     OUTCOME_DIR.mkdir(parents=True, exist_ok=True)
     params = urllib.parse.urlencode({"resource_id": CA_SPM_RESOURCE_ID, "limit": 1000})
@@ -984,6 +1328,9 @@ def write_corpus(corpus_dir: Path) -> None:
     outcome_manifest, join_summary = outcome_artifacts(summary_rows)
     enforcement_table = enforcement_docket_artifacts()
     tax_table = propublica_artifacts()
+    raw_tax_table = raw_irs_990_artifacts(tax_table)
+    contract_discovery_table = contract_payment_discovery_artifacts(summary_rows)
+    enforcement_discovery_table = enforcement_docket_discovery_artifacts(enforcement_table)
 
     records: list[dict[str, Any]] = []
     entities = [target["name"] for target in TARGETS]
@@ -1098,6 +1445,96 @@ def write_corpus(corpus_dir: Path) -> None:
         )
     )
 
+    raw_tax_rows = list(raw_tax_table.get("rows", []))
+    raw_tax_entities = sorted({row["entity"] for row in raw_tax_rows})
+    records.append(
+        build_record(
+            "source_table_irs_990_raw_artifacts",
+            "Raw IRS Form 990 artifact acquisition table",
+            str(IRS_RAW_DIR / "raw_irs_990_artifact_summary.json"),
+            "source_extraction_irs_990_raw_artifact_table",
+            "2026-04-30",
+            raw_tax_entities or tax_entities or entities,
+            "\n".join(
+                [
+                    "Raw IRS Form 990 artifact acquisition for top-15 homelessness triage.",
+                    "The table archives the latest full Form 990 PDF when a public filing URL is available and probes candidate IRS XML URLs. Missing XML remains an explicit source gap.",
+                    f"PDFs downloaded: {raw_tax_table.get('pdf_downloaded_count', 0)} of {raw_tax_table.get('row_count', 0)} matched entities.",
+                    f"IRS XML index confirmations: {raw_tax_table.get('xml_index_confirmed_count', 0)} of {raw_tax_table.get('row_count', 0)} matched entities.",
+                    f"IRS XML files downloaded: {raw_tax_table.get('xml_downloaded_count', 0)} of {raw_tax_table.get('row_count', 0)} matched entities.",
+                    markdown_table(raw_tax_rows, ["entity", "ein", "tax_period_year", "pdf_downloaded", "irs_index_confirmed", "xml_downloaded", "raw_source_status"], limit=40),
+                ]
+            ),
+            {
+                "source_extraction_table": True,
+                "irs_990_raw_artifact_table": True,
+                "full_990_pdf_acquisition_attempted": True,
+                "irs_990_xml_index_confirmed_count": raw_tax_table.get("xml_index_confirmed_count", 0),
+                "irs_990_xml_unresolved": int(raw_tax_table.get("xml_downloaded_count") or 0) < int(raw_tax_table.get("row_count") or 0),
+                "missing_data": int(raw_tax_table.get("xml_downloaded_count") or 0) < int(raw_tax_table.get("row_count") or 0),
+            },
+            {
+                "table_path": str(IRS_RAW_DIR / "raw_irs_990_artifact_summary.json"),
+                "row_count": len(raw_tax_rows),
+                "pdf_downloaded_count": raw_tax_table.get("pdf_downloaded_count", 0),
+                "xml_index_confirmed_count": raw_tax_table.get("xml_index_confirmed_count", 0),
+                "xml_downloaded_count": raw_tax_table.get("xml_downloaded_count", 0),
+                "source_urls": raw_tax_table.get("source_urls", []),
+            },
+        )
+    )
+    for row in raw_tax_rows:
+        entity = row["entity"]
+        pdf_downloaded = bool(row.get("pdf_downloaded"))
+        xml_index_confirmed = bool(row.get("irs_index_confirmed"))
+        records.append(
+            build_record(
+                f"irs_990_raw_artifacts_{slugify(entity)}",
+                f"Raw Form 990 artifact acquisition: {entity}",
+                row.get("pdf_url") if pdf_downloaded else row.get("irs_xml_zip_url") or propublica_org_page(row.get("ein", "")),
+                "irs_990_raw_artifact" if (pdf_downloaded or xml_index_confirmed) else "irs_990_raw_artifact_discovery",
+                str(row.get("tax_period_year") or "2026"),
+                [entity],
+                "\n".join(
+                    [
+                        f"Latest matched Form 990 filing for {entity}: EIN {row.get('ein')}, tax period year {row.get('tax_period_year')}.",
+                        f"Full PDF downloaded: {row.get('pdf_downloaded')} local path: {row.get('pdf_local_path') or 'not archived'}.",
+                        f"PDF SHA256: {row.get('pdf_sha256') or 'not available'}.",
+                        f"IRS object ID: {row.get('irs_object_id') or 'not available'}.",
+                        f"Official IRS XML index confirmed: {row.get('irs_index_confirmed')} batch ZIP: {row.get('irs_xml_zip_url') or 'not available'}.",
+                        f"Candidate IRS XML URLs checked: {', '.join(row.get('xml_candidate_urls') or []) or 'none'}",
+                        f"IRS XML downloaded: {row.get('xml_downloaded')}.",
+                        f"Parsed summary fields from ProPublica/IRS extract: {json.dumps(row.get('parsed_detail_fields', {}), sort_keys=True)}",
+                        "Caveats:",
+                        *[f"- {caveat}" for caveat in row.get("caveats", [])],
+                    ]
+                ),
+                {
+                    "irs_990_raw_artifact": True,
+                    "full_990_pdf_downloaded": pdf_downloaded,
+                    "raw_990_pdf_available": pdf_downloaded,
+                    "irs_990_xml_index_confirmed": xml_index_confirmed,
+                    "irs_990_xml_zip_available": xml_index_confirmed,
+                    "irs_990_xml_downloaded": bool(row.get("xml_downloaded")),
+                    "irs_990_xml_unresolved": not bool(row.get("xml_downloaded")),
+                    "not_citation_ready": not (pdf_downloaded or xml_index_confirmed),
+                    "missing_data": not bool(row.get("xml_downloaded")),
+                },
+                {
+                    "ein": row.get("ein"),
+                    "tax_period_year": row.get("tax_period_year"),
+                    "irs_object_id": row.get("irs_object_id"),
+                    "irs_index_entry": row.get("irs_index_entry"),
+                    "irs_xml_zip_url": row.get("irs_xml_zip_url"),
+                    "pdf_local_path": row.get("pdf_local_path"),
+                    "pdf_sha256": row.get("pdf_sha256"),
+                    "xml_probe_results": row.get("xml_probe_results", []),
+                    "parsed_detail_fields": row.get("parsed_detail_fields", {}),
+                    "source_urls": [row.get("pdf_url"), row.get("irs_xml_zip_url"), *row.get("xml_candidate_urls", [])],
+                },
+            )
+        )
+
     enforcement_rows = list(enforcement_table.get("rows", []))
     enforcement_entities = sorted({row["entity"] for row in enforcement_rows})
     records.append(
@@ -1151,6 +1588,138 @@ def write_corpus(corpus_dir: Path) -> None:
                     "trigger_confidence": row.get("trigger_confidence"),
                     "source_urls": row.get("source_urls", []),
                     "reviewer_action": row.get("reviewer_action", ""),
+                },
+            )
+        )
+
+    contract_rows = list(contract_discovery_table.get("rows", []))
+    records.append(
+        build_record(
+            "source_table_contract_payment_discovery",
+            "Contract, payment-ledger, and monitoring acquisition gap table",
+            str(CONTRACT_DIR / "contract_payment_discovery_summary.json"),
+            "source_extraction_contract_payment_discovery_table",
+            "2026-04-30",
+            entities,
+            "\n".join(
+                [
+                    "Systematic contract/payment-ledger acquisition scaffold for the top-15 homelessness entities.",
+                    "These are acquisition tasks and source gaps, not recovered contract findings. They do not count as citation-ready contract evidence.",
+                    markdown_table(
+                        contract_rows,
+                        [
+                            "entity",
+                            "rank",
+                            "state_award_exposure",
+                            "project_count",
+                            "standard_agreement_status",
+                            "payment_ledger_status",
+                            "monitoring_or_corrective_action_status",
+                        ],
+                        limit=30,
+                    ),
+                ]
+            ),
+            {
+                "contract_payment_discovery_table": True,
+                "discovery_only_source_gap": True,
+                "source_gap_only": True,
+                "missing_data": True,
+            },
+            {"table_path": str(CONTRACT_DIR / "contract_payment_discovery_summary.json"), "row_count": len(contract_rows)},
+        )
+    )
+    for row in contract_rows:
+        entity = row["entity"]
+        records.append(
+            build_record(
+                f"contract_payment_discovery_{slugify(entity)}",
+                f"Contract/payment acquisition gap: {entity}",
+                HCD_HOMEKEY_FUNDING_URL,
+                "contract_payment_discovery",
+                "2026-04-30",
+                [entity],
+                "\n".join(
+                    [
+                        f"{entity} has {money(float(row.get('state_award_exposure') or 0))} in HCD award-list exposure across {row.get('project_count')} project row(s).",
+                        "No direct standard agreement, payment ledger, monitoring letter, corrective-action record, or deliverable ledger was recovered in this pass.",
+                        f"Official sources to search next: {', '.join(row.get('official_sources_to_search') or [])}.",
+                        f"Query terms: {', '.join(row.get('query_terms') or [])}.",
+                        f"Reviewer action: {row.get('reviewer_action')}",
+                    ]
+                ),
+                {
+                    "county_contract_monitoring_discovery": True,
+                    "discovery_only_source_gap": True,
+                    "source_gap_only": True,
+                    "not_citation_ready": True,
+                    "missing_data": True,
+                },
+                {
+                    "official_sources_to_search": row.get("official_sources_to_search", []),
+                    "query_terms": row.get("query_terms", []),
+                    "state_award_exposure": row.get("state_award_exposure"),
+                    "project_count": row.get("project_count"),
+                },
+            )
+        )
+
+    enforcement_discovery_rows = list(enforcement_discovery_table.get("rows", []))
+    records.append(
+        build_record(
+            "source_table_enforcement_docket_discovery",
+            "Systematic enforcement and docket source-search gap table",
+            str(DOCKET_DIR / "enforcement_docket_discovery_summary.json"),
+            "source_extraction_enforcement_docket_discovery_table",
+            "2026-04-30",
+            entities,
+            "\n".join(
+                [
+                    "Systematic official-source enforcement and docket search table for all top-15 entities.",
+                    "Only recovered official rows count as evidence hits; search target rows preserve gaps and next actions.",
+                    markdown_table(enforcement_discovery_rows, ["entity", "official_enforcement_row_recovered", "status", "source_gap"], limit=30),
+                ]
+            ),
+            {
+                "enforcement_docket_discovery_table": True,
+                "discovery_only_source_gap": True,
+                "source_gap_only": True,
+                "missing_data": True,
+            },
+            {"table_path": str(DOCKET_DIR / "enforcement_docket_discovery_summary.json"), "row_count": len(enforcement_discovery_rows)},
+        )
+    )
+    for row in enforcement_discovery_rows:
+        entity = row["entity"]
+        records.append(
+            build_record(
+                f"enforcement_docket_discovery_{slugify(entity)}",
+                f"Systematic enforcement/docket search target: {entity}",
+                US_DOJ_BASE_URL,
+                "enforcement_docket_discovery",
+                "2026-04-30",
+                [entity],
+                "\n".join(
+                    [
+                        f"Official enforcement row already recovered: {row.get('official_enforcement_row_recovered')}.",
+                        f"Status: {row.get('status')}.",
+                        f"Official sources to search: {', '.join(row.get('official_sources_to_search') or [])}.",
+                        f"Query terms: {', '.join(row.get('query_terms') or [])}.",
+                        f"Reviewer action: {row.get('reviewer_action')}",
+                    ]
+                ),
+                {
+                    "enforcement_docket_discovery_attempted": True,
+                    "discovery_only_source_gap": True,
+                    "source_gap_only": True,
+                    "not_citation_ready": True,
+                    "official_enforcement_row_recovered": bool(row.get("official_enforcement_row_recovered")),
+                    "missing_data": bool(row.get("source_gap")),
+                },
+                {
+                    "official_sources_to_search": row.get("official_sources_to_search", []),
+                    "query_terms": row.get("query_terms", []),
+                    "status": row.get("status"),
                 },
             )
         )

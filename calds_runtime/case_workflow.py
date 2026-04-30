@@ -217,6 +217,7 @@ class CaseWorkflow:
 
         hits = self._ensure_entity_context_hits(request, self.search_index.search(search_plan))
         hits = self._ensure_triage_priority_hits(triage_results, hits)
+        hits = self._ensure_source_acquisition_context_hits(forensic_plan.selected_entities, hits)
         hits_path = store.write_artifact("search_hits.json", {"hits": hits})
         artifacts["search_hits"] = str(hits_path)
         completed_steps.append("retrieved")
@@ -479,6 +480,28 @@ class CaseWorkflow:
             additional.append(SearchHit(record_id=record_id, relevance_score=1.0, matched_terms=["triage", "priority"]))
             selected_ids.add(record_id)
         return [*additional, *hits]
+
+    def _ensure_source_acquisition_context_hits(self, selected_entities: list[str], hits: list[SearchHit]) -> list[SearchHit]:
+        selected_ids = {hit.record_id for hit in hits}
+        wanted_entities = {self._normalize_entity(entity) for entity in selected_entities}
+        additional: list[SearchHit] = []
+        for record in sorted(self.truth_store.records, key=lambda item: item.record_id):
+            if record.record_id in selected_ids:
+                continue
+            if not self._is_deep_source_context_record(record.source_type):
+                continue
+            record_entities = {self._normalize_entity(entity) for entity in record.entities}
+            if not (wanted_entities & record_entities):
+                continue
+            additional.append(SearchHit(record_id=record.record_id, relevance_score=1.0, matched_terms=["deep", "source", "acquisition"]))
+            selected_ids.add(record.record_id)
+        return [*additional, *hits]
+
+    def _is_deep_source_context_record(self, source_type: str) -> bool:
+        return (
+            source_type.startswith("irs_990_raw_artifact")
+            or source_type in {"contract_payment_discovery", "enforcement_docket_discovery"}
+        )
 
     def _normalize_entity(self, value: str) -> str:
         tokens = [token for token in tokenize(value) if token not in {"inc", "of", "the"}]

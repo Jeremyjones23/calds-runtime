@@ -7,6 +7,7 @@ from .case_compiler import compile_dossier_from_run
 from .case_workflow import CaseWorkflow
 from .contracts import CaseRequest, HumanDecision, read_json
 from .publication import publish_case_site_from_run
+from .quality_gates import RunReadinessService
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +60,17 @@ def publish_case_site(args: argparse.Namespace) -> int:
     print(f"publication_manifest={site.publication_manifest_json}")
     return 0
 
+
+def compare_run_readiness(args: argparse.Namespace) -> int:
+    result = RunReadinessService().compare(args.current_run_dir, args.baseline_run_dir, args.output_file)
+    print(f"case_id={result.case_id}")
+    print(f"status={result.status}")
+    print(f"material_changes={len(result.material_changes)}")
+    print(f"blockers={len(result.blockers)}")
+    if args.output_file:
+        print(f"run_readiness={args.output_file}")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CalDS local workflow spine")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -91,6 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
     publish_parser.add_argument("--output-dir", type=Path, required=True)
     publish_parser.set_defaults(func=publish_case_site)
 
+    readiness_parser = subparsers.add_parser("compare-run-readiness", help="Compare a rerun against a baseline run before relying on it.")
+    readiness_parser.add_argument("--current-run-dir", type=Path, required=True)
+    readiness_parser.add_argument("--baseline-run-dir", type=Path, required=True)
+    readiness_parser.add_argument("--output-file", type=Path, default=None)
+    readiness_parser.set_defaults(func=compare_run_readiness)
+
     return parser
 
 
@@ -102,6 +120,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
 

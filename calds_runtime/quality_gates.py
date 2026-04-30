@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 import re
 import ssl
 import urllib.error
@@ -17,8 +18,11 @@ from .contracts import (
     EvidenceBundle,
     LinkIntegrityReport,
     OversightRiskMatrix,
+    RunReadinessResult,
     SourceLinkCheck,
+    read_json,
     stable_id,
+    write_json,
 )
 
 
@@ -66,14 +70,25 @@ class CompletionGuardService:
         runs: list[AcquisitionSearchRun] = []
         for entity in entities:
             for family in families:
-                matched = [
+                candidates = [
                     record
                     for record in records
                     if self._record_mentions_entity(record, entity) and self.source_family(record) == family
                 ]
+                matched = [record for record in candidates if not self._is_source_gap_record(record)]
                 query = self._query_for(entity, family)
                 status = "hit" if matched else "miss"
-                blocker = "" if matched else f"No citation-ready {family} record was recovered for {entity} in the current corpus."
+                attempted_sources = list(SOURCE_FAMILY_TARGETS.get(family, [family]))
+                attempted_sources.extend(self._dedupe(record.source_uri for record in candidates if self._is_source_gap_record(record)))
+                if matched:
+                    blocker = ""
+                elif candidates:
+                    blocker = (
+                        f"Only discovery/source-gap {family} records were recovered for {entity}; "
+                        "no citation-ready source record is available in the current corpus."
+                    )
+                else:
+                    blocker = f"No citation-ready {family} record was recovered for {entity} in the current corpus."
                 runs.append(
                     AcquisitionSearchRun(
                         search_id=stable_id("acquisition", request.case_id, entity, family),
@@ -81,7 +96,7 @@ class CompletionGuardService:
                         entity=entity,
                         source_family=family,
                         query=query,
-                        attempted_sources=list(SOURCE_FAMILY_TARGETS.get(family, [family])),
+                        attempted_sources=attempted_sources,
                         matched_record_ids=sorted({record.record_id for record in matched}),
                         source_uris=self._dedupe(record.source_uri for record in matched),
                         status=status,
@@ -149,6 +164,16 @@ class CompletionGuardService:
             return "outcomes"
         return ""
 
+    def _is_source_gap_record(self, record: CanonicalRecord) -> bool:
+        signals = dict(record.attributes.get("signals", {}))
+        return bool(
+            signals.get("discovery_only_source_gap")
+            or signals.get("not_citation_ready")
+            or signals.get("source_gap_only")
+            or str(record.source_type).endswith("_discovery")
+            or "discovery_gap" in str(record.source_type).lower()
+        )
+
     def _record_mentions_entity(self, record: CanonicalRecord, entity: str) -> bool:
         wanted = self._norm(entity)
         return any(self._norm(candidate) == wanted for candidate in record.entities)
@@ -168,6 +193,143 @@ class CompletionGuardService:
                 seen.add(value)
                 result.append(value)
         return result
+
+
+class RunReadinessService:
+    """Compare a new case run against a baseline before treating it as deeper evidence work."""
+
+    def compare(
+        self,
+        current_run_dir: Path,
+        baseline_run_dir: Path,
+        output_file: Path | None = None,
+    ) -> RunReadinessResult:
+        current = self.collect_metrics(Path(current_run_dir))
+        baseline = self.collect_metrics(Path(baseline_run_dir))
+        material_changes = self._material_changes(current, baseline)
+        blockers = self._blockers(current)
+        if blockers:
+            status = "NEEDS_REPAIR"
+            recommendation = "Do not publish or rely on this rerun until the blockers are resolved."
+        elif material_changes:
+            status = "MATERIAL_CHANGE_READY"
+            recommendation = "This rerun appears materially deeper than the baseline and is ready for reviewer comparison."
+        else:
+            status = "NO_MATERIAL_CHANGE"
+            recommendation = "This rerun does not materially improve source depth over the baseline."
+        case_id = str(current.get("case_id") or baseline.get("case_id") or "unknown_case")
+        result = RunReadinessResult(
+            readiness_id=stable_id("run_readiness", case_id, str(current_run_dir), str(baseline_run_dir), status),
+            case_id=case_id,
+            status=status,
+            current_run_dir=str(current_run_dir),
+            baseline_run_dir=str(baseline_run_dir),
+            current_metrics=current,
+            baseline_metrics=baseline,
+            material_changes=material_changes,
+            blockers=blockers,
+            recommendation=recommendation,
+        )
+        if output_file:
+            write_json(Path(output_file), result)
+        return result
+
+    def collect_metrics(self, run_dir: Path) -> dict[str, object]:
+        artifacts_dir = run_dir / "artifacts"
+        state = self._load_json(run_dir / "workflow_state.json")
+        bundle = self._load_json(artifacts_dir / "evidence_bundle.json")
+        risk = self._load_json(artifacts_dir / "oversight_risk_matrix.json")
+        guard = self._load_json(artifacts_dir / "completion_guard.json")
+        acquisition = self._load_json(artifacts_dir / "acquisition_ledger.json")
+        citation = self._load_json(artifacts_dir / "citation_verification.json")
+        forensic_plan = self._load_json(artifacts_dir / "forensic_investigation_plan.json")
+        manifest = self._load_json(run_dir / "public_site" / "publication_manifest.json")
+
+        items = list(bundle.get("items") or [])
+        indicators = list(risk.get("indicators") or [])
+        searches = list(acquisition.get("searches") or [])
+        source_types = Counter(str(item.get("source_type") or "") for item in items if item.get("source_type"))
+        high_rows = [row for row in indicators if row.get("risk_level") == "High"]
+        medium_rows = [row for row in indicators if row.get("risk_level") == "Medium"]
+        data_gap_rows = [row for row in indicators if row.get("data_status") == "Data gap"]
+        acquisition_hits = [row for row in searches if row.get("status") == "hit"]
+        return {
+            "run_dir": str(run_dir),
+            "case_id": state.get("case_id") or bundle.get("case_id") or risk.get("case_id"),
+            "workflow_status": state.get("status"),
+            "evidence_count": len(items),
+            "source_type_counts": dict(sorted(source_types.items())),
+            "source_type_count": len(source_types),
+            "risk_indicator_count": len(indicators),
+            "high_risk_count": len(high_rows),
+            "medium_risk_count": len(medium_rows),
+            "data_gap_count": len(data_gap_rows),
+            "completion_guard_status": guard.get("status"),
+            "completion_guard_hit_count": int(guard.get("hit_count") or 0),
+            "completion_guard_blocker_count": int(guard.get("blocker_count") or 0),
+            "completion_guard_missing_required": list(guard.get("missing_required") or []),
+            "acquisition_hit_count": len(acquisition_hits),
+            "selected_entities": list(forensic_plan.get("selected_entities") or []),
+            "citation_status": citation.get("status"),
+            "citation_error_count": int(citation.get("error_count") or 0),
+            "publication_safety_passed": manifest.get("passed"),
+            "publication_manifest_present": bool(manifest),
+        }
+
+    def _load_json(self, path: Path) -> dict[str, object]:
+        if not path.exists():
+            return {}
+        try:
+            return read_json(path)
+        except Exception as exc:
+            return {"load_error": repr(exc), "path": str(path)}
+
+    def _material_changes(self, current: dict[str, object], baseline: dict[str, object]) -> list[str]:
+        changes: list[str] = []
+        numeric_fields = [
+            ("evidence_count", "evidence item count"),
+            ("source_type_count", "source-type diversity"),
+            ("risk_indicator_count", "risk indicator count"),
+            ("high_risk_count", "high-risk row count"),
+            ("completion_guard_hit_count", "completion-guard hit count"),
+        ]
+        for field, label in numeric_fields:
+            current_value = int(current.get(field) or 0)
+            baseline_value = int(baseline.get(field) or 0)
+            if current_value > baseline_value:
+                changes.append(f"{label} increased from {baseline_value} to {current_value}.")
+
+        current_blockers = int(current.get("completion_guard_blocker_count") or 0)
+        baseline_blockers = int(baseline.get("completion_guard_blocker_count") or 0)
+        if baseline_blockers and current_blockers < baseline_blockers:
+            changes.append(f"Completion-guard blockers decreased from {baseline_blockers} to {current_blockers}.")
+
+        current_types = set((current.get("source_type_counts") or {}).keys())
+        baseline_types = set((baseline.get("source_type_counts") or {}).keys())
+        new_types = sorted(current_types - baseline_types)
+        if new_types:
+            changes.append(f"New evidence source types appeared: {', '.join(new_types)}.")
+
+        current_entities = set(current.get("selected_entities") or [])
+        baseline_entities = set(baseline.get("selected_entities") or [])
+        if current_entities != baseline_entities:
+            changes.append(
+                "Deep-dive entity selection changed: "
+                f"added {sorted(current_entities - baseline_entities)}, removed {sorted(baseline_entities - current_entities)}."
+            )
+        return changes
+
+    def _blockers(self, current: dict[str, object]) -> list[str]:
+        blockers: list[str] = []
+        if current.get("workflow_status") != "AWAITING_HUMAN_REVIEW":
+            blockers.append(f"Workflow status is {current.get('workflow_status')}; expected AWAITING_HUMAN_REVIEW.")
+        if current.get("citation_status") == "FAIL" or int(current.get("citation_error_count") or 0) > 0:
+            blockers.append("Citation verifier reported errors.")
+        if current.get("publication_manifest_present") and current.get("publication_safety_passed") is False:
+            blockers.append("Publication safety manifest did not pass.")
+        if int(current.get("evidence_count") or 0) == 0:
+            blockers.append("No evidence bundle items were produced.")
+        return blockers
 
 
 class CitationVerifierService:
