@@ -214,6 +214,17 @@ class ScoreInputs:
     risk_severity_score: float = 0.0
     source_completeness_score: float = 0.0
     publication_confidence_score: float = 0.0
+    source_diversity_confidence_score: float = 0.0
+    traceability_confidence_score: float = 0.0
+    caveat_penalty_score: float = 0.0
+    completion_guard_total: int = 0
+    completion_guard_resolved: int = 0
+    completion_guard_blocker_count: int = 0
+    completion_guard_miss_count: int = 0
+    gap_burden_count: int = 0
+    missing_data_source_types: dict[str, int] = field(default_factory=dict)
+    contradiction_source_types: dict[str, int] = field(default_factory=dict)
+    scoring_model_version: str = "v2_source_coverage_gap_burden"
 
 
 @dataclass(frozen=True)

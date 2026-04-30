@@ -143,8 +143,11 @@ class CaseDossierService:
             f"| Average relevance | {lead.score_inputs.average_relevance} |",
             f"| Source diversity | {lead.score_inputs.source_diversity} |",
             f"| Hard entity links | {lead.score_inputs.hard_link_count} |",
-            f"| Missing-data count | {lead.score_inputs.missing_data_count} |",
-            f"| Contradiction count | {lead.score_inputs.contradiction_count} |",
+            f"| Completion guard resolved checks | {lead.score_inputs.completion_guard_resolved} of {lead.score_inputs.completion_guard_total} |",
+            f"| Completion guard unresolved blockers | {lead.score_inputs.completion_guard_blocker_count} blocker(s); {lead.score_inputs.completion_guard_miss_count} miss(es) |",
+            f"| Open gap burden | {lead.score_inputs.gap_burden_count} caveat signal(s) |",
+            f"| Gap signal source buckets | {self._source_type_counts_text(lead.score_inputs.missing_data_source_types)} |",
+            f"| Contradiction count | {lead.score_inputs.contradiction_count} caution signal(s) |",
             "",
             "### Sentinel Gate",
             "",
@@ -417,28 +420,44 @@ class CaseDossierService:
         )
         return lines
 
+    def _source_type_counts_text(self, counts: dict[str, int]) -> str:
+        if not counts:
+            return "none"
+        parts = [
+            f"{self._source_type_label(source_type)} ({count})"
+            for source_type, count in sorted(counts.items(), key=lambda item: (-int(item[1]), item[0]))
+        ]
+        return "; ".join(parts)
+
     def _score_plain_language_lines(self, lead: LeadCandidate) -> list[str]:
         inputs = lead.score_inputs
-        missing_data_penalty = inputs.missing_data_count * 5.0
-        contradiction_penalty = inputs.contradiction_count * 6.0
-        diversity_confidence = min(100.0, inputs.source_diversity * 12.5)
-        publication_from_completeness = round(inputs.source_completeness_score * 0.7, 2)
-        publication_from_diversity = round(diversity_confidence * 0.3, 2)
+        diversity_confidence = inputs.source_diversity_confidence_score or min(100.0, inputs.source_diversity * 12.5)
+        traceability_confidence = inputs.traceability_confidence_score or (100.0 if inputs.support_count else 0.0)
+        gap_penalty = inputs.caveat_penalty_score or min(45.0, inputs.gap_burden_count * 1.5 + inputs.contradiction_count * 8.0)
+        resolved_text = (
+            f"{inputs.completion_guard_resolved} of {inputs.completion_guard_total}"
+            if inputs.completion_guard_total
+            else "not available from a completion guard artifact"
+        )
+        gap_buckets = self._source_type_counts_text(inputs.missing_data_source_types)
+        contradiction_buckets = self._source_type_counts_text(inputs.contradiction_source_types)
         return [
             "- What these scores apply to: the whole compiled case/run and its evidence bundle, not one nonprofit organization by itself.",
-            f"- Review priority {inputs.final_score} / 100: how urgently this case should stay in the review queue.",
-            f"- Risk severity {inputs.risk_severity_score} / 100: how strong the implemented source-backed risk indicators are.",
-            f"- Source completeness {inputs.source_completeness_score} / 100: how much of the required source set was actually recovered and conflict-free. The current formula starts at 100, subtracts 5 points for each missing-data signal, and subtracts 6 points for each contradiction signal. This run has {inputs.missing_data_count} missing-data signal(s) and {inputs.contradiction_count} contradiction signal(s), creating {missing_data_penalty:g} missing-data penalty points and {contradiction_penalty:g} contradiction penalty points; because those penalties meet or exceed the starting 100 points, the score is capped at {inputs.source_completeness_score} / 100.",
-            f"- Publication confidence {inputs.publication_confidence_score} / 100: whether the record is complete enough for outside-facing use. The current formula weights source completeness at 70% and source diversity at 30%. This run has {inputs.source_diversity} source type(s), which gives {diversity_confidence:g} / 100 source-diversity confidence; with source completeness at {inputs.source_completeness_score} / 100, publication confidence becomes {publication_from_completeness:g} + {publication_from_diversity:g} = {inputs.publication_confidence_score} / 100.",
-            "- Meaning: a high risk-severity score with low source completeness is a strong reason to keep reviewing, not a reason to publish allegations.",
+            f"- Review priority {inputs.final_score} / 100: how urgently this case should stay in the review queue after combining risk severity, source-acquisition coverage, and publication confidence.",
+            f"- Risk severity {inputs.risk_severity_score} / 100: how strong the implemented source-backed risk indicators are. This is the flag-strength score; it does not say misconduct occurred.",
+            f"- Source completeness {inputs.source_completeness_score} / 100: whether the required source-family acquisition checks were resolved. This run resolved {resolved_text} required check(s), with {inputs.completion_guard_blocker_count} unresolved blocker(s) and {inputs.completion_guard_miss_count} miss(es). A completed search with no public official adverse record counts as coverage, not as clearance.",
+            f"- Open gap burden: {inputs.gap_burden_count} caveat signal(s). These are unresolved review questions inside the evidence bundle, not proof that source acquisition failed. Current gap buckets: {gap_buckets}.",
+            f"- Contradiction burden: {inputs.contradiction_count} caution signal(s). Contradictions are never positive evidence and are not rewarded; they lower publication confidence and stay in front of the reviewer. Current contradiction buckets: {contradiction_buckets}.",
+            f"- Publication confidence {inputs.publication_confidence_score} / 100: whether the record is sturdy enough for outside-facing use. The implemented model starts from source completeness (55%), source diversity (25%; this run's diversity component is {diversity_confidence:g} / 100), and citation traceability (20%; this run's traceability component is {traceability_confidence:g} / 100), then subtracts a bounded caveat penalty for open gaps and contradictions. This run's caveat penalty is {gap_penalty:g} point(s).",
+            "- Meaning: a high risk-severity score with meaningful open gaps is a reason to keep the case in human review and avoid overclaiming, not a reason to bury the lead.",
             "",
             "Questions this score should raise:",
             "",
-            "- Which missing source records are driving the missing-data count?",
-            "- Which missing records would most change the decision: direct contracts and payments, raw tax-return source documents, audit source documents and finding status, facility histories, or provider-attributable outcomes?",
-            "- Are the strongest risk signals concentrated in a few selected entities, or spread across the full screened set?",
-            "- Are the gaps caused by unavailable public records, missing ingestion coverage, or records that exist but have not been pulled into this run?",
-            "- What would raise publication confidence enough to move from internal review lead to a stronger public brief?",
+            "- Did CalDS complete the required source-family acquisition checks, or are there unresolved blockers?",
+            "- Which open gap buckets would most change the decision: direct contracts and payments, raw tax-return source documents, audit source documents and finding status, facility histories, public statements, or provider-attributable outcomes?",
+            "- Are the strongest risk signals concentrated in the selected deep-review entities, or spread across the full screened set?",
+            "- Are the remaining gaps caused by unavailable public records, missing ingestion coverage, or records that exist but have not been pulled into this run?",
+            "- Would a contradiction signal weaken the review lead, require correction, or show that the entity has a legitimate explanation that must be carried forward?",
         ]
 
     def _case_bottom_line(
@@ -719,10 +738,10 @@ class CaseDossierService:
         if score >= 75:
             return "High triage priority from retrieval strength and entity linkage; still requires human verification."
         if score >= 50:
-            return "Reviewable triage priority with caveats or missing data."
+            return "Reviewable triage priority with open gap-burden caveats."
         if score >= 25:
             return "Limited triage priority; repair likely needed before escalation."
-        return "Low deterministic score because unresolved source gaps outweigh the retrieved source coverage under the current formula."
+        return "Low deterministic score because the retrieved record is too weak, incomplete, or caveated for escalation."
 
     def _brief_score_summary(self, score_inputs: ScoreInputs) -> str:
         return (
@@ -730,7 +749,7 @@ class CaseDossierService:
             f"risk severity {score_inputs.risk_severity_score} / 100; "
             f"source completeness {score_inputs.source_completeness_score} / 100; "
             f"publication confidence {score_inputs.publication_confidence_score} / 100. "
-            "Risk severity answers whether the retrieved facts deserve review; publication confidence answers whether the record is ready to share."
+            "Risk severity answers whether the retrieved facts deserve review; source completeness answers whether required acquisition checks resolved; publication confidence answers whether the record is ready to share."
         )
 
     def _supervisor_next_action(

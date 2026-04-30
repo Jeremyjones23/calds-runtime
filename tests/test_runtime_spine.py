@@ -8,13 +8,14 @@ from uuid import uuid4
 
 from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
-from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json, write_json
+from calds_runtime.contracts import CanonicalRecord, CaseRequest, CompletionGuardResult, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
 from calds_runtime.publication import extract_urls, publish_case_site_from_run
 from calds_runtime.quality_gates import CitationVerifierService, CompletionGuardService, RunReadinessService
 from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
 from calds_runtime.sentinel import find_escalated_language
+from calds_runtime.scoring import LeadScoringService
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -82,8 +83,10 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("What these scores apply to", dossier_text)
             self.assertIn("not entity-by-entity grades", dossier_text)
             self.assertIn("Questions this score should raise", dossier_text)
-            self.assertIn("missing-data signal", dossier_text)
-            self.assertIn("source completeness at 70%", dossier_text)
+            self.assertIn("required source-family acquisition checks", dossier_text)
+            self.assertIn("Open gap burden", dossier_text)
+            self.assertIn("Contradiction burden", dossier_text)
+            self.assertIn("Contradictions are never positive evidence", dossier_text)
             self.assertIn("Triage Gate", dossier_text)
             self.assertIn("Acquisition and Completion Guard", dossier_text)
             self.assertIn("Completion guard status", dossier_text)
@@ -360,6 +363,78 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(guard.status, "PASS")
         self.assertEqual(guard.blocker_count, 0)
         self.assertIn("not legal clearance", " ".join(guard.notes))
+
+    def test_scoring_separates_acquisition_coverage_from_gap_burden(self) -> None:
+        provenance = Provenance(
+            record_id="gap_record",
+            source_uri="https://example.test/source",
+            source_type="contract_payment_discovery",
+            collected_at="2026-04-30T00:00:00+00:00",
+            checksum="checksum",
+            corpus_name="test",
+            chunk_id="gap#body",
+        )
+        bundle = EvidenceBundle(
+            bundle_id="bundle",
+            case_id="score_gap_test",
+            query_terms=[],
+            items=[
+                EvidenceItem(
+                    item_id="E1",
+                    record_id="gap_record",
+                    title="Contract payment gap",
+                    source_uri="https://example.test/source",
+                    source_type="contract_payment_discovery",
+                    published_at="2026-04-30",
+                    excerpt="No direct payment ledger was recovered in this pass.",
+                    relevance_score=0.9,
+                    matched_terms=["payment"],
+                    provenance=provenance,
+                    signals={"missing_data": True},
+                ),
+                EvidenceItem(
+                    item_id="E2",
+                    record_id="gap_record_2",
+                    title="IRS filing gap",
+                    source_uri="https://example.test/irs",
+                    source_type="irs_990_summary",
+                    published_at="2026-04-30",
+                    excerpt="IRS profile row exists, but raw filing source was not recovered.",
+                    relevance_score=0.8,
+                    matched_terms=["irs"],
+                    provenance=Provenance(
+                        record_id="gap_record_2",
+                        source_uri="https://example.test/irs",
+                        source_type="irs_990_summary",
+                        collected_at="2026-04-30T00:00:00+00:00",
+                        checksum="checksum-2",
+                        corpus_name="test",
+                        chunk_id="irs#body",
+                    ),
+                    signals={"missing_data": True},
+                ),
+            ],
+            entity_links=[],
+        )
+        guard = CompletionGuardResult(
+            guard_id="guard",
+            case_id="score_gap_test",
+            status="PASS",
+            required_source_families=["contracts", "tax"],
+            selected_entities=["Shelter Group"],
+            total_searches=2,
+            hit_count=2,
+            miss_count=0,
+            blocker_count=0,
+            missing_required=[],
+        )
+        score = LeadScoringService().score(bundle, guard)
+        self.assertEqual(score.source_completeness_score, 100.0)
+        self.assertEqual(score.gap_burden_count, 2)
+        self.assertEqual(score.completion_guard_resolved, 2)
+        self.assertLess(score.publication_confidence_score, 100.0)
+        self.assertEqual(score.missing_data_source_types["contract_payment_discovery"], 1)
+        self.assertEqual(score.missing_data_source_types["irs_990_summary"], 1)
 
     def test_workflow_adds_selected_entity_deep_source_context_hits(self) -> None:
         temp_dir = PROJECT_ROOT / "runs" / "tests" / f"deep-source-context-{uuid4().hex}"

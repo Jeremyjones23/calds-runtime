@@ -286,7 +286,7 @@ class CaseWorkflow:
             metadata=self.provider.describe_role_call(AgentRole.ENTITY_NETWORK_ANALYST.value),
         )
 
-        lead = LeadScorerAgent(self.scoring_service).create_candidate(request, bundle)
+        lead = LeadScorerAgent(self.scoring_service).create_candidate(request, bundle, completion_guard)
         lead_path = store.write_artifact("lead_candidate.json", lead)
         self._write_task(store, request, AgentRole.LEAD_SCORER, "Create reviewer-safe lead candidate.", [str(lead_path)])
         artifacts["lead_candidate"] = str(lead_path)

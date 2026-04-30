@@ -35,6 +35,7 @@ SOURCE_TYPE_LABELS = {
     "state_homelessness_award": "California Department of Housing and Community Development homelessness award record",
     "court_docket_manifest": "Court docket search manifest",
     "enforcement_or_docket_source": "Official enforcement or docket source",
+    "contract_payment_discovery": "Contract and payment acquisition gap record",
     "social_media_source": "Social media source",
     "source_extraction_state_homeless_award_table": "Parsed California state homelessness award table",
     "source_extraction_enforcement_docket_table": "Parsed enforcement and docket source table",
@@ -137,24 +138,27 @@ class ReviewArtifactService:
                 "",
                 self._score_interpretation(lead.score),
                 "",
-                "The score is deterministic triage priority, not a probability, not a dollar estimate, and not a finding. CalDS separates risk severity from source completeness and publication confidence so reviewers can distinguish a serious lead from a publishable record.",
+                "The score is deterministic triage priority, not a probability, not a dollar estimate, and not a finding. CalDS separates risk severity, source acquisition coverage, open gap burden, contradiction burden, and publication confidence so reviewers can distinguish a serious lead from a publishable record.",
                 "",
                 "| Field | Value | Meaning |",
                 "| --- | --- | --- |",
                 f"| Review priority score | {lead.score} / 100 | Weighted blend used for internal triage queueing |",
-                f"| Risk severity score | {score_inputs.risk_severity_score} / 100 | Strength of retrieved source-backed review signal before source-gap penalties |",
-                f"| Source completeness score | {score_inputs.source_completeness_score} / 100 | How much missing or contradictory data still limits judgment |",
-                f"| Publication confidence score | {score_inputs.publication_confidence_score} / 100 | Whether the record is ready to share after source-completeness checks |",
+                f"| Risk severity score | {score_inputs.risk_severity_score} / 100 | Strength of retrieved source-backed review signal |",
+                f"| Source completeness score | {score_inputs.source_completeness_score} / 100 | Required source-family acquisition checks resolved by the completion guard |",
+                f"| Publication confidence score | {score_inputs.publication_confidence_score} / 100 | Whether the record is ready to share after source coverage, diversity, traceability, and caveat checks |",
                 f"| Support count | {score_inputs.support_count} | Number of evidence items retrieved |",
                 f"| Average relevance | {score_inputs.average_relevance} | Keyword relevance across retrieved evidence |",
                 f"| Source diversity | {score_inputs.source_diversity} source type(s) | Variety of independent source classes |",
                 f"| Hard entity links | {score_inputs.hard_link_count} | Deterministic entity joins at strength >= 0.7 |",
-                f"| Missing-data count | {score_inputs.missing_data_count} | Evidence items carrying missing-data caveats |",
-                f"| Contradiction count | {score_inputs.contradiction_count} | Evidence items carrying contradiction signals |",
+                f"| Completion guard resolved checks | {score_inputs.completion_guard_resolved} of {score_inputs.completion_guard_total} | Required acquisition checks resolved; searched-no-public-record rows count as coverage, not clearance |",
+                f"| Completion guard unresolved blockers | {score_inputs.completion_guard_blocker_count} blocker(s); {score_inputs.completion_guard_miss_count} miss(es) | Acquisition work still blocking source coverage |",
+                f"| Open gap burden | {score_inputs.gap_burden_count} caveat signal(s) | Unresolved review questions inside the evidence bundle, not proof that acquisition failed |",
+                f"| Gap signal buckets | {self._source_type_counts_text(score_inputs.missing_data_source_types)} | Source families carrying gap caveats |",
+                f"| Contradiction burden | {score_inputs.contradiction_count} caution signal(s) | Contradictions are never positive evidence; they lower confidence or require correction |",
                 "",
                 "### Score Formula",
                 "",
-                "The implemented formula first calculates risk severity from source strength, then calculates source completeness from missing-data and contradiction penalties. The final review-priority score is a weighted blend: `risk severity*0.65 + source completeness*0.25 + publication confidence*0.10`, then clamped to `0-100`.",
+                "The implemented formula first calculates risk severity from source strength, then calculates source completeness from completion-guard acquisition coverage. Publication confidence starts from source completeness, source diversity, and citation traceability, then subtracts bounded penalties for open gap burden and contradiction burden. The final review-priority score is a weighted blend: `risk severity*0.70 + source completeness*0.10 + publication confidence*0.20`, then clamped to `0-100`.",
                 "",
                 "| Component | Value | Contribution |",
                 "| --- | --- | --- |",
@@ -163,11 +167,12 @@ class ReviewArtifactService:
                 f"| Support count | min(20, {score_inputs.support_count} * 4) | +{formula['support']:.2f} |",
                 f"| Source diversity | min(15, {score_inputs.source_diversity} * 4) | +{formula['diversity']:.2f} |",
                 f"| Hard entity links | min(20, {score_inputs.hard_link_count} * 5) | +{formula['hard_links']:.2f} |",
-                f"| Contradictions | {score_inputs.contradiction_count} * -6 | -{formula['contradiction_penalty']:.2f} |",
-                f"| Missing data | {score_inputs.missing_data_count} * -5 | -{formula['missing_penalty']:.2f} |",
-                f"| Risk severity before completeness penalties |  | {formula['risk_severity']:.2f} |",
-                f"| Source completeness | 100 - penalties | {formula['source_completeness']:.2f} |",
-                f"| Publication confidence | completeness and source diversity blend | {formula['publication_confidence']:.2f} |",
+                f"| Risk severity | source-strength subtotal | {formula['risk_severity']:.2f} |",
+                f"| Source completeness | {score_inputs.completion_guard_resolved} / {score_inputs.completion_guard_total or 'unavailable'} resolved acquisition checks | {formula['source_completeness']:.2f} |",
+                f"| Source diversity confidence | min(100, {score_inputs.source_diversity} * 12.5) | +{formula['diversity_confidence']:.2f} |",
+                f"| Citation traceability confidence | source URI + checksum coverage | +{formula['traceability_confidence']:.2f} |",
+                f"| Open gap and contradiction caveat penalty | min(45, {score_inputs.gap_burden_count} * 1.5 + {score_inputs.contradiction_count} * 8) | -{formula['caveat_penalty']:.2f} |",
+                f"| Publication confidence | coverage/diversity/traceability minus caveats | {formula['publication_confidence']:.2f} |",
                 f"| Weighted review-priority score before clamp |  | {formula['raw']:.2f} |",
                 "",
                 f"Support summary: {self._plain_language(lead.support_summary)}",
@@ -404,6 +409,18 @@ class ReviewArtifactService:
         counts = Counter(item.source_type for item in bundle.items)
         return dict(sorted(counts.items(), key=lambda pair: (-pair[1], SOURCE_TYPE_LABELS.get(pair[0], pair[0]))))
 
+    def _source_type_counts_text(self, counts: dict[str, int]) -> str:
+        if not counts:
+            return "none"
+        parts = [
+            f"{self._source_type_label(source_type)} ({count})"
+            for source_type, count in sorted(
+                counts.items(),
+                key=lambda pair: (-int(pair[1]), SOURCE_TYPE_LABELS.get(pair[0], pair[0])),
+            )
+        ]
+        return "; ".join(parts)
+
     def _signal_counts(self, bundle: EvidenceBundle) -> dict[str, int]:
         counts: dict[str, int] = {}
         for item in bundle.items:
@@ -479,14 +496,18 @@ class ReviewArtifactService:
         return ", ".join(f"`{ref}`" for ref in clipped) + suffix
 
     def _score_formula(self, score_inputs: ScoreInputs) -> dict[str, float]:
+        diversity_confidence = score_inputs.source_diversity_confidence_score or min(100.0, score_inputs.source_diversity * 12.5)
+        traceability_confidence = score_inputs.traceability_confidence_score or (100.0 if score_inputs.support_count else 0.0)
+        caveat_penalty = score_inputs.caveat_penalty_score or min(45.0, score_inputs.gap_burden_count * 1.5 + score_inputs.contradiction_count * 8.0)
         values = {
             "base": 20.0,
             "relevance": round(score_inputs.average_relevance * 35.0, 2),
             "support": min(20.0, score_inputs.support_count * 4.0),
             "diversity": min(15.0, score_inputs.source_diversity * 4.0),
             "hard_links": min(20.0, score_inputs.hard_link_count * 5.0),
-            "contradiction_penalty": score_inputs.contradiction_count * 6.0,
-            "missing_penalty": score_inputs.missing_data_count * 5.0,
+            "diversity_confidence": diversity_confidence,
+            "traceability_confidence": traceability_confidence,
+            "caveat_penalty": caveat_penalty,
         }
         values["risk_severity"] = round(
             values["base"]
@@ -499,9 +520,9 @@ class ReviewArtifactService:
         values["source_completeness"] = score_inputs.source_completeness_score
         values["publication_confidence"] = score_inputs.publication_confidence_score
         values["raw"] = round(
-            score_inputs.risk_severity_score * 0.65
-            + score_inputs.source_completeness_score * 0.25
-            + score_inputs.publication_confidence_score * 0.10,
+            score_inputs.risk_severity_score * 0.70
+            + score_inputs.source_completeness_score * 0.10
+            + score_inputs.publication_confidence_score * 0.20,
             2,
         )
         return values
@@ -510,7 +531,7 @@ class ReviewArtifactService:
         if score >= 75:
             return "Interpretation: high-priority review lead due to broad source coverage and entity linkage, still requiring human verification."
         if score >= 50:
-            return "Interpretation: reviewable triage lead with meaningful source coverage, but caveats or missing data prevent upgrade without human verification."
+            return "Interpretation: reviewable triage lead with meaningful source coverage, but open gap-burden caveats prevent upgrade without human verification."
         if score >= 25:
             return "Interpretation: limited triage lead; source coverage or entity linkage is thin and repair is likely needed before escalation."
         return "Interpretation: insufficient retrieved support for a review lead from the current corpus."

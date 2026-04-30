@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .contracts import CaseRequest, EvidenceBundle, LeadCandidate, stable_id
+from .contracts import CaseRequest, CompletionGuardResult, EvidenceBundle, LeadCandidate, stable_id
 from .scoring import LeadScoringService
 from .search import SearchPlan
 from .sentinel import PROHIBITED_TERMS, PUBLICATION_PRESSURE_TERMS
@@ -139,8 +139,13 @@ class LeadScorerAgent:
     def __init__(self, scoring_service: LeadScoringService) -> None:
         self.scoring_service = scoring_service
 
-    def create_candidate(self, request: CaseRequest, bundle: EvidenceBundle) -> LeadCandidate:
-        score_inputs = self.scoring_service.score(bundle)
+    def create_candidate(
+        self,
+        request: CaseRequest,
+        bundle: EvidenceBundle,
+        completion_guard: CompletionGuardResult | None = None,
+    ) -> LeadCandidate:
+        score_inputs = self.scoring_service.score(bundle, completion_guard)
         evidence_ids = [item.item_id for item in bundle.items]
         entity_phrase = ", ".join(request.entities[:2]) if request.entities else "the requested subject"
         theme = self._theme(bundle)
@@ -221,7 +226,7 @@ class LeadScorerAgent:
         if score_inputs.contradiction_count:
             uncertainty.append("At least one record preserves a conflicting or corrective signal.")
         if score_inputs.missing_data_count:
-            uncertainty.append("At least one record marks missing or incomplete data.")
+            uncertainty.append("At least one record carries an open gap-burden caveat that must be resolved before stronger outside-facing use.")
         if not uncertainty:
             uncertainty.append("This remains an internal triage lead pending human review.")
 
