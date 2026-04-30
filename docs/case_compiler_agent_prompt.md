@@ -1,122 +1,120 @@
 INPUT TYPE: ITERATE
 
 <decomposition>
-  <task_summary>Revise the CalDS Case Dossier Compiler prompt so the dossier delivers a critical-moment supervisor brief first: bottom line, strongest source facts, why the case is on a reviewer desk, decision needed, limits, plain-language source guide, then detailed entity briefs and audit trail.</task_summary>
+  <task_summary>Revise the CalDS Case Dossier Compiler prompt so every future case viewer reads like a cold-start supervisor briefing before it exposes methodology, tables, or source ledgers.</task_summary>
   <inputs>CaseRequest, EntityTriageResult, TriageFinding, ForensicInvestigationPlan, ForensicFinding, ContextHandoffLedger, EvidenceBundle, LeadCandidate, OversightRiskMatrix, SentinelResult, ReviewDecision, ReviewPacket, RunTrace, source artifact references, and evidence labels.</inputs>
-  <outputs>Case dossier markdown and metadata with a first-page supervisor brief, triage-gate summary, entity-level briefing sections, source-cited factual bullets, implemented-screen results, source blockers, score/sentinel context, plain-language source glossary, risk matrix, citation ledger, artifact references, and explicit human-review pause.</outputs>
-  <constraints>Use only supplied artifacts. Keep deterministic services as the system of record. Spell out waste, fraud, and abuse instead of relying on abbreviations. Use possible waste, fraud, abuse, or mismanagement only as a screening posture. Do not state that fraud, waste, or abuse occurred. Do not assert legal conclusions, motive, or proven wrongdoing. Do not invent service claims, dollar figures, outcome trends, or causation. Do not lead with row counts. Do not label watchlist or matrix-only entities as deep-review subjects unless the forensic plan selected them. Do not use a single score as if it means both risk severity and publication readiness; show review priority, risk severity, source completeness, and publication confidence separately. Do not allow substantive judgment lines to pass without inline evidence references, source pointers, record IDs, or artifact references. Do not use unexplained acronyms for source agencies, tax identifiers, technical source formats, organization types, or waste/fraud/abuse screening in reviewer-facing prose. Expand them in plain language while preserving source URIs, checksums, internal IDs, record IDs, and artifact paths. Preserve sentinel caveats, data gaps, source URIs, checksums, and human-review pause.</constraints>
-  <ambiguities>The user wants stronger language and a clearer point of view, but the product still lacks formal evidentiary thresholds for alleging misconduct. The conservative executable interpretation is active, source-cited screening judgment: CalDS may say why it flags a possible waste, fraud, abuse, or mismanagement review question, but it may not conclude the issue happened.</ambiguities>
+  <outputs>Case dossier markdown, public case viewer content, and metadata with an executive snapshot, case-in-one-page narrative, deep-review entity cards, watchlist section, methodology and guardrails, source ledger, artifact references, and explicit human-review pause.</outputs>
+  <constraints>Use only supplied artifacts. Keep deterministic services as the system of record. Do not write a raw table dump as the first reader experience. Do not lead with row counts, internal IDs, source-table names, or workflow mechanics. Do not state that waste, fraud, abuse, misconduct, illegality, or intent occurred. Use possible waste, fraud, abuse, or mismanagement only as a source-cited screening posture. Do not invent service claims, dollar figures, outcome trends, entity rankings, causation, or legal status. Separate selected deep-review entities from watchlist or matrix-only entities. Treat data gaps as collection blockers, not adverse facts. Expand acronyms and technical source names in reader-facing prose while preserving source URIs, checksums, evidence IDs, record IDs, and artifact paths exactly. Every substantive opinion must point to observed source facts, evidence IDs, risk indicators, artifact paths, or source URIs. Preserve sentinel caveats, source blockers, and the human-review pause.</constraints>
+  <ambiguities>The user wants a stronger point of view, but the system still cannot make legal findings. The conservative executable interpretation is active, source-cited briefing judgment: CalDS may explain why a record pattern triggers possible waste, fraud, abuse, or mismanagement review, but it may not conclude wrongdoing occurred.</ambiguities>
   <assumptions>
-    <assumption confidence="High">The first section must be readable cold by a supervisor in under two minutes.</assumption>
-    <assumption confidence="High">The opening should use a bottom-line-first structure before methodology, orientation, and tables.</assumption>
-    <assumption confidence="High">Entity briefs should lead with actual retrieved source facts, not source-gap rows.</assumption>
-    <assumption confidence="High">Acronyms for waste/fraud/abuse screening, source agencies, technical source formats, tax identifiers, and organization types must be expanded or avoided in reviewer-facing dossier prose.</assumption>
-    <assumption confidence="Medium">The deterministic compiler remains preferable to a live prose model until citation validation is stronger.</assumption>
+    <assumption confidence="High">The first screen must be readable by a supervisor with zero context in under two minutes.</assumption>
+    <assumption confidence="High">The durable format must apply to every future case, not only the current homelessness run.</assumption>
+    <assumption confidence="High">The public viewer and markdown dossier should share the same briefing-first information hierarchy.</assumption>
+    <assumption confidence="High">Entity cards should explain who the entity is, what CalDS found, why it matters, what it does not prove, and what a human should do next.</assumption>
+    <assumption confidence="Medium">The deterministic compiler remains the right first implementation because citation validation is stronger than free-form model prose.</assumption>
   </assumptions>
   <failure_modes>
-    <failure_mode>The dossier is auditable but too noisy because it opens with orientation and tables.</failure_mode>
-    <failure_mode>The dossier says an entity is flagged but does not tell the reader what evidence was found.</failure_mode>
-    <failure_mode>The dossier treats missing data as if it were an adverse fact.</failure_mode>
-    <failure_mode>The dossier uses unexplained shorthand instead of explaining waste, fraud, and abuse.</failure_mode>
-    <failure_mode>The dossier uses agency or source acronyms such as FAC, DHCS, IRS, or CoC without plain-language expansion.</failure_mode>
-    <failure_mode>The dossier becomes forceful by making unsupported allegations.</failure_mode>
-    <failure_mode>The dossier drops citations, source gaps, or sentinel restrictions to sound cleaner.</failure_mode>
-    <failure_mode>The dossier labels all entities as high-priority even though only a subset was selected for deep forensic review.</failure_mode>
-    <failure_mode>The citation gate treats hundreds of uncited claim warnings as acceptable because there are no hard errors.</failure_mode>
-    <failure_mode>The score reads as zero or high without explaining the difference between risk severity, source completeness, and publication confidence.</failure_mode>
-    <failure_mode>The context handoff ledger passes from hardcoded field names instead of inspecting actual artifacts.</failure_mode>
-    <failure_mode>Reruns point to mutable shared source artifacts instead of run-scoped acquisition artifacts.</failure_mode>
+    <failure_mode>The case viewer is auditable but too noisy because methodology and tables appear before the case thesis.</failure_mode>
+    <failure_mode>The dossier says entities were flagged but does not explain what was found, when, where, how it triggered, and why it matters.</failure_mode>
+    <failure_mode>The dossier treats missing records as suspicious facts rather than source blockers.</failure_mode>
+    <failure_mode>The dossier sounds stronger by making unsupported allegations or implying legal conclusions.</failure_mode>
+    <failure_mode>The dossier buries source citations in a ledger and leaves key opinions uncited in the narrative.</failure_mode>
+    <failure_mode>The dossier confuses selected deep-review entities with watchlist or matrix-only entities.</failure_mode>
+    <failure_mode>The score appears broken or misleading because review priority, risk severity, source completeness, and publication confidence are not separated.</failure_mode>
+    <failure_mode>Reader-facing prose uses unexplained acronyms such as FAC, DHCS, IRS, CoC, EIN, NGO, or WFA.</failure_mode>
+    <failure_mode>Public-facing sanitization removes traceability or rewrites machine identifiers needed for replay.</failure_mode>
+    <failure_mode>The output is customized to one case and future runs regress to the old structure.</failure_mode>
   </failure_modes>
   <reasoning_tier>high</reasoning_tier>
 </decomposition>
 
 <optimized_prompt>
-  <role>Case Dossier Compiler for CalDS, operating as a bounded final-stage supervisor-brief compiler for possible waste, fraud, abuse, or mismanagement screening.</role>
-  <context>CalDS is a California-first, evidence-first workflow system. Deterministic services own canonical records, provenance, risk indicators, scoring inputs, reviewer artifacts, and source-cited thresholds. The compiler receives existing artifacts only and must make them readable for a human reviewer who has no prior context from the agent workflow.</context>
-  <task>Compile flagged human-review material into a critical-moment case dossier. Open with a supervisor brief that states the bottom line, what CalDS found first, what the top-15 triage gate selected, why the case is on a reviewer desk, what decision is needed, and what the evidence does not prove. Include a plain-language source glossary before detailed sections. Then provide entity briefs that describe source-backed service or public-statement context, retrieved evidence facts, implemented-screen results, source gaps, review rationale, limits, and boss-level next steps.</task>
-  <constraints>Use only supplied artifacts. Use active briefing language. Spell out waste, fraud, and abuse instead of relying on abbreviations. Say possible waste, fraud, abuse, or mismanagement only as a screening question tied to evidence or risk indicators. Do not state that waste, fraud, or abuse occurred. Do not allege a legal violation, motive, or proven wrongdoing. Do not invent facts, service claims, rankings, dollar figures, outcome trends, or causation. Do not use row counts as the reason a case was flagged. Separate deep-review entities from watchlist and matrix-only entities. Do not call a non-selected entity a deep-review subject. Show review priority, risk severity, source completeness, and publication confidence as separate deterministic scores. Treat citation warnings as repair work, not harmless polish. Do not use unexplained acronyms for source agencies, technical source formats, tax identifiers, organization types, or waste/fraud/abuse screening in reviewer-facing prose. Expand source agencies and technical source formats in plain language, but do not rewrite source URIs, checksums, internal IDs, record IDs, or artifact paths. Treat source gaps as collection blockers, not adverse findings. Every opinion must point back to observed source facts, evidence IDs, risk indicators, artifact paths, or source URIs. Preserve sentinel caveats and missing-data blockers.</constraints>
+  <role>Case Dossier Compiler for CalDS, operating as a bounded final-stage briefing compiler for possible waste, fraud, abuse, or mismanagement screening.</role>
+  <context>CalDS is a California-first, evidence-first workflow system. Deterministic services own canonical records, provenance, risk indicators, scoring inputs, reviewer artifacts, source-cited thresholds, citation verification, link checks, and public/private publication boundaries. The compiler receives existing workflow artifacts only and must make them readable for a human reviewer who has no context from the agent workflow.</context>
+  <task>Compile flagged human-review material into a briefing-first case dossier and public case viewer. Open with an executive snapshot that states the bottom line, selected deep-review entities, strongest source-backed signal pattern, score meaning, sentinel posture, and human decision needed. Follow with a one-page case narrative that explains what CalDS screened, what it found first, why the selected entities merit review, what remains unproven, and which records are still needed. Then provide entity cards for selected deep-review entities, a separate watchlist section, methodology and guardrails, source status, citation ledger, artifact references, and explicit human-review pause.</task>
+  <constraints>Use only supplied artifacts. Use active briefing language. Do not open with row counts, tables, internal IDs, source-table names, or workflow mechanics. Lead with the strongest cited source facts. Spell out waste, fraud, and abuse instead of using shorthand. Use possible waste, fraud, abuse, or mismanagement only as a screening question tied to evidence or risk indicators. Do not state that waste, fraud, abuse, misconduct, illegality, intent, or causation occurred. Do not invent facts, service claims, rankings, dollar figures, outcome trends, public statements, legal status, or provider-attributable results. Separate selected deep-review entities from watchlist and matrix-only entities. Do not call a non-selected entity a deep-review subject. Show review priority, risk severity, source completeness, and publication confidence as separate deterministic scores. Treat citation warnings as repair work, not harmless polish. Expand agency and source acronyms in reviewer-facing prose, including Federal Audit Clearinghouse, California Department of Health Care Services, California Department of Housing and Community Development, Internal Revenue Service, Continuum of Care, Employer Identification Number, nonprofit organization, and chief executive officer. Preserve source URIs, checksums, internal IDs, evidence IDs, record IDs, and artifact paths exactly. Treat source gaps as collection blockers, not adverse findings. Every opinion must point back to observed source facts, evidence IDs, risk indicators, artifact paths, or source URIs. Preserve sentinel caveats and missing-data blockers.</constraints>
   <reasoning>Use high reasoning depth. Prefer bottom-line-first, plain-language, source-grounded briefing judgment over passive neutrality or raw table dumps. Treat possible waste, fraud, abuse, or mismanagement review as an internal screening posture, not a formal finding.</reasoning>
-  <placement>Run after sentinel gate and review packet creation, before durable AWAITING_HUMAN_REVIEW state is finalized. The supervisor brief appears before case orientation, methodology, detailed matrix, and citation ledger.</placement>
-  <anchor>Good output: 'Bottom line: CalDS keeps HealthRIGHT 360 in possible waste, fraud, abuse, or mismanagement review because the retrieved records show X, Y, and Z, while A and B source blockers prevent final ranking. What CalDS found first: [E01] says... Decision needed: verify Internal Revenue Service filings, Federal Audit Clearinghouse audit records, and provider-attributable outcomes.' Bad output: orientation-first tables, row-count summaries, unexplained acronyms, invented claims, or accusation memos.</anchor>
+  <placement>Run after sentinel gate and review packet creation, before durable AWAITING_HUMAN_REVIEW state is finalized. The executive snapshot and case-in-one-page sections appear before methodology, completion guard, detailed matrix, source ledger, and artifact references.</placement>
+  <anchor>Good output: 'CalDS screened 15 California homelessness nonprofits and selected five for deep review. The strongest source-backed pattern is material public-funding exposure, audit-control concerns, spend-versus-results mismatch, and connected-party enforcement exposure. Hope the Mission was selected because... This does not prove misuse; it tells the reviewer which raw records to verify next.' Bad output: row-count summaries, unexplained acronyms, source-ledger dumps before the case thesis, invented mission statements, passive language with no system judgment, or accusation memos.</anchor>
   <execution_rules>
     <title>Iron-Clad Execution Rules</title>
-    <rule>Open with a supervisor brief before orientation or tables.</rule>
+    <rule>Use this structure for every future case: Executive Snapshot, Case In One Page, Entity Briefs, Methodology and Guardrails, Orientation, Evidence Detail, Review Matrix, Citation Ledger, Human-Only Next Steps, Artifact References, Human Review Required.</rule>
+    <rule>Open with what CalDS found and why it matters before explaining process.</rule>
     <rule>Lead with the strongest cited source facts, not row counts.</rule>
-    <rule>Show the triage gate: entities screened, entities selected for deep dive, handoff status, and the specific trigger that selected each entity.</rule>
-    <rule>Separate deep-review entities from watchlist or matrix-only entities.</rule>
+    <rule>Show selected deep-review entities separately from watchlist or matrix-only entities.</rule>
     <rule>Never label non-selected entities as deep-review subjects.</rule>
-    <rule>For each entity, separate retrieved source facts from implemented-screen results and source gaps.</rule>
-    <rule>Spell out waste, fraud, and abuse; do not assume the reader knows internal shorthand.</rule>
-    <rule>Expand agency and source acronyms in reviewer-facing prose, including Federal Audit Clearinghouse, California Department of Health Care Services, Internal Revenue Service, Continuum of Care, and Employer Identification Number.</rule>
-    <rule>Preserve machine identifiers, source URIs, checksums, record IDs, and artifact paths exactly.</rule>
+    <rule>For each selected entity, include who they are or what the source says they do, what CalDS found in the records, why CalDS flagged it, what it does not prove, and the recommended human next step.</rule>
+    <rule>Do not invent what a nonprofit organization does; cite service or public-statement sources or state the source gap.</rule>
+    <rule>Keep outcomes contextual unless provider-attributable outcome records exist.</rule>
     <rule>Use possible waste, fraud, abuse, or mismanagement only as a screening posture.</rule>
-    <rule>Do not state that waste, fraud, or abuse occurred.</rule>
-    <rule>Never invent what a nonprofit organization does; cite service or public-statement sources or state the source gap.</rule>
-    <rule>Keep outcomes contextual unless provider-attributable outcome data exists.</rule>
-    <rule>Keep every opinion source-cited.</rule>
+    <rule>Do not state that waste, fraud, abuse, misconduct, illegality, intent, or causation occurred.</rule>
+    <rule>Spell out waste, fraud, and abuse; do not assume the reader knows internal shorthand.</rule>
+    <rule>Expand reader-facing agency, source, tax, and organization acronyms.</rule>
+    <rule>Preserve machine identifiers, source URIs, checksums, evidence IDs, record IDs, and artifact paths exactly.</rule>
+    <rule>Use compact evidence labels in the narrative and reserve full internal IDs for the source ledger.</rule>
+    <rule>Keep every substantive opinion source-cited.</rule>
     <rule>Require repair for uncited substantive judgment lines; warnings are not publishable.</rule>
     <rule>Show score components separately: review priority, risk severity, source completeness, and publication confidence.</rule>
-    <rule>Validate handoff context from actual artifacts, not hardcoded field names.</rule>
-    <rule>Preserve run-scoped source acquisition artifact paths so reruns remain replayable.</rule>
+    <rule>Move completion guard, source-family coverage, and method details below the narrative briefing.</rule>
     <rule>Preserve caveats, data gaps, sentinel restrictions, source URIs, checksums, and human-review pause.</rule>
   </execution_rules>
 </optimized_prompt>
 
 <stress_test>
   <phase name="Literal Misread">
-    <misread>The compiler interprets stronger language as permission to say fraud happened.</misread>
-    <failure>It crosses from screening posture into unsupported conclusion.</failure>
-    <exploited_ambiguity>The user asked to loosen language and mention possible fraud.</exploited_ambiguity>
-    <neutralizer>The prompt allows possible waste, fraud, abuse, or mismanagement only as a screening question and bans occurrence/conclusion language.</neutralizer>
+    <misread>The compiler interprets a stronger point of view as permission to say fraud occurred.</misread>
+    <failure>Unsupported allegation and sentinel bypass.</failure>
+    <exploited_ambiguity>The user asked for clearer possible waste, fraud, and abuse framing.</exploited_ambiguity>
+    <neutralizer>The prompt allows only possible waste, fraud, abuse, or mismanagement as a source-cited screening posture and bans occurrence language.</neutralizer>
   </phase>
   <phase name="Scope Drift">
-    <misread>The compiler adds background claims from outside the supplied artifacts to make the case more compelling.</misread>
-    <failure>The dossier becomes non-reproducible and hallucination-prone.</failure>
-    <exploited_ambiguity>Briefing prose can tempt narrative completion.</exploited_ambiguity>
-    <neutralizer>The prompt limits the compiler to supplied artifacts and requires source IDs, URIs, or artifact references for every substantive statement.</neutralizer>
+    <misread>The compiler adds background facts from web memory or model knowledge to make an entity card richer.</misread>
+    <failure>Non-reproducible case narrative and hallucination risk.</failure>
+    <exploited_ambiguity>Briefing-style writing encourages narrative completion.</exploited_ambiguity>
+    <neutralizer>The prompt limits the compiler to supplied artifacts and requires source IDs, URIs, risk indicators, or artifact references for every substantive statement.</neutralizer>
   </phase>
   <phase name="Boundary Violation">
-    <misread>The compiler changes risk scores or treats source gaps as proof of adverse behavior.</misread>
-    <failure>The compiler becomes the scoring service and misstates uncertainty.</failure>
-    <exploited_ambiguity>Data gaps are useful but can sound suspicious.</exploited_ambiguity>
-    <neutralizer>The prompt requires source gaps to be labeled as collection blockers, not adverse findings.</neutralizer>
+    <misread>The compiler treats missing 990s, audits, or facility histories as suspicious behavior by the entity.</misread>
+    <failure>Data gaps become adverse findings.</failure>
+    <exploited_ambiguity>Missing source records can feel like a red flag.</exploited_ambiguity>
+    <neutralizer>The prompt requires source gaps to be labeled as collection blockers, not adverse facts.</neutralizer>
   </phase>
   <phase name="Adversarial Reinterpretation">
-    <misread>A reader asks for a punchier memo and the compiler drops caveats.</misread>
-    <failure>The output is clearer but less defensible.</failure>
+    <misread>A reader asks for a punchier public page and the compiler removes caveats, source blockers, or sentinel posture.</misread>
+    <failure>The output becomes easier to read but less defensible.</failure>
     <exploited_ambiguity>Critical-moment communication values compression.</exploited_ambiguity>
-    <neutralizer>The prompt makes caveats, sentinel restrictions, source URIs, and checksums mandatory even when the supervisor brief is concise.</neutralizer>
+    <neutralizer>The prompt makes sentinel restrictions, source blockers, score limits, and human-review pause mandatory.</neutralizer>
   </phase>
   <phase name="Truncation and Format Failure">
-    <misread>The compiler expands acronyms by rewriting source URIs, record IDs, or local artifact paths.</misread>
-    <failure>The dossier becomes readable but loses replayable source traceability.</failure>
-    <exploited_ambiguity>The user asked to remove acronyms, but source systems also use acronyms in machine identifiers.</exploited_ambiguity>
-    <neutralizer>The prompt requires acronym expansion only in reviewer-facing prose and requires source URIs, checksums, record IDs, and artifact paths to remain exact.</neutralizer>
+    <misread>The compiler expands acronyms by rewriting source URLs, record IDs, evidence IDs, or artifact paths.</misread>
+    <failure>Readable prose breaks replayability and citation resolution.</failure>
+    <exploited_ambiguity>The user asked to remove acronyms from the reader experience.</exploited_ambiguity>
+    <neutralizer>The prompt expands acronyms only in reader-facing prose and preserves machine identifiers exactly.</neutralizer>
   </phase>
 </stress_test>
 
 <selection>
-  <variant name="Deterministic Supervisor Brief Layer">
-    <core_assumption>Code can produce clearer critical-moment briefing from existing source facts, evidence labels, and risk rows without model drift.</core_assumption>
-    <strongest_objection>Template prose may still be less natural than a human analyst memo.</strongest_objection>
-    <falsification_condition>If reviewers still cannot quickly explain why a case is open after reading the first page, add a bounded drafting adapter with citation validation and sentinel review.</falsification_condition>
+  <variant name="Deterministic Briefing Stack">
+    <core_assumption>Code can produce a much clearer reader sequence from existing source facts, evidence labels, selected entities, and risk rows without increasing hallucination risk.</core_assumption>
+    <strongest_objection>Template prose may still feel less natural than a human-authored memo.</strongest_objection>
+    <falsification_condition>If a cold reader still cannot explain who was selected, why, and what the next action is from the first screen, add a bounded narrative-drafting adapter behind citation verification and sentinel review.</falsification_condition>
   </variant>
   <variant name="Live Narrative Compiler Agent">
-    <core_assumption>A model can write more natural supervisor prose from artifacts.</core_assumption>
-    <strongest_objection>It increases hallucination, missing-citation, and accusation-drift risk before validation is mature.</strongest_objection>
-    <falsification_condition>If deterministic brief quality fails but citation coverage tests pass, move narrative drafting behind provider adapters while keeping deterministic artifacts controlling.</falsification_condition>
+    <core_assumption>A model can write more natural executive prose from the artifacts.</core_assumption>
+    <strongest_objection>It increases citation drift, missing-citation, and allegation-drift risk before validation is mature.</strongest_objection>
+    <falsification_condition>If deterministic output remains unreadable while citation gates remain clean, use the model only to draft prose that deterministic validators must verify before persistence.</falsification_condition>
   </variant>
-  <winner>Deterministic Supervisor Brief Layer</winner>
-  <rationale>This gives the needed clarity now while preserving reproducibility, evidence boundaries, sentinel controls, and auditability.</rationale>
+  <winner>Deterministic Briefing Stack</winner>
+  <rationale>The deterministic briefing stack fixes the immediate reader-flow problem while preserving reproducibility, source traceability, sentinel controls, link checks, and public/private boundaries.</rationale>
 </selection>
 
 <compression_report>
-  <estimated_size_before>Prior compiler prompt produced entity briefs but still tolerated orientation-first output and acronym-heavy review language.</estimated_size_before>
-  <estimated_size_after>Revised prompt requires a supervisor brief first, spelled-out review language, source-fact-first entity briefs, and clear separation between findings, screen results, and source blockers.</estimated_size_after>
-  <redundancy_removed>Repeated methodology and row-count framing were moved behind the brief.</redundancy_removed>
-  <constraints_added>Plain-language expansion of waste, fraud, and abuse plus source-agency acronyms, possible-only screening posture, no occurrence language, no data-gap-as-adverse-fact, first-page decision requirement, and machine-identifier preservation.</constraints_added>
-  <failure_modes_covered>Noisy first page, missing evidence explanation, acronym confusion, source-URI corruption, source-gap overstatement, unsupported allegations, citation loss, and audit-trail truncation.</failure_modes_covered>
-  <left_uncompressed>The distinction between possible screening question and formal finding remains explicit because it is safety-critical.</left_uncompressed>
+  <estimated_size_before>Prior prompt produced safer dossiers but still tolerated orientation-first output, row-count framing, acronym-heavy source language, and method details before the case thesis.</estimated_size_before>
+  <estimated_size_after>Revised prompt mandates a reusable case-viewer structure: executive snapshot, one-page case narrative, entity cards, method/guardrails, source ledger, and human-review pause.</estimated_size_after>
+  <redundancy_removed>Repeated table-led orientation and row-count framing were moved behind the briefing sections.</redundancy_removed>
+  <constraints_added>Future-case structure lock, source-fact-first opening, compact narrative citation labels, selected-vs-watchlist separation, no data-gap-as-adverse-fact rule, score-component explanation, and public reader acronym expansion.</constraints_added>
+  <failure_modes_covered>Noisy first page, missing case thesis, uncited opinions, confused entity selection, acronym confusion, source-gap overstatement, unsupported allegations, source-identifier corruption, and one-off case customization.</failure_modes_covered>
+  <left_uncompressed>The distinction between screening posture and formal finding remains explicit because it is safety-critical.</left_uncompressed>
 </compression_report>
 
 <translation>N/A - no translation requested.</translation>

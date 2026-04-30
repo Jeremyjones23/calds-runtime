@@ -52,6 +52,18 @@ ACRONYM_REPLACEMENTS = [
 ]
 
 
+MOJIBAKE_REPLACEMENTS = [
+    ("\u00e2\u20ac\u2122", "'"),
+    ("\u00e2\u20ac\u0153", '"'),
+    ("\u00e2\u20ac\ufffd", '"'),
+    ("\u00e2\u20ac\u009d", '"'),
+    ("\u00e2\u20ac\u201c", "-"),
+    ("\u00e2\u20ac\u201d", "-"),
+    ("\u00c2 ", " "),
+    ("\u00c2", ""),
+]
+
+
 PROTECTED_TEXT_RE = re.compile(r"`[^`]*`|https?://[^\s|)]+", re.IGNORECASE)
 
 
@@ -59,6 +71,8 @@ def expand_reviewer_acronyms(text: object) -> str:
     """Expand reviewer-facing acronyms without rewriting code spans or source URLs."""
 
     value = str(text)
+    for bad, good in MOJIBAKE_REPLACEMENTS:
+        value = value.replace(bad, good)
     protected: list[str] = []
 
     def protect(match: re.Match[str]) -> str:

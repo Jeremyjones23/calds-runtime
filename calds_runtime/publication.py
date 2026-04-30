@@ -73,14 +73,14 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
 
     public_markdown = sanitize_public_text(compiled_markdown)
     public_markdown_path = output_dir / "case_dossier.md"
-    public_markdown_path.write_text(public_markdown, encoding="utf-8")
+    public_markdown_path.write_text(public_markdown, encoding="utf-8", newline="\n")
 
     source_ledger_path = output_dir / "source_ledger.json"
     write_json(source_ledger_path, {"case_id": request.case_id, "evidence": source_ledger})
 
     html_text = render_public_html(request, public_markdown, source_ledger, sentinel.decision.value)
     index_path = output_dir / "index.html"
-    index_path.write_text(html_text, encoding="utf-8")
+    index_path.write_text(html_text, encoding="utf-8", newline="\n")
 
     public_dossier = {
         "dossier_id": compiled.dossier_id,
@@ -333,7 +333,7 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
   <section id=\"source-ledger\">
     <h2>Source Ledger</h2>
     <p>Every evidence label used in the dossier resolves here. Original URLs are linked when available; otherwise the row states why the source is not externally linkable in this run.</p>
-    {cards}
+{cards}
   </section>
   <footer>Generated {generated}. Human review remains required before outside-facing use.</footer>
 </main>
