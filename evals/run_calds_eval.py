@@ -49,6 +49,8 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
         "forensic_investigation_plan",
         "forensic_findings",
         "context_handoff_ledger",
+        "acquisition_ledger",
+        "completion_guard",
         "evidence_bundle",
         "lead_candidate",
         "oversight_risk_matrix",
@@ -56,6 +58,7 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
         "review_packet_markdown",
         "case_dossier",
         "case_dossier_markdown",
+        "citation_verification",
         "review_decision",
     ]
     for key in required:
@@ -74,6 +77,11 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
     assert_true("results" in triage, "triage artifact missing results")
     assert_true("selected_entities" in plan, "forensic plan missing selected entities")
     assert_true(handoff["status"] == "PASS", "context handoff did not pass")
+    acquisition = read_json(Path(artifacts["acquisition_ledger"]))
+    completion_guard = read_json(Path(artifacts["completion_guard"]))
+    assert_true("searches" in acquisition, "acquisition ledger missing searches")
+    assert_true(completion_guard["status"] in {"PASS", "PASS_WITH_BLOCKERS"}, "completion guard failed")
+    assert_true(completion_guard["total_searches"] == len(acquisition["searches"]), "completion guard search count drifted")
 
     lead = read_json(Path(artifacts["lead_candidate"]))
     lead_text = json.dumps(lead)
@@ -135,11 +143,18 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
     assert_true("Evidence Citation Ledger" in dossier_text, "case dossier missing citation ledger")
     assert_true("Human-Only Next Steps" in dossier_text, "case dossier missing human next steps")
     assert_true("Human Review Required" in dossier_text, "case dossier missing human pause")
+    assert_true("Acquisition and Completion Guard" in dossier_text, "case dossier missing completion guard section")
+    citation_verification = read_json(Path(artifacts["citation_verification"]))
+    assert_true(citation_verification["status"] in {"PASS", "PASS_WITH_WARNINGS"}, "citation verification failed")
+    assert_true(citation_verification["error_count"] == 0, "citation verification produced errors")
+    assert_true(citation_verification["checked_claim_count"] > 0, "citation verifier did not check any claims")
     assert_true("Source URI" in dossier_text and "Checksum" in dossier_text, "case dossier missing traceability fields")
 
     public_site = publish_case_site_from_run(run_dir, run_dir / "public_site")
     public_manifest = read_json(Path(public_site.publication_manifest_json))
     assert_true(public_manifest["safety"]["passed"], "public case site failed safety validation")
+    assert_true("link_integrity" in public_manifest, "public manifest missing link integrity report")
+    assert_true(public_manifest["link_integrity"]["status"] in {"PASS", "PASS_WITH_WARNINGS"}, "public link integrity failed")
     public_html = Path(public_site.index_html).read_text(encoding="utf-8")
     public_md = Path(public_site.case_dossier_markdown).read_text(encoding="utf-8")
     public_ledger = read_json(Path(public_site.source_ledger_json))

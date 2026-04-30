@@ -27,6 +27,7 @@ from .contracts import (
     utc_now,
 )
 from .forensic_triage import HomelessnessTriageService
+from .quality_gates import CitationVerifierService, CompletionGuardService
 from .review import ReviewArtifactService
 from .risk_matrix import OversightRiskMatrixService
 from .scoring import LeadScoringService
@@ -47,6 +48,8 @@ class CaseWorkflow:
         self.case_dossiers = CaseDossierService()
         self.risk_matrix_service = OversightRiskMatrixService()
         self.triage_service = HomelessnessTriageService()
+        self.completion_guard = CompletionGuardService()
+        self.citation_verifier = CitationVerifierService()
         self.sentinel_policy = SentinelPolicy()
         self.provider = LocalProviderAdapter()
         self.runs_dir = runs_dir
@@ -156,6 +159,32 @@ class CaseWorkflow:
         artifacts["forensic_investigation_plan"] = str(forensic_plan_path)
         artifacts["forensic_findings"] = str(forensic_findings_path)
         artifacts["context_handoff_ledger"] = str(handoff_path)
+
+        acquisition_ledger = self.completion_guard.build_acquisition_ledger(
+            request,
+            self.truth_store.records,
+            forensic_plan.selected_entities,
+            forensic_plan.source_families,
+        )
+        acquisition_path = store.write_artifact("acquisition_ledger.json", {"searches": acquisition_ledger})
+        completion_guard = self.completion_guard.guard(
+            request,
+            acquisition_ledger,
+            forensic_plan.selected_entities,
+            forensic_plan.source_families,
+        )
+        completion_guard_path = store.write_artifact("completion_guard.json", completion_guard)
+        if completion_guard.status == "FAIL":
+            raise ValueError("completion guard failed; acquisition ledger is empty or selected entities are missing")
+        self._write_task(
+            store,
+            request,
+            AgentRole.COMPLETION_GUARD,
+            "Verify selected entities have source-family acquisition hits or explicit blockers.",
+            [str(acquisition_path), str(completion_guard_path)],
+        )
+        artifacts["acquisition_ledger"] = str(acquisition_path)
+        artifacts["completion_guard"] = str(completion_guard_path)
         completed_steps.append("triaged")
         store.trace(
             request.case_id,
@@ -169,6 +198,20 @@ class CaseWorkflow:
                 "handoff_status": handoff.status,
             },
             artifacts=[str(triage_path), str(forensic_plan_path), str(forensic_findings_path), str(handoff_path)],
+        )
+        store.trace(
+            request.case_id,
+            Plane.TRUTH,
+            "CompletionGuardService",
+            "completion_guard_checked",
+            "Truth plane recorded acquisition hits and unresolved blockers before synthesis.",
+            outputs={
+                "status": completion_guard.status,
+                "total_searches": completion_guard.total_searches,
+                "hit_count": completion_guard.hit_count,
+                "blocker_count": completion_guard.blocker_count,
+            },
+            artifacts=[str(acquisition_path), str(completion_guard_path)],
         )
         store.write_state(request, WorkflowStatus.TRIAGED, completed_steps, artifacts)
 
@@ -333,6 +376,15 @@ class CaseWorkflow:
             source_artifact_refs=list(artifacts.values()) + [str(packet_path), str(review_packet_path)],
         )
         dossier_json_path = store.write_artifact("case_dossier.json", dossier)
+        citation_verification = self.citation_verifier.verify(
+            request,
+            dossier_path.read_text(encoding="utf-8"),
+            bundle,
+            risk_matrix,
+        )
+        citation_verification_path = store.write_artifact("citation_verification.json", citation_verification)
+        if citation_verification.status == "FAIL":
+            raise ValueError("citation verification failed; dossier contains unsupported or overstated claims")
         self._write_task(
             store,
             request,
@@ -340,8 +392,16 @@ class CaseWorkflow:
             "Compile final case dossier for human review.",
             [str(dossier_path), str(dossier_json_path)],
         )
+        self._write_task(
+            store,
+            request,
+            AgentRole.CITATION_VERIFIER,
+            "Check dossier claims against cited evidence before human-review pause.",
+            [str(citation_verification_path)],
+        )
         artifacts["case_dossier"] = str(dossier_json_path)
         artifacts["case_dossier_markdown"] = str(dossier_path)
+        artifacts["citation_verification"] = str(citation_verification_path)
         completed_steps.append("case_compiled")
         store.trace(
             request.case_id,
@@ -352,6 +412,20 @@ class CaseWorkflow:
             outputs={"sentinel_decision": sentinel.decision.value, "priority_rows": len([item for item in risk_matrix.indicators if item.risk_level in {"High", "Medium", "Data gap"}])},
             artifacts=[str(dossier_path), str(dossier_json_path)],
             metadata=self.provider.describe_role_call(AgentRole.CASE_COMPILER.value),
+        )
+        store.trace(
+            request.case_id,
+            Plane.TRUTH,
+            "CitationVerifierService",
+            "citation_verification_completed",
+            "Truth plane checked dossier claims for evidence references, named-party legal status, and provider-attribution drift.",
+            outputs={
+                "status": citation_verification.status,
+                "checked_claim_count": citation_verification.checked_claim_count,
+                "error_count": citation_verification.error_count,
+                "warning_count": citation_verification.warning_count,
+            },
+            artifacts=[str(citation_verification_path)],
         )
 
         review_decision_path = store.write_artifact("review_decision.json", review_decision)

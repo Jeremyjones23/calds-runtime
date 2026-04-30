@@ -32,6 +32,12 @@ Review packets use possible waste, fraud, abuse, or mismanagement screening lang
 
 The homelessness workflow now includes a first-pass top-15 triage gate before deep investigation. The gate records entity-level source-family findings, deep-dive selection, and context handoff status before the normal evidence bundle, sentinel, dossier, public-site, and human-review pause steps.
 
+The workflow also includes three anti-drift quality gates:
+
+- `CompletionGuardService` records source-family acquisition hits and misses before synthesis, so missing searches become explicit blockers rather than silent omissions.
+- `CitationVerifierService` checks the compiled dossier for unresolved evidence labels, missing traceability, named-party legal-status drift, and provider-attribution overclaim.
+- `LinkIntegrityService` checks public source links during static-site publication and blocks publication when external citation links are broken.
+
 ## Quick Start
 
 Use Python 3.11+. In this local workspace, `python` may not be on PATH; the bundled Codex runtime has worked at:

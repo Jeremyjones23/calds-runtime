@@ -45,6 +45,8 @@ class AgentRole(str, Enum):
     SENTINEL = "Sentinel"
     REVIEW_PACKAGER = "Review Packager"
     CASE_COMPILER = "Case Compiler"
+    COMPLETION_GUARD = "Completion Guard"
+    CITATION_VERIFIER = "Citation Verifier"
 
 
 class WorkflowStatus(str, Enum):
@@ -318,6 +320,83 @@ class ContextHandoffLedger:
     missing_fields: list[str]
     artifact_refs: list[str]
     status: str
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class AcquisitionSearchRun:
+    search_id: str
+    case_id: str
+    entity: str
+    source_family: str
+    query: str
+    attempted_sources: list[str]
+    matched_record_ids: list[str]
+    source_uris: list[str]
+    status: str
+    confidence: str
+    blocker_reason: str = ""
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class CompletionGuardResult:
+    guard_id: str
+    case_id: str
+    status: str
+    required_source_families: list[str]
+    selected_entities: list[str]
+    total_searches: int
+    hit_count: int
+    miss_count: int
+    blocker_count: int
+    missing_required: list[str]
+    notes: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class CitationCheck:
+    check_id: str
+    case_id: str
+    check_type: str
+    status: str
+    message: str
+    evidence_refs: list[str] = field(default_factory=list)
+    record_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CitationVerificationResult:
+    verification_id: str
+    case_id: str
+    status: str
+    checked_claim_count: int
+    error_count: int
+    warning_count: int
+    checks: list[CitationCheck]
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class SourceLinkCheck:
+    check_id: str
+    url: str
+    status: str
+    http_status: int | None
+    final_url: str
+    content_type: str
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class LinkIntegrityReport:
+    report_id: str
+    status: str
+    checked_url_count: int
+    error_count: int
+    warning_count: int
+    checks: list[SourceLinkCheck]
     created_at: str = field(default_factory=utc_now)
 
 

@@ -93,6 +93,10 @@ class CaseDossierService:
             "",
             *self._triage_gate_lines(source_artifact_refs),
             "",
+            "### Acquisition and Completion Guard",
+            "",
+            *self._completion_guard_lines(source_artifact_refs),
+            "",
             "### Why This Is On A Reviewer's Desk",
             "",
             *self._why_on_desk_lines(risk_matrix, labels),
@@ -437,6 +441,33 @@ class CaseDossierService:
                 )
         if not high and not medium:
             lines.append("- No high or medium triage trigger fired; the case should focus on source completion rather than ranking.")
+        return lines
+
+    def _completion_guard_lines(self, source_artifact_refs: list[str]) -> list[str]:
+        ledger = self._load_artifact_json(source_artifact_refs, "acquisition_ledger.json")
+        guard = self._load_artifact_json(source_artifact_refs, "completion_guard.json")
+        if not guard:
+            return ["- This run does not include a completion guard artifact. Rerun the workflow before treating the dossier as complete."]
+        searches = list(ledger.get("searches", [])) if isinstance(ledger, dict) else []
+        hits = [item for item in searches if item.get("status") == "hit"]
+        misses = [item for item in searches if item.get("status") != "hit"]
+        lines = [
+            f"- Completion guard status: {guard.get('status')}.",
+            f"- Required source-family checks: {guard.get('total_searches', len(searches))}; hits: {guard.get('hit_count', len(hits))}; unresolved blockers: {guard.get('blocker_count', len(misses))}.",
+        ]
+        if misses:
+            lines.append("- Top unresolved acquisition blockers:")
+            for item in misses[:8]:
+                lines.append(
+                    f"  - {item.get('entity')}: {item.get('source_family')} - {item.get('blocker_reason') or 'No hit recorded.'}"
+                )
+            if len(misses) > 8:
+                lines.append(f"  - +{len(misses) - 8} additional blocker(s) in `acquisition_ledger.json`.")
+        else:
+            lines.append("- Every required source family has a recovered citation-ready hit for the selected entities.")
+        notes = list(guard.get("notes", []))
+        for note in notes[:3]:
+            lines.append(f"- Guard note: {self._plain_language(note)}")
         return lines
 
     def _load_artifact_json(self, source_artifact_refs: list[str], filename: str) -> dict[str, object]:

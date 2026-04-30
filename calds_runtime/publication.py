@@ -14,8 +14,9 @@ from .case_compiler import (
     evidence_bundle_from_dict,
     sentinel_result_from_dict,
 )
-from .contracts import CaseRequest, EvidenceBundle, EvidenceItem, read_json, stable_id, utc_now, write_json
+from .contracts import CaseRequest, EvidenceBundle, EvidenceItem, read_json, stable_id, to_jsonable, utc_now, write_json
 from .plain_language import expand_reviewer_acronyms
+from .quality_gates import LinkIntegrityService
 from .review import SOURCE_TYPE_LABELS
 
 
@@ -26,6 +27,9 @@ ARCHIVED_COPY_RE = re.compile(r" \(archived local copy: [A-Za-z]:\\[^)]*\)")
 SECRET_RE = re.compile(r"(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})")
 EVIDENCE_REF_RE = re.compile(r"`(E\d{2})`")
 PROTECTED_CODE_RE = re.compile(r"`([^`]+)`")
+NON_BROWSABLE_PUBLIC_URLS = (
+    "https://data.ca.gov/api/3/action/datastore_search",
+)
 
 
 @dataclass(frozen=True)
@@ -81,7 +85,8 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     public_dossier_path = output_dir / "case_dossier.json"
     write_json(public_dossier_path, public_dossier)
 
-    safety = validate_publication(output_dir, public_markdown, html_text, source_ledger)
+    link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
+    safety = validate_publication(output_dir, public_markdown, html_text, source_ledger, link_integrity)
     manifest = {
         "publication_id": stable_id("publication", request.case_id, utc_now()),
         "case_id": request.case_id,
@@ -96,6 +101,7 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
             "source_ledger_json": "source_ledger.json",
         },
         "safety": safety,
+        "link_integrity": to_jsonable(link_integrity),
     }
     manifest_path = output_dir / "publication_manifest.json"
     write_json(manifest_path, manifest)
@@ -123,8 +129,8 @@ def build_source_ledger(bundle: EvidenceBundle, labels: dict[str, str], path_rem
     source_type_counts = Counter(item.source_type for item in bundle.items)
     entries: list[dict[str, Any]] = []
     for item in bundle.items:
-        direct_urls = extract_urls(item.source_uri)
-        derived_urls = [] if direct_urls else infer_external_urls(item, bundle, path_remaps)
+        direct_urls = public_browsable_urls(extract_urls(item.source_uri))
+        derived_urls = [] if direct_urls else public_browsable_urls(infer_external_urls(item, bundle, path_remaps))
         source_urls = unique_preserve_order([*direct_urls, *derived_urls])
         link_status = "external_source_linked" if direct_urls else "derived_external_source_linked" if derived_urls else "not_externally_linkable"
         link_note = ""
@@ -226,9 +232,12 @@ def resolve_local_path(source_uri: str, path_remaps: dict[str, str]) -> Path | N
 
 
 def public_source_reference(item: EvidenceItem) -> str:
-    urls = extract_urls(item.source_uri)
+    raw_urls = extract_urls(item.source_uri)
+    urls = public_browsable_urls(raw_urls)
     if urls:
         return "; ".join(urls)
+    if raw_urls:
+        return f"non-browsable machine source reference: {item.record_id}"
     name = Path(str(item.source_uri)).name if item.source_uri else item.record_id
     if str(item.source_uri).startswith("local://"):
         return f"local source reference: {item.record_id}"
@@ -237,6 +246,12 @@ def public_source_reference(item: EvidenceItem) -> str:
 
 def extract_urls(value: object) -> list[str]:
     return unique_preserve_order(match.group(0).rstrip(".,;") for match in URL_RE.finditer(str(value)))
+
+
+def public_browsable_urls(urls: Iterable[str]) -> list[str]:
+    return unique_preserve_order(
+        url for url in urls if not any(url.startswith(prefix) for prefix in NON_BROWSABLE_PUBLIC_URLS)
+    )
 
 
 def unique_preserve_order(values: Iterable[str]) -> list[str]:
@@ -409,7 +424,13 @@ def render_evidence_card(entry: dict[str, Any]) -> str:
 """
 
 
-def validate_publication(output_dir: Path, markdown_text: str, html_text: str, source_ledger: list[dict[str, Any]]) -> dict[str, Any]:
+def validate_publication(
+    output_dir: Path,
+    markdown_text: str,
+    html_text: str,
+    source_ledger: list[dict[str, Any]],
+    link_integrity=None,
+) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     ledger_refs = {entry["ref"] for entry in source_ledger}
@@ -436,6 +457,10 @@ def validate_publication(output_dir: Path, markdown_text: str, html_text: str, s
         errors.append("case dossier is missing sentinel posture")
     if not (output_dir / "index.html").exists():
         errors.append("index.html was not created")
+    if link_integrity and link_integrity.status == "FAIL":
+        errors.append(
+            f"link integrity check failed for {link_integrity.error_count} URL(s); see publication_manifest.json"
+        )
     return {
         "passed": not errors,
         "errors": errors,
