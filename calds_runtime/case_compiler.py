@@ -513,6 +513,10 @@ class CaseDossierService:
         ]
         if any(item.risk_area == "Spend-versus-results" for item in matrix.indicators):
             lines.append("- County or Continuum of Care outcomes are contextual unless provider-attributable outcome records are recovered and linked.")
+        if any("connected-party" in item.risk_area.lower() for item in matrix.indicators):
+            lines.append("- Connected-party enforcement exposure means an official source tied a charged person, transaction, project, or counterparty to the source chain; it does not mean the nonprofit was charged unless the cited source says that.")
+        if any("scope" in item.risk_area.lower() for item in matrix.indicators):
+            lines.append("- Homelessness scope-mismatch rows test whether public homelessness funds may have supported activity outside the funded scope; they do not state that the activity is categorically unlawful for a nonprofit.")
         if sentinel.flags:
             lines.append(f"- Sentinel restrictions remain active: {', '.join(sentinel.flags)}.")
         return lines
@@ -954,8 +958,10 @@ class CaseDossierService:
             return "Rapid revenue or expense growth becomes a possible waste, fraud, abuse, or mismanagement review concern when it outpaces visible service capacity, documented outcomes, or clear grant-scope explanations."
         if "spend-versus-results" in area:
             return "Spending growth next to worsening county-level outcomes is not provider-attributable by itself, but it is exactly the mismatch CalDS should force into review."
+        if "connected-party" in area:
+            return "An official charge or indictment connected to a public-funded project or transaction chain is a hard deep-review trigger because the reviewer must verify named parties, payment flow, controls, and whether public dollars were exposed."
         if "statement" in area or "scope" in area:
-            return "Public claims and program language matter when they point to activities that may need contract-scope, grant-scope, or lobbying-disclosure review."
+            return "Public claims and program language matter when a homelessness-funded entity appears to describe voter, citizenship, immigration, advocacy, or political work that may need contract-scope, grant-scope, funding-source, or cost-allocation review."
         if item.risk_level == "Data gap":
             return "A missing source can hide the answer either way; the system keeps the issue open until the gap is resolved."
         return "The row matters because it is a measurable source-backed proxy for public-funds oversight risk."
@@ -1024,8 +1030,10 @@ class CaseDossierService:
             return "It does not prove misuse; growth can have ordinary program, accounting, merger, or grant-timing explanations."
         if "spend-versus-results" in area:
             return "It does not prove the entity caused county or CoC outcome movement; it flags a spend/outcome question for review."
+        if "connected-party" in area:
+            return "It does not prove the nonprofit was charged, liable, or responsible; the cited official source controls the named-party legal status."
         if "statement" in area or "scope" in area:
-            return "It does not prove spending outside allowed scope; contract, grant, and accounting records must be checked."
+            return "It does not prove spending outside allowed scope or unlawful activity; contract, grant, funding-source, and accounting records must be checked."
         if item.risk_level == "Data gap":
             return "It does not prove a substantive issue; it identifies a source gap that blocks stronger review."
         return "It does not prove wrongdoing; it is a source-backed review prompt."
@@ -1045,8 +1053,10 @@ class CaseDossierService:
             return "Compare raw IRS XML/PDF returns year over year, then separate program growth, grants, mergers, one-time receipts, and expense categories."
         if "spend-versus-results" in area:
             return "Request provider-attributable utilization, completion, discharge, cost-per-service, and outcome records for the same county and year window."
+        if "connected-party" in area:
+            return "Verify charging documents, docket status, named parties, property or project relationship, payment records, due diligence files, and internal controls before any entity-level conclusion."
         if "statement" in area or "scope" in area:
-            return "Compare public statements to contract scopes, grant restrictions, lobbying disclosures, and accounting treatment before drawing conclusions."
+            return "Compare public statements to homelessness contract scopes, grant restrictions, funding source, lobbying disclosures, and accounting treatment before drawing conclusions."
         if item.risk_level == "Data gap":
             return "Collect the missing source named in the row and rerun the matrix before upgrading the signal."
         return text
@@ -1075,9 +1085,11 @@ class CaseDossierService:
         if "compensation" in risk_areas:
             steps.append("Benchmark officer and key employee compensation against comparable organizations and verify documented approval procedures.")
         if "public statement" in risk_areas or "scope" in risk_areas or "public_statement_source" in source_types:
-            steps.append("Compare harvested public statements and web pages to grant scopes, contract restrictions, and accounting records; treat statements as context only.")
+            steps.append("Compare harvested public statements and web pages to homelessness grant scopes, contract restrictions, funding sources, and accounting records; treat statements as context until dollars and scope are linked.")
         if "court_docket_manifest" in source_types:
             steps.append("Verify court or docket pointers directly in the relevant docket system before treating them as meaningful context.")
+        if "connected-party" in risk_areas:
+            steps.append("For connected-party enforcement rows, verify the official charging record, docket status, named parties, nonprofit relationship, transaction documents, and public-dollar flow before any entity-level statement.")
         return self._dedupe(steps)
 
     def _dedupe(self, values: Iterable[str]) -> list[str]:

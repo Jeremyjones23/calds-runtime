@@ -20,6 +20,7 @@ COLLECTED_AT = "2026-04-29T00:00:00+00:00"
 RAW_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "raw"
 OUTCOME_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "outcomes"
 WEB_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "web"
+PROPUBLICA_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "propublica"
 DEFAULT_CORPUS_DIR = PROJECT_ROOT / "data" / "live_corpus" / f"{CASE_ID}_stage1"
 
 HCD_ROUND3_URL = "https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/homekey-round-3-awardee-list.pdf"
@@ -34,6 +35,42 @@ HDIS_URL = "https://bcsh.ca.gov/calich/hdis.html"
 FHFA_OIG_HOMELESSNESS_FUNDS_PRESS_RELEASE_URL = "https://www.fhfaoig.gov/sites/default/files/Beverly-Hills-Man-Arrested%2C-Brentwood-Man-Charged-in-Separate-Criminal-Cases-Linked-to-Fraud-in-Public-Homelessness-Funds.pdf"
 LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL = "https://cityclerk.lacity.org/onlinedocs/2021/21-0112-S3_misc_6-16-23.pdf"
 LA_CITY_SHELBY_2026_OPERATIONS_URL = "https://cityclerk.lacity.org/onlinedocs/2023/23-1022-s27_rpt_cao_2-10-26.pdf"
+PROPUBLICA_API_BASE = "https://projects.propublica.org/nonprofits/api/v2"
+PROPUBLICA_API_DOC_URL = "https://projects.propublica.org/nonprofits/api/"
+PROPUBLICA_EXPLORER_BASE = "https://projects.propublica.org/nonprofits/organizations"
+IRS_FORM_990_DOWNLOADS_URL = "https://www.irs.gov/charities-non-profits/form-990-series-downloads"
+IRS_TEOS_BULK_URL = "https://www.irs.gov/charities-non-profits/tax-exempt-organization-search-bulk-data-downloads"
+FAC_DATA_URL = "https://www.fac.gov/data/"
+FAC_API_URL = "https://www.fac.gov/api"
+
+HOMELESSNESS_SCOPE_HIGH_TERMS = [
+    "voter registration",
+    "get out the vote",
+    "voter engagement",
+    "citizenship",
+    "naturalization",
+    "immigration legal services",
+    "ice enforcement",
+    "block ice",
+    "deportation defense",
+    "immigration enforcement",
+    "power building",
+    "political action",
+    "campaign contribution",
+    "ballot measure",
+    "electioneering",
+]
+
+HOMELESSNESS_SCOPE_MEDIUM_TERMS = [
+    "policy advocacy",
+    "community organizing",
+    "lobbying",
+    "lobbyist",
+    "public affairs",
+    "know your rights",
+    "asylum",
+    "refugee resettlement",
+]
 
 
 class TextExtractor(HTMLParser):
@@ -108,6 +145,11 @@ def fetch_bytes(url: str, timeout: int = 60, attempts: int = 3) -> tuple[bytes, 
     raise last_error
 
 
+def fetch_json_url(url: str, timeout: int = 60) -> tuple[dict[str, Any], str, str]:
+    raw, final_url, content_type = fetch_bytes(url, timeout=timeout)
+    return json.loads(raw.decode("utf-8", "replace")), final_url, content_type
+
+
 def html_to_text(raw: bytes) -> str:
     parser = TextExtractor()
     parser.feed(raw.decode("utf-8", "replace"))
@@ -142,6 +184,30 @@ def snippet(text: str, terms: list[str], radius: int = 260) -> str:
     return text[: radius * 2].strip()
 
 
+def normalize_name(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def compact_name(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def first_number(*values: Any) -> float | None:
+    for value in values:
+        number_value = number(value)
+        if number_value is not None:
+            return number_value
+    return None
+
+
+def sum_numbers(*values: Any) -> float | None:
+    numbers = [number(value) for value in values]
+    present = [value for value in numbers if value is not None]
+    if not present:
+        return None
+    return float(sum(present))
+
+
 def build_record(
     record_id: str,
     title: str,
@@ -173,7 +239,7 @@ TARGETS: list[dict[str, Any]] = [
         "rank": 1,
         "name": "Hope the Mission",
         "slug": "hope_the_mission",
-        "aliases": ["Hope The Mission"],
+        "aliases": ["Hope The Mission", "Hope of the Valley Rescue Mission"],
         "service_urls": ["https://hopethemission.org/our-programs/"],
         "statement_urls": ["https://hopethemission.org/"],
         "awards": [
@@ -332,7 +398,7 @@ TARGETS: list[dict[str, Any]] = [
         "rank": 14,
         "name": "Habitat for Humanity Yuba/Sutter, Inc.",
         "slug": "habitat_yuba_sutter",
-        "aliases": ["Habitat for Humanity Yuba/Sutter", "Habitat for Humanity Yuba-Sutter"],
+        "aliases": ["Habitat for Humanity Yuba/Sutter", "Habitat for Humanity Yuba-Sutter", "Habitat For Humanity International Inc Yuba Sutter"],
         "service_urls": ["https://www.habitatca.org/affiliate/habitat-for-humanity-yubasutter/", "https://yuba-sutterhabitat.org/"],
         "statement_urls": ["https://www.habitatca.org/affiliate/habitat-for-humanity-yubasutter/"],
         "awards": [
@@ -477,6 +543,9 @@ def enforcement_docket_artifacts() -> dict[str, Any]:
                 "The row is a deep-dive trigger because public homelessness funds and a Weingart-linked project appear in the official-source chain.",
                 "A criminal charge is an allegation; every defendant is presumed innocent unless and until proven guilty in court.",
             ],
+            "connected_party_entity_trigger": True,
+            "relationship_type": "public-funded project transaction counterparty/operator context",
+            "trigger_confidence": "High",
         }
     ]
     table = {
@@ -513,15 +582,11 @@ def fetch_page_rows(target: dict[str, Any], kind: str) -> list[dict[str, Any]]:
                 "housing",
                 "supportive",
                 "services",
-                "advocacy",
-                "lobbying",
                 "policy",
-                "policy advocacy",
-                "community organizing",
-                "voter registration",
-                "power building",
-                "political action",
+                *HOMELESSNESS_SCOPE_HIGH_TERMS,
+                *HOMELESSNESS_SCOPE_MEDIUM_TERMS,
             ]
+            text_lower = text.lower()
             row.update(
                 {
                     "fetched": True,
@@ -530,7 +595,7 @@ def fetch_page_rows(target: dict[str, Any], kind: str) -> list[dict[str, Any]]:
                     "text_chars": len(text),
                     "local_text_path": str(base_dir / f"{stem}.txt"),
                     "summary": snippet(text, terms, radius=420),
-                    "matched_terms": [term for term in terms if term in text.lower()],
+                    "matched_terms": [term for term in terms if term in text_lower],
                     "error": "",
                 }
             )
@@ -547,6 +612,179 @@ def fetch_all_pages() -> dict[str, list[dict[str, Any]]]:
         result["statement"].extend(fetch_page_rows(target, "statement"))
     write_json(WEB_DIR / "page_harvest_manifest.json", result)
     return result
+
+
+def propublica_org_page(ein: object) -> str:
+    return f"{PROPUBLICA_EXPLORER_BASE}/{ein}"
+
+
+def propublica_search_url(query: str) -> str:
+    return f"{PROPUBLICA_API_BASE}/search.json?{urllib.parse.urlencode({'q': query, 'state[id]': 'CA', 'c_code[id]': '3'})}"
+
+
+def propublica_org_api_url(ein: object) -> str:
+    return f"{PROPUBLICA_API_BASE}/organizations/{ein}.json"
+
+
+def select_propublica_org(target: dict[str, Any], organizations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    aliases = [target["name"], *target.get("aliases", [])]
+    compact_aliases = {compact_name(alias) for alias in aliases}
+    best: tuple[int, dict[str, Any]] | None = None
+    for org in organizations:
+        org_name = compact_name(org.get("name", ""))
+        sub_name = compact_name(org.get("sub_name", ""))
+        state = str(org.get("state") or "").upper()
+        score = 0
+        if state == "CA":
+            score += 25
+        if int(org.get("subseccd") or 0) == 3:
+            score += 10
+        if org_name in compact_aliases or sub_name in compact_aliases:
+            score += 100
+        elif any(alias and (alias in org_name or org_name in alias or alias in sub_name) for alias in compact_aliases):
+            score += 70
+        score += int(float(org.get("score") or 0) // 10)
+        if score >= 70 and (best is None or score > best[0]):
+            best = (score, org)
+    return best[1] if best else None
+
+
+def propublica_artifacts() -> dict[str, Any]:
+    """Fetch browseable ProPublica nonprofit profile and filing summaries.
+
+    ProPublica is not the system of record for IRS filings, but it provides a
+    useful public API and viewer that link back to IRS-source Form 990 material.
+    """
+
+    PROPUBLICA_DIR.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, Any]] = []
+    matches: list[dict[str, Any]] = []
+    for target in TARGETS:
+        search_url = propublica_search_url(target["name"])
+        search_path = PROPUBLICA_DIR / f"{target['slug']}_search.json"
+        org_path = PROPUBLICA_DIR / f"{target['slug']}_organization.json"
+        try:
+            search_data, search_final_url, search_content_type = fetch_json_url(search_url, timeout=75)
+            write_json(search_path, search_data)
+            selected = select_propublica_org(target, list(search_data.get("organizations", [])))
+            if not selected:
+                matches.append(
+                    {
+                        "entity": target["name"],
+                        "status": "not_matched",
+                        "search_url": search_url,
+                        "search_final_url": search_final_url,
+                        "search_content_type": search_content_type,
+                        "candidate_count": len(search_data.get("organizations", [])),
+                        "error": "",
+                    }
+                )
+                continue
+            ein = selected["ein"]
+            org_url = propublica_org_api_url(ein)
+            org_data, org_final_url, org_content_type = fetch_json_url(org_url, timeout=75)
+            write_json(org_path, org_data)
+            org = dict(org_data.get("organization") or {})
+            filings = list(org_data.get("filings_with_data") or [])
+            filings_without_data = list(org_data.get("filings_without_data") or [])
+            matches.append(
+                {
+                    "entity": target["name"],
+                    "status": "matched",
+                    "ein": ein,
+                    "strein": selected.get("strein") or org.get("strein"),
+                    "matched_name": selected.get("name") or org.get("name"),
+                    "city": selected.get("city") or org.get("city"),
+                    "state": selected.get("state") or org.get("state"),
+                    "ntee_code": selected.get("ntee_code") or org.get("ntee_code"),
+                    "subsection_code": selected.get("subseccd") or org.get("subsection_code"),
+                    "search_url": search_url,
+                    "organization_api_url": org_url,
+                    "organization_page_url": propublica_org_page(ein),
+                    "organization_final_url": org_final_url,
+                    "organization_content_type": org_content_type,
+                    "filings_with_data_count": len(filings),
+                    "filings_without_data_count": len(filings_without_data),
+                    "latest_object_id": org.get("latest_object_id"),
+                    "data_source": org_data.get("data_source") or search_data.get("data_source"),
+                    "error": "",
+                }
+            )
+            for filing in filings:
+                tax_year = int(filing.get("tax_prd_yr") or 0)
+                if not tax_year:
+                    continue
+                officer_comp = first_number(filing.get("compnsatncurrofcr"))
+                salary_comp = sum_numbers(filing.get("compnsatncurrofcr"), filing.get("othrsalwages"), filing.get("payrolltx"))
+                rows.append(
+                    {
+                        "entity": target["name"],
+                        "ein": ein,
+                        "tax_period": filing.get("tax_prd"),
+                        "tax_period_year": tax_year,
+                        "form_type": filing.get("formtype"),
+                        "downloaded": True,
+                        "source": "ProPublica Nonprofit Explorer API backed by IRS extract data",
+                        "propublica_organization_url": propublica_org_page(ein),
+                        "propublica_api_url": org_url,
+                        "pdf_url": filing.get("pdf_url") or "",
+                        "irs_form_990_downloads_url": IRS_FORM_990_DOWNLOADS_URL,
+                        "total_revenue": first_number(filing.get("totrevenue")),
+                        "total_expenses": first_number(filing.get("totfuncexpns")),
+                        "total_assets_end": first_number(filing.get("totassetsend")),
+                        "total_liabilities_end": first_number(filing.get("totliabend")),
+                        "contributions_gifts_grants": first_number(filing.get("totcntrbgfts")),
+                        "public_support_170": first_number(filing.get("gftgrntsrcvd170")),
+                        "government_grants": None,
+                        "officer_compensation_total": officer_comp,
+                        "top_compensation_total": officer_comp,
+                        "top_compensation_person": "aggregate current officers/directors/trustees",
+                        "top_compensation_title": "aggregate officer compensation from ProPublica/IRS extract",
+                        "compensation_is_aggregate": True,
+                        "salaries_comp_benefits_current_year": salary_comp,
+                        "total_employee_count": None,
+                        "political_campaign_activity": None,
+                        "lobbying_activities": None,
+                        "updated": filing.get("updated") or "",
+                    }
+                )
+        except Exception as exc:
+            matches.append(
+                {
+                    "entity": target["name"],
+                    "status": "error",
+                    "search_url": search_url,
+                    "error": repr(exc),
+                }
+            )
+
+    table = {
+        "case_id": CASE_ID,
+        "created_at": now(),
+        "methodology": (
+            "Resolve top-15 entity names through the ProPublica Nonprofit Explorer API, then extract available IRS Form 990 filing summary fields. "
+            "ProPublica is a browseable/API access layer; official IRS filings remain controlling source documents."
+        ),
+        "official_source_policy": {
+            "irs_form_990_downloads": IRS_FORM_990_DOWNLOADS_URL,
+            "irs_teos_bulk": IRS_TEOS_BULK_URL,
+            "fac_data": FAC_DATA_URL,
+            "fac_api": FAC_API_URL,
+        },
+        "matches": matches,
+        "rows": sorted(rows, key=lambda row: (str(row["entity"]), int(row["tax_period_year"]))),
+        "row_count": len(rows),
+        "profile_matched_entity_count": len({match["entity"] for match in matches if match.get("status") == "matched"}),
+        "filing_row_entity_count": len({row["entity"] for row in rows}),
+        "source_family": "irs_990",
+        "caveats": [
+            "ProPublica summary fields are not a substitute for raw IRS XML/PDF review.",
+            "Current-officer compensation from the API is aggregate unless a raw return parser identifies individual officers.",
+            "Government-grant fields may require raw XML/PDF parsing and are not inferred from total contributions.",
+        ],
+    }
+    write_json(PROPUBLICA_DIR / "propublica_irs_990_summary.json", table)
+    return table
 
 
 def fetch_spm_rows() -> list[dict[str, Any]]:
@@ -700,7 +938,7 @@ def markdown_table(rows: list[dict[str, Any]], columns: list[str], limit: int = 
             values.append(normalize_space(value).replace("|", "\\|"))
         lines.append("| " + " | ".join(values) + " |")
     if len(rows) > limit:
-        lines.append(f"| +{len(rows) - limit} additional row(s) |  |  |")
+        lines.append("| " + " | ".join([f"+{len(rows) - limit} additional row(s)", *("" for _ in columns[1:])]) + " |")
     return "\n".join(lines)
 
 
@@ -745,6 +983,7 @@ def write_corpus(corpus_dir: Path) -> None:
 
     outcome_manifest, join_summary = outcome_artifacts(summary_rows)
     enforcement_table = enforcement_docket_artifacts()
+    tax_table = propublica_artifacts()
 
     records: list[dict[str, Any]] = []
     entities = [target["name"] for target in TARGETS]
@@ -814,6 +1053,51 @@ def write_corpus(corpus_dir: Path) -> None:
     )
     records.append(join_record)
 
+    tax_rows = list(tax_table.get("rows", []))
+    tax_matches = list(tax_table.get("matches", []))
+    tax_entities = sorted({row["entity"] for row in tax_rows})
+    records.append(
+        build_record(
+            "source_table_irs_990_propublica",
+            "ProPublica Nonprofit Explorer IRS Form 990 filing summary table",
+            str(PROPUBLICA_DIR / "propublica_irs_990_summary.json"),
+            "source_extraction_irs_990_table",
+            "2026-04-30",
+            tax_entities or entities,
+            "\n".join(
+                [
+                    "ProPublica Nonprofit Explorer API filing summary for top-15 homelessness triage.",
+                    "ProPublica provides a public API and viewer for IRS nonprofit filing data. CalDS treats this as an access layer; raw IRS XML/PDF filings remain controlling source documents.",
+                    f"ProPublica API documentation: {PROPUBLICA_API_DOC_URL}",
+                    f"IRS Form 990 downloads: {IRS_FORM_990_DOWNLOADS_URL}",
+                    f"IRS tax-exempt bulk data: {IRS_TEOS_BULK_URL}",
+                    markdown_table(
+                        tax_rows,
+                        [
+                            "entity",
+                            "ein",
+                            "tax_period_year",
+                            "total_revenue",
+                            "total_expenses",
+                            "officer_compensation_total",
+                            "pdf_url",
+                        ],
+                        limit=120,
+                    ),
+                ]
+            ),
+            {"source_extraction_table": True, "irs_990_table": True, "propublica_nonprofit_api_checked": True, "irs_990_full_text_fallback": False},
+            {
+                "table_path": str(PROPUBLICA_DIR / "propublica_irs_990_summary.json"),
+                "row_count": len(tax_rows),
+                "matched_entity_count": len({match["entity"] for match in tax_matches if match.get("status") == "matched"}),
+                "filing_row_entity_count": len(tax_entities),
+                "matches": tax_matches,
+                "source_urls": [PROPUBLICA_API_DOC_URL, IRS_FORM_990_DOWNLOADS_URL, IRS_TEOS_BULK_URL],
+            },
+        )
+    )
+
     enforcement_rows = list(enforcement_table.get("rows", []))
     enforcement_entities = sorted({row["entity"] for row in enforcement_rows})
     records.append(
@@ -857,10 +1141,14 @@ def write_corpus(corpus_dir: Path) -> None:
                 {
                     "official_enforcement_or_docket_flag": True,
                     "third_party_charged": "third_party_charged" in str(row.get("legal_status", "")),
+                    "connected_party_enforcement_exposure": bool(row.get("connected_party_entity_trigger")),
+                    "automatic_deep_dive_trigger": bool(row.get("connected_party_entity_trigger")),
                     "missing_data": True,
                 },
                 {
                     "legal_status": row.get("legal_status"),
+                    "relationship_type": row.get("relationship_type"),
+                    "trigger_confidence": row.get("trigger_confidence"),
                     "source_urls": row.get("source_urls", []),
                     "reviewer_action": row.get("reviewer_action", ""),
                 },
@@ -869,6 +1157,11 @@ def write_corpus(corpus_dir: Path) -> None:
 
     service_rows = page_manifest["service"]
     statement_rows = page_manifest["statement"]
+    tax_rows_by_entity = {
+        entity: sorted([row for row in tax_rows if row.get("entity") == entity], key=lambda row: int(row.get("tax_period_year") or 0))
+        for entity in entities
+    }
+    tax_matches_by_entity = {str(match.get("entity")): match for match in tax_matches}
     for target in TARGETS:
         summary = next(row for row in summary_rows if row["entity"] == target["name"])
         award_lines = []
@@ -904,11 +1197,94 @@ def write_corpus(corpus_dir: Path) -> None:
             )
         )
 
+        target_tax_rows = tax_rows_by_entity.get(target["name"], [])
+        if target_tax_rows:
+            latest_tax = target_tax_rows[-1]
+            tax_years = [str(row.get("tax_period_year")) for row in target_tax_rows if row.get("tax_period_year")]
+            pdf_url = str(latest_tax.get("pdf_url") or "")
+            records.append(
+                build_record(
+                    f"irs_990_summary_{target['slug']}",
+                    f"ProPublica/IRS Form 990 summary: {target['name']}",
+                    str(latest_tax.get("propublica_organization_url") or latest_tax.get("propublica_api_url") or PROPUBLICA_API_DOC_URL),
+                    "irs_990_summary",
+                    str(latest_tax.get("tax_period_year") or "2026"),
+                    [target["name"], *target["aliases"]],
+                    "\n".join(
+                        [
+                            f"Entity: {target['name']}.",
+                            f"EIN: {latest_tax.get('ein')}.",
+                            f"Parsed filing years from ProPublica/IRS extract: {', '.join(tax_years)}.",
+                            (
+                                f"Latest parsed year {latest_tax.get('tax_period_year')} reports total revenue {money(float(latest_tax.get('total_revenue') or 0))}, "
+                                f"total expenses {money(float(latest_tax.get('total_expenses') or 0))}, and aggregate current officer/director/trustee compensation "
+                                f"{money(float(latest_tax.get('officer_compensation_total') or 0))}."
+                            ),
+                            f"ProPublica organization page: {latest_tax.get('propublica_organization_url')}",
+                            f"ProPublica API URL: {latest_tax.get('propublica_api_url')}",
+                            f"Latest linked PDF: {pdf_url or 'not supplied by ProPublica API row'}.",
+                            "Control caveat: ProPublica is a public access layer. Raw IRS XML/PDF controls all final financial and compensation interpretation.",
+                        ]
+                    ),
+                    {
+                        "propublica_irs_990_found": True,
+                        "irs_990_summary": True,
+                        "full_990_pdf_linked": bool(pdf_url),
+                        "missing_data": False,
+                    },
+                    {
+                        "ein": latest_tax.get("ein"),
+                        "tax_years": tax_years,
+                        "latest_pdf_url": pdf_url,
+                        "propublica_api_url": latest_tax.get("propublica_api_url"),
+                        "propublica_organization_url": latest_tax.get("propublica_organization_url"),
+                        "table_path": str(PROPUBLICA_DIR / "propublica_irs_990_summary.json"),
+                    },
+                )
+            )
+        elif tax_matches_by_entity.get(target["name"], {}).get("status") == "matched":
+            tax_match = tax_matches_by_entity[target["name"]]
+            records.append(
+                build_record(
+                    f"irs_990_summary_{target['slug']}",
+                    f"ProPublica/IRS Form 990 profile without parsed filings: {target['name']}",
+                    str(tax_match.get("organization_page_url") or tax_match.get("organization_api_url") or PROPUBLICA_API_DOC_URL),
+                    "irs_990_summary",
+                    "2026-04-30",
+                    [target["name"], *target["aliases"]],
+                    "\n".join(
+                        [
+                            f"Entity: {target['name']}.",
+                            f"EIN: {tax_match.get('ein')}.",
+                            "ProPublica Nonprofit Explorer returned a matched organization profile, but the current API response did not include filings_with_data rows for CalDS financial tests.",
+                            f"ProPublica organization page: {tax_match.get('organization_page_url')}",
+                            f"ProPublica API URL: {tax_match.get('organization_api_url')}",
+                            "Control caveat: this is a source-coverage note and filing-data gap, not an adverse finding.",
+                        ]
+                    ),
+                    {
+                        "propublica_irs_990_profile_found": True,
+                        "irs_990_summary": True,
+                        "irs_990_filing_rows_missing": True,
+                        "missing_data": True,
+                    },
+                    {
+                        "ein": tax_match.get("ein"),
+                        "propublica_api_url": tax_match.get("organization_api_url"),
+                        "propublica_organization_url": tax_match.get("organization_page_url"),
+                        "table_path": str(PROPUBLICA_DIR / "propublica_irs_990_summary.json"),
+                    },
+                )
+            )
+
+        review_terms = {*HOMELESSNESS_SCOPE_HIGH_TERMS, *HOMELESSNESS_SCOPE_MEDIUM_TERMS}
         service_for_target = [row for row in service_rows if row["slug"] == target["slug"]]
         fetched_service = [row for row in service_for_target if row.get("fetched")]
+        service_terms = sorted({term for row in service_for_target for term in row.get("matched_terms", []) if term in review_terms})
         service_summary_lines = [
             f"Organization: {target['name']}",
             f"Official service/program pages fetched: {len(fetched_service)} of {len(service_for_target)}.",
+            f"Matched homelessness-scope review terms: {', '.join(service_terms) if service_terms else 'none from configured list'}.",
             "Service summary from official source(s):",
         ]
         for row in fetched_service:
@@ -925,21 +1301,18 @@ def write_corpus(corpus_dir: Path) -> None:
                 "2026-04-29",
                 [target["name"], *target["aliases"]],
                 "\n".join(service_summary_lines),
-                {"org_service_page_checked": True, "service_description_present": bool(fetched_service), "missing_data": len(fetched_service) < len(service_for_target)},
-                {"service_pages": service_for_target},
+                {
+                    "org_service_page_checked": True,
+                    "service_description_present": bool(fetched_service),
+                    "off_scope_keyword_match": bool(service_terms),
+                    "missing_data": len(fetched_service) < len(service_for_target),
+                },
+                {"service_pages": service_for_target, "matched_terms": service_terms},
             )
         )
 
         statement_for_target = [row for row in statement_rows if row["slug"] == target["slug"]]
         fetched_statement = [row for row in statement_for_target if row.get("fetched")]
-        review_terms = {
-            "lobbying",
-            "policy advocacy",
-            "voter registration",
-            "power building",
-            "political action",
-            "community organizing",
-        }
         terms = sorted({term for row in statement_for_target for term in row.get("matched_terms", []) if term in review_terms})
         statement_lines = [
             f"Public or official statement pages fetched: {len(fetched_statement)} of {len(statement_for_target)}.",
@@ -976,6 +1349,10 @@ def write_corpus(corpus_dir: Path) -> None:
             "target_count": len(TARGETS),
             "source_documents": source_manifest,
             "enforcement_or_docket_rows": enforcement_table.get("rows", []),
+            "propublica_irs_990_profile_matched_entities": sorted({match["entity"] for match in tax_matches if match.get("status") == "matched"}),
+            "propublica_irs_990_filing_entities": tax_entities,
+            "propublica_irs_990_rows": len(tax_rows),
+            "propublica_irs_990_match_errors": [match for match in tax_matches if match.get("status") != "matched"],
             "service_fetch_failures": [row for row in service_rows if not row.get("fetched")],
             "statement_fetch_failures": [row for row in statement_rows if not row.get("fetched")],
         },

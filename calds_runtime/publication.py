@@ -20,7 +20,7 @@ from .quality_gates import LinkIntegrityService
 from .review import SOURCE_TYPE_LABELS
 
 
-URL_RE = re.compile(r"https?://[^\s|)\]}\"']+", re.IGNORECASE)
+URL_RE = re.compile(r"https?://[^\s\\|)\]}\"']+", re.IGNORECASE)
 WINDOWS_PATH_RE = re.compile(r"[A-Za-z]:\\[^\s|)]+")
 RELATIVE_LOCAL_PATH_RE = re.compile(r"(?<![A-Za-z0-9_/-])(?:artifacts|runs|data\\live_corpus)\\[^\s|)]+", re.IGNORECASE)
 ARCHIVED_COPY_RE = re.compile(r" \(archived local copy: [A-Za-z]:\\[^)]*\)")

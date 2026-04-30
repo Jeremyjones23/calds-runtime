@@ -10,7 +10,8 @@ from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
-from calds_runtime.publication import publish_case_site_from_run
+from calds_runtime.publication import extract_urls, publish_case_site_from_run
+from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
 from calds_runtime.sentinel import find_escalated_language
 
@@ -250,7 +251,7 @@ class RuntimeSpineTests(unittest.TestCase):
             source_type="enforcement_or_docket_source",
             published_at="2025-10-16",
             entities=["Weingart Center Association"],
-            attributes={"signals": {"official_enforcement_or_docket_flag": True, "missing_data": True}},
+            attributes={"signals": {"official_enforcement_or_docket_flag": True, "connected_party_enforcement_exposure": True, "missing_data": True}},
             provenance=Provenance(
                 record_id="enforcement_docket_weingart_center_1",
                 source_uri="https://www.fhfaoig.gov/example.pdf",
@@ -271,7 +272,62 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(results[0].triage_priority, "High")
         self.assertTrue(results[0].deep_dive_recommended)
         self.assertEqual(results[0].findings[0].source_family, "enforcement_or_docket")
+        self.assertEqual(results[0].findings[0].finding_type, "connected-party official charge trigger")
+        self.assertIn("mandatory deep-dive trigger", results[0].findings[0].trigger_reason)
         self.assertIn("presumed innocent", " ".join(results[0].findings[0].caveats))
+
+    def test_homelessness_scope_mismatch_flags_voter_registration(self) -> None:
+        record = CanonicalRecord(
+            record_id="public_statements_shelter_group",
+            title="Public statement page harvest: Shelter Group",
+            body="The shelter group page advertises a voter registration drive, housing services, and outreach.",
+            source_uri="https://example.org/shelter",
+            source_type="public_statement_source",
+            published_at="2026-04-30",
+            entities=["Shelter Group"],
+            attributes={"signals": {"public_statement_source_checked": True, "off_scope_keyword_match": True}, "matched_terms": ["voter registration"]},
+            provenance=Provenance(
+                record_id="public_statements_shelter_group",
+                source_uri="https://example.org/shelter",
+                source_type="public_statement_source",
+                collected_at="2026-04-30T00:00:00+00:00",
+                checksum="scope",
+                corpus_name="test",
+                chunk_id="scope#body",
+            ),
+        )
+        case = CaseRequest(
+            case_id="scope_test",
+            title="Scope regression",
+            objective="Flag homelessness scope mismatch.",
+            entities=["Shelter Group"],
+        )
+        matrix = OversightRiskMatrixService().build(case, [record], EvidenceBundle(bundle_id="bundle", case_id="scope_test", query_terms=[], items=[], entity_links=[]))
+        scope_rows = [item for item in matrix.indicators if item.risk_area == "Homelessness scope mismatch" and item.entity == "Shelter Group"]
+        self.assertTrue(scope_rows)
+        self.assertTrue(any(item.risk_level == "High" for item in scope_rows))
+        self.assertIn("501(c)(3)", " ".join(caveat for item in scope_rows for caveat in item.caveats))
+
+    def test_homelessness_ingestor_configures_propublica_and_scope_terms(self) -> None:
+        script_path = PROJECT_ROOT / "scripts" / "ingest_homelessness_top15_sources.py"
+        spec = importlib.util.spec_from_file_location("ingest_homelessness_top15_sources", script_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        self.assertIn("projects.propublica.org/nonprofits/api/v2", module.PROPUBLICA_API_BASE)
+        self.assertIn("voter registration", module.HOMELESSNESS_SCOPE_HIGH_TERMS)
+        self.assertIn("citizenship", module.HOMELESSNESS_SCOPE_HIGH_TERMS)
+        self.assertIn("ice enforcement", module.HOMELESSNESS_SCOPE_HIGH_TERMS)
+        self.assertEqual(module.propublica_org_page("956054617"), "https://projects.propublica.org/nonprofits/organizations/956054617")
+
+    def test_public_url_extractor_stops_at_escaped_newline(self) -> None:
+        value = "ProPublica API: https://projects.propublica.org/nonprofits/api/\\nIRS source: https://www.irs.gov/example"
+        self.assertEqual(
+            extract_urls(value),
+            ["https://projects.propublica.org/nonprofits/api/", "https://www.irs.gov/example"],
+        )
 
 
 if __name__ == "__main__":

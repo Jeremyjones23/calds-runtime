@@ -92,6 +92,8 @@ The latest live workflow reached `AWAITING_HUMAN_REVIEW` with sentinel decision 
 
 ## Source Notes
 
-The live pipeline can ingest public official sources such as California HDIS homelessness/SPM datasets, CHHS MAT and overdose profile datasets, DOJ OpenJustice crime data, DHCS CalOMS/adverse-action pages, IRS Form 990 XML, Federal Audit Clearinghouse reports, county records, and target organization public statement pages.
+The live pipeline can ingest public official and public-access sources such as California HDIS homelessness/SPM datasets, CHHS MAT and overdose profile datasets, DOJ OpenJustice crime data, DHCS CalOMS/adverse-action pages, ProPublica Nonprofit Explorer API summaries linked to IRS Form 990 filings, IRS Form 990 XML/PDF sources, Federal Audit Clearinghouse reports, county records, and target organization public statement pages.
+
+The homelessness triage model treats connected-party official legal records as mandatory deep-review triggers while preserving named-party status. It also screens voter registration, citizenship, immigration, advocacy, lobbying, and political-language matches as homelessness funding-scope and cost-allocation questions rather than automatic illegality.
 
 The product remains incomplete until direct provider-attributable treatment completion, full DHCS license/adverse-action histories, and governed social/traffic metrics are added.

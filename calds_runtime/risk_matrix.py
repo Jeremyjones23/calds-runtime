@@ -25,14 +25,44 @@ class OversightRiskMatrixService:
     )
 
     METHODOLOGY = (
-        "Waste, fraud, abuse, and mismanagement risk-screening matrix generated from parsed IRS Form 990, "
+        "Waste, fraud, abuse, and mismanagement risk-screening matrix generated from parsed IRS Form 990 and ProPublica Nonprofit Explorer API summaries, "
         "Federal Audit Clearinghouse, DHCS facility-status, HCD Homekey/Homekey+ state-award, official enforcement/docket records, county/document index, and retrieved "
         "service-page records. The matrix tests observable risk proxies: year-over-year financial "
         "growth, spending growth, public-funds concentration, executive compensation, payroll scale, "
-        "political/lobbying indicators, audit-control flags, enforcement/docket source flags, award concentration, facility closure "
-        "patterns, off-scope web-language checks, official county/CoC outcome context, "
+        "political/lobbying indicators, audit-control flags, enforcement/docket source flags including connected-party official charges, award concentration, facility closure "
+        "patterns, homelessness-scope web-language checks, official county/CoC outcome context, "
         "and remaining provider-attributable outcome gaps."
     )
+
+    HOMELESSNESS_SCOPE_HIGH_TERMS = [
+        "voter registration",
+        "get out the vote",
+        "voter engagement",
+        "citizenship",
+        "naturalization",
+        "immigration legal services",
+        "ice enforcement",
+        "block ice",
+        "deportation defense",
+        "immigration enforcement",
+        "power building",
+        "political action",
+        "campaign contribution",
+        "ballot measure",
+        "electioneering",
+        "campaign activity",
+    ]
+
+    HOMELESSNESS_SCOPE_MEDIUM_TERMS = [
+        "policy advocacy",
+        "community organizing",
+        "lobbying",
+        "lobbyist",
+        "public affairs",
+        "know your rights",
+        "asylum",
+        "refugee resettlement",
+    ]
 
     def build(
         self,
@@ -193,20 +223,26 @@ class OversightRiskMatrixService:
                 level = "Medium"
             source_status = str(row.get("legal_status") or row.get("data_status") or "observed")
             official = bool(row.get("official_source"))
+            connected_party = bool(row.get("connected_party_entity_trigger"))
             observed = str(row.get("observed_fact") or "")
             caveats = list(row.get("caveats") or [])
             if official:
                 caveats.append("Use exact legal status from the official source; do not convert third-party charges into entity-level findings.")
+            if connected_party:
+                caveats.append("A connected-party charge is a mandatory deep-review trigger, not a finding that the nonprofit was charged or liable.")
             indicators.append(
                 self._indicator(
                     request,
-                    "Enforcement and docket history",
+                    "Connected-party enforcement exposure" if connected_party else "Enforcement and docket history",
                     entity,
                     str(row.get("test_name") or "Official enforcement or docket source screen"),
                     observed,
                     level,
                     source_status,
-                    str(row.get("reviewer_action") or "Open the official source and verify legal status, case posture, named parties, dates, and relationship to the nonprofit before escalation."),
+                    str(
+                        row.get("reviewer_action")
+                        or "Open the official source and verify legal status, case posture, named parties, dates, project relationship, payment flow, and nonprofit connection before escalation."
+                    ),
                     record_ids,
                     caveats,
                 )
@@ -311,7 +347,7 @@ class OversightRiskMatrixService:
         rows: list[dict[str, Any]],
         record_ids: list[str],
     ) -> OversightRiskIndicator:
-        row = self._latest_row_with(rows, "top_compensation_total")
+        row = self._latest_row_with(rows, "top_compensation_total") or self._latest_row_with(rows, "officer_compensation_total")
         if not row:
             return self._indicator(
                 request,
@@ -325,23 +361,32 @@ class OversightRiskMatrixService:
                 record_ids,
                 ["The current test does not infer reasonableness; it only flags pay levels for reviewer comparison."],
             )
-        top_total = self._number(row.get("top_compensation_total")) or 0.0
+        top_total = self._number(row.get("top_compensation_total")) or self._number(row.get("officer_compensation_total")) or 0.0
         expenses = self._number(row.get("total_expenses")) or 0.0
         expense_ratio = top_total / expenses if expenses else 0.0
         level = "High" if top_total >= 1_000_000 or expense_ratio >= 0.02 else "Medium" if top_total >= 500_000 or expense_ratio >= 0.01 else "Low"
-        person = row.get("top_compensation_person") or "top compensated person"
-        title = row.get("top_compensation_title") or "title not parsed"
+        aggregate = bool(row.get("compensation_is_aggregate"))
+        if aggregate:
+            test_name = "Aggregate officer/director compensation from Form 990 extract"
+            subject = "aggregate current officer/director/trustee compensation"
+            caveat = "The current row is aggregate compensation from the API/extract; raw Part VII parsing is required before naming individual pay."
+        else:
+            test_name = "Highest officer/key employee compensation from Form 990 Part VII"
+            person = row.get("top_compensation_person") or "top compensated person"
+            title = row.get("top_compensation_title") or "title not parsed"
+            subject = f"{person} ({title})"
+            caveat = "High compensation can be explainable by size, clinical complexity, related-organization structures, or one-time items."
         return self._indicator(
             request,
             "Executive compensation",
             entity,
-            "Highest officer/key employee compensation from Form 990 Part VII",
-            f"Latest parsed return {row.get('tax_period_year')} lists {person} ({title}) with total reportable/other compensation of {self._money(top_total)}, equal to {expense_ratio:.2%} of parsed expenses.",
+            test_name,
+            f"Latest parsed return {row.get('tax_period_year')} reports {subject} of {self._money(top_total)}, equal to {expense_ratio:.2%} of parsed expenses.",
             level,
             "observed",
             "Compare compensation to board approval process, market survey disclosure, related-organization pay, and peer organizations before any conclusion.",
             record_ids,
-            ["High compensation can be explainable by size, clinical complexity, related-organization structures, or one-time items."],
+            [caveat],
         )
 
     def _payroll_growth_indicator(
@@ -613,10 +658,10 @@ class OversightRiskMatrixService:
             return [
                 self._indicator(
                     request,
-                    "Off-scope activity",
+                    "Homelessness scope mismatch",
                     entity,
                     "Retrieved website/service-page keyword screen",
-                    "No organization service page was retrieved for this entity, so the run cannot screen web language for voter registration, power building, political action, or similar off-scope terms.",
+                    "No organization service page was retrieved for this entity, so the run cannot screen web language for voter registration, citizenship, immigration enforcement, power building, political action, or similar terms that may need homelessness-funding scope review.",
                     "Data gap",
                     "missing_source",
                     "Add official-site pages and social/traffic sources before judging public messaging or scope alignment.",
@@ -625,8 +670,8 @@ class OversightRiskMatrixService:
                 )
             ]
         text = "\n".join(record.body for record in records).lower()
-        high_terms = ["voter registration", "political action", "power building", "electioneering", "ballot measure", "campaign activity"]
-        medium_terms = ["policy advocacy", "community organizing", "lobbying", "lobbyist"]
+        high_terms = self.HOMELESSNESS_SCOPE_HIGH_TERMS
+        medium_terms = self.HOMELESSNESS_SCOPE_MEDIUM_TERMS
         found_high = [term for term in high_terms if term in text]
         found_medium = [term for term in medium_terms if term in text]
         if found_high:
@@ -639,20 +684,23 @@ class OversightRiskMatrixService:
             level = "Low"
             found = []
         observed = (
-            f"Retrieved official/service pages screened for off-scope exact phrases. Matched phrases: {', '.join(found) if found else 'none from configured list'}."
+            f"Retrieved official/service pages screened for homelessness funding-scope exact phrases. Matched phrases: {', '.join(found) if found else 'none from configured list'}."
         )
         return [
             self._indicator(
                 request,
-                "Off-scope activity",
+                "Homelessness scope mismatch",
                 entity,
                 "Retrieved website/service-page keyword screen",
                 observed,
                 level,
                 "observed",
-                "If matches exist, inspect page context, funding restrictions, and cost-allocation records. If no matches, treat as a narrow page-level screen only.",
+                "If matches exist, compare page context to homelessness grant scope, contract restrictions, cost allocation, and funding source before drawing conclusions.",
                 record_ids,
-                ["Keyword screening does not replace expenditure testing or full website/social review."],
+                [
+                    "A 501(c)(3) may conduct some voter, civic, citizenship, immigration, advocacy, or education work depending on facts and law; the CalDS test is whether a homelessness-funded entity's activity is in-scope and correctly funded.",
+                    "Keyword screening does not replace expenditure testing or full website/social review.",
+                ],
             )
         ]
 
@@ -699,8 +747,8 @@ class OversightRiskMatrixService:
             return []
         record_ids = [record.record_id for record in records]
         body = "\n".join(record.body for record in records).lower()
-        high_terms = ["voter registration", "political action", "power building", "campaign contribution", "ballot measure", "electioneering"]
-        medium_terms = ["lobbying", "policy advocacy", "public affairs", "community organizing", "voter engagement"]
+        high_terms = self.HOMELESSNESS_SCOPE_HIGH_TERMS
+        medium_terms = self.HOMELESSNESS_SCOPE_MEDIUM_TERMS
         found_high = [term for term in high_terms if term in body]
         found_medium = [term for term in medium_terms if term in body]
         if found_high:
@@ -715,15 +763,18 @@ class OversightRiskMatrixService:
         return [
             self._indicator(
                 request,
-                "Public statements",
+                "Homelessness scope mismatch",
                 entity,
                 "Official/public page term screen",
                 f"Configured public statement pages were harvested. Matched review terms: {', '.join(found) if found else 'none from configured high/medium list'}.",
                 level,
                 "observed",
-                "If terms are present, inspect the archived page context, speaker attribution, funding restrictions, and cost allocation; statements alone do not establish spending outside scope.",
+                "If terms are present, inspect the archived page context, speaker attribution, homelessness funding restrictions, contract scope, and cost allocation; statements alone do not establish spending outside scope.",
                 record_ids,
-                ["Website language is context only and must be tied to funding/expenditure records before escalation."],
+                [
+                    "A 501(c)(3) may conduct some voter, civic, citizenship, immigration, advocacy, or education work depending on facts and law; the CalDS test is whether a homelessness-funded entity's activity is in-scope and correctly funded.",
+                    "Website language is context only and must be tied to funding/expenditure records before escalation.",
+                ],
             )
         ]
 

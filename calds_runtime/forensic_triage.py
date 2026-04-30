@@ -179,19 +179,25 @@ class HomelessnessTriageService:
         for record in records:
             signals = dict(record.attributes.get("signals", {}))
             if signals.get("official_enforcement_or_docket_flag"):
+                connected_party = bool(signals.get("connected_party_enforcement_exposure"))
                 findings.append(
                     self._finding(
                         request,
                         entity,
                         "enforcement_or_docket",
-                        "official enforcement or docket linkage",
+                        "connected-party official charge trigger" if connected_party else "official enforcement or docket linkage",
                         self._enforcement_fact(record),
                         "High",
                         "observed",
-                        "Official enforcement or court-source records create an immediate deep-dive trigger.",
+                        (
+                            "An official charge or indictment tied to a public-funded project, counterparty, operator, or transaction chain is a mandatory deep-dive trigger while preserving named-party legal distinctions."
+                            if connected_party
+                            else "Official enforcement or court-source records create an immediate deep-dive trigger."
+                        ),
                         [record],
                         [
                             "Use exact legal status from the source. A charge against a third party is not a finding against the nonprofit unless the source says so.",
+                            "Connected-party exposure is a triage trigger, not an entity-level legal conclusion.",
                             "All defendants are presumed innocent unless and until proven guilty in court.",
                         ],
                     )
@@ -246,18 +252,42 @@ class HomelessnessTriageService:
                         )
                     )
             if record.source_type in {"org_service_page", "public_statement_source"} and signals.get("off_scope_keyword_match"):
+                matched_terms = list(record.attributes.get("matched_terms") or [])
+                high_terms = {
+                    "voter registration",
+                    "get out the vote",
+                    "voter engagement",
+                    "citizenship",
+                    "naturalization",
+                    "immigration legal services",
+                    "ice enforcement",
+                    "block ice",
+                    "deportation defense",
+                    "immigration enforcement",
+                    "power building",
+                    "political action",
+                    "campaign contribution",
+                    "ballot measure",
+                    "electioneering",
+                }
+                level = "Medium"
+                if any(term in high_terms for term in matched_terms):
+                    level = "High"
                 findings.append(
                     self._finding(
                         request,
                         entity,
                         "web_and_social",
-                        "off-scope public language",
+                        "homelessness scope-mismatch public language",
                         self._short_body(record),
-                        "Medium",
+                        level,
                         "observed",
-                        "Public language should be compared to contract scope, grant restrictions, lobbying disclosures, and cost allocation.",
+                        "Public language that may be legal for a nonprofit can still require homelessness-grant scope, funding-source, and cost-allocation review.",
                         [record],
-                        ["Website language alone does not prove money was spent outside scope."],
+                        [
+                            "Website language alone does not prove money was spent outside scope.",
+                            "The triage question is funding and scope alignment for a homelessness-funded entity, not whether the activity is categorically unlawful for a 501(c)(3).",
+                        ],
                     )
                 )
         return sorted(findings, key=lambda item: ({"High": 0, "Medium": 1, "Low": 2}.get(item.risk_level, 3), item.source_family, item.finding_type))
@@ -341,7 +371,7 @@ class HomelessnessTriageService:
         if any(item.source_family == "state_awards" for item in result.findings):
             steps.append("Trace project-award exposure to exact recipient, subrecipient, draw, and operating-cost records.")
         if any(item.source_family == "web_and_social" for item in result.findings):
-            steps.append("Archive public website and social-media pages, then compare claims to grant or contract scope and cost allocation.")
+            steps.append("Archive public website and social-media pages, then compare voter, citizenship, immigration, advocacy, and political-language matches to homelessness grant scope, contract restrictions, funding source, and cost allocation.")
         return self._dedupe(steps)
 
     def _enforcement_fact(self, record: CanonicalRecord) -> str:
