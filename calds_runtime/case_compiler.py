@@ -450,11 +450,18 @@ class CaseDossierService:
             return ["- This run does not include a completion guard artifact. Rerun the workflow before treating the dossier as complete."]
         searches = list(ledger.get("searches", [])) if isinstance(ledger, dict) else []
         hits = [item for item in searches if item.get("status") == "hit"]
-        misses = [item for item in searches if item.get("status") != "hit"]
+        no_public_record = [item for item in searches if item.get("status") == "searched_no_public_official_record"]
+        misses = [item for item in searches if item.get("status") not in {"hit", "searched_no_public_official_record"}]
         lines = [
             f"- Completion guard status: {guard.get('status')}.",
-            f"- Required source-family checks: {guard.get('total_searches', len(searches))}; hits: {guard.get('hit_count', len(hits))}; unresolved blockers: {guard.get('blocker_count', len(misses))}.",
+            f"- Required source-family checks: {guard.get('total_searches', len(searches))}; hits: {guard.get('hit_count', len(hits))}; public official no-record searches: {len(no_public_record)}; unresolved blockers: {guard.get('blocker_count', len(misses))}.",
         ]
+        if no_public_record:
+            lines.append("- Public official no-record coverage:")
+            for item in no_public_record[:8]:
+                lines.append(
+                    f"  - {item.get('entity')}: {item.get('source_family')} - configured public official searches found no citation-ready adverse record; this is not legal clearance."
+                )
         if misses:
             lines.append("- Top unresolved acquisition blockers:")
             for item in misses[:8]:
@@ -464,7 +471,7 @@ class CaseDossierService:
             if len(misses) > 8:
                 lines.append(f"  - +{len(misses) - 8} additional blocker(s) in `acquisition_ledger.json`.")
         else:
-            lines.append("- Every required source family has a recovered citation-ready hit for the selected entities.")
+            lines.append("- Every required source family has a recovered citation-ready hit or a public official no-record search result for the selected entities.")
         notes = list(guard.get("notes", []))
         for note in notes[:3]:
             lines.append(f"- Guard note: {self._plain_language(note)}")

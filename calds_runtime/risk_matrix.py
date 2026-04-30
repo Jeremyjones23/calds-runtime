@@ -81,6 +81,7 @@ class OversightRiskMatrixService:
         outcome_manifest = self._load_json_for_type("source_extraction_official_outcome_table") or {}
         state_awards = self._load_json_for_type("source_extraction_state_homeless_award_table") or {}
         enforcement = self._load_json_for_type("source_extraction_enforcement_docket_table") or {}
+        enforcement_search = self._load_json_for_type("source_extraction_enforcement_docket_discovery_table") or {}
 
         irs_rows = list(irs.get("rows", [])) if isinstance(irs, dict) else []
         raw_irs_rows = list(irs_raw.get("rows", [])) if isinstance(irs_raw, dict) else []
@@ -90,11 +91,12 @@ class OversightRiskMatrixService:
         dhcs_rows = list(dhcs.get("rows", [])) if isinstance(dhcs, dict) else []
         state_award_rows = list(state_awards.get("entity_award_summary", [])) if isinstance(state_awards, dict) else []
         enforcement_rows = list(enforcement.get("rows", [])) if isinstance(enforcement, dict) else []
+        enforcement_search_rows = list(enforcement_search.get("rows", [])) if isinstance(enforcement_search, dict) else []
 
         entities = self._entities(request, irs_rows, fac_rows, dhcs_rows)
         indicators: list[OversightRiskIndicator] = []
         for entity in entities:
-            indicators.extend(self._enforcement_docket_indicators(request, entity, enforcement_rows))
+            indicators.extend(self._enforcement_docket_indicators(request, entity, enforcement_rows, enforcement_search_rows))
             indicators.extend(self._state_homeless_award_indicators(request, entity, state_award_rows))
             indicators.extend(self._irs_indicators(request, entity, irs_rows))
             indicators.extend(self._fac_indicators(request, entity, fac_rows, award_rows))
@@ -225,15 +227,42 @@ class OversightRiskMatrixService:
         request: CaseRequest,
         entity: str,
         rows: list[dict[str, Any]],
+        search_rows: list[dict[str, Any]],
     ) -> list[OversightRiskIndicator]:
         entity_rows = [row for row in rows if row.get("entity") == entity]
         record_ids = self._record_ids_for_entity_and_source_types(
             entity,
             "source_extraction_enforcement_docket_table",
+            "source_extraction_enforcement_docket_discovery_table",
             "enforcement_or_docket_source",
+            "enforcement_docket_official_no_record_search",
             "court_docket_manifest",
         )
         if not entity_rows:
+            search_row = next((row for row in search_rows if row.get("entity") == entity), None)
+            if search_row and search_row.get("status") == "searched_no_public_official_record":
+                completed = int(self._number(search_row.get("public_official_search_completed_count")) or 0)
+                manual_sources = list(search_row.get("manual_sources_remaining") or [])
+                return [
+                    self._indicator(
+                        request,
+                        "Enforcement and docket history",
+                        entity,
+                        "Configured public official enforcement and docket search coverage",
+                        (
+                            f"Configured public official enforcement/docket searches completed for {entity} across {completed} query/source run(s), "
+                            "and this run did not recover a citation-ready public adverse record for the entity."
+                        ),
+                        "Low",
+                        "searched_no_public_official_record",
+                        "Treat this as public-source coverage, not legal clearance; run PACER, local trial-court, charity-registry, and clerk/records-request searches before final clearance.",
+                        record_ids,
+                        [
+                            "A no-public-record search is not a legal clearance.",
+                            f"Manual or credentialed sources still listed: {self._list_text([item.get('name') for item in manual_sources if isinstance(item, dict)])}.",
+                        ],
+                    )
+                ]
             return [
                 self._indicator(
                     request,

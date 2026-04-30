@@ -303,6 +303,36 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(ledger[0].matched_record_ids, [])
         self.assertIn("Only discovery/source-gap", ledger[0].blocker_reason)
 
+    def test_completion_guard_counts_official_no_record_search_as_coverage_not_hit(self) -> None:
+        record = CanonicalRecord(
+            record_id="enforcement_docket_no_record_shelter_group",
+            title="Official enforcement search: Shelter Group",
+            body="Configured public official searches completed; no public adverse record recovered. PACER and local courts remain manual.",
+            source_uri="https://search.justice.gov/search?affiliate=justice&query=%22Shelter%20Group%22",
+            source_type="enforcement_docket_official_no_record_search",
+            published_at="2026-04-30",
+            entities=["Shelter Group"],
+            attributes={"signals": {"official_source_search_completed_no_hit": True, "searched_no_public_official_record": True}},
+            provenance=Provenance(
+                record_id="enforcement_docket_no_record_shelter_group",
+                source_uri="https://search.justice.gov/search?affiliate=justice&query=%22Shelter%20Group%22",
+                source_type="enforcement_docket_official_no_record_search",
+                collected_at="2026-04-30T00:00:00+00:00",
+                checksum="official-no-record",
+                corpus_name="test",
+                chunk_id="official-no-record#body",
+            ),
+        )
+        case = CaseRequest(case_id="guard_no_record_test", title="Guard no-record regression", objective="Count official no-record searches as source coverage.", entities=["Shelter Group"])
+        service = CompletionGuardService()
+        ledger = service.build_acquisition_ledger(case, [record], ["Shelter Group"], ["enforcement_or_docket"])
+        guard = service.guard(case, ledger, ["Shelter Group"], ["enforcement_or_docket"])
+        self.assertEqual(ledger[0].status, "searched_no_public_official_record")
+        self.assertEqual(ledger[0].matched_record_ids, ["enforcement_docket_no_record_shelter_group"])
+        self.assertEqual(guard.status, "PASS")
+        self.assertEqual(guard.blocker_count, 0)
+        self.assertIn("not legal clearance", " ".join(guard.notes))
+
     def test_workflow_adds_selected_entity_deep_source_context_hits(self) -> None:
         temp_dir = PROJECT_ROOT / "runs" / "tests" / f"deep-source-context-{uuid4().hex}"
         corpus = temp_dir / "corpus"
@@ -414,6 +444,9 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("app.fac.gov/dissemination/public-data/gsa/full/general.csv", module.FAC_GENERAL_CSV_URL)
         self.assertTrue(any(source["entity"] == "DignityMoves" for source in module.LOCAL_CONTRACT_MONITORING_SOURCES))
         self.assertTrue(any(source["entity"] == "The People Concern" for source in module.LOCAL_CONTRACT_MONITORING_SOURCES))
+        self.assertIn("https://search.justice.gov/search", module.US_DOJ_SEARCH_URL)
+        self.assertTrue(module.PUBLIC_ENFORCEMENT_SEARCH_SOURCES)
+        self.assertTrue(module.MANUAL_ENFORCEMENT_SEARCH_SOURCES)
         self.assertEqual(
             module.extract_object_id_from_pdf_url("https://projects.propublica.org/nonprofits/download-filing?path=IRS%2F956054617_202304_990_2024040522347579.pdf"),
             "2024040522347579",
@@ -469,6 +502,44 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("government grants $900,000 / total revenue $1,000,000 = 90.0%", facts)
             self.assertIn("Jane Doe (CEO)", facts)
             self.assertIn("LobbyingActivitiesInd=yes", facts)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_risk_matrix_reports_public_enforcement_no_record_coverage(self) -> None:
+        temp_dir = PROJECT_ROOT / "runs" / "tests" / f"calds-enforcement-search-test-{uuid4().hex}"
+        try:
+            table_path = temp_dir / "enforcement_docket_discovery_summary.json"
+            write_json(
+                table_path,
+                {
+                    "rows": [
+                        {
+                            "entity": "Shelter Group",
+                            "status": "searched_no_public_official_record",
+                            "public_official_search_completed_count": 4,
+                            "manual_sources_remaining": [{"name": "PACER Case Locator"}, {"name": "Local trial court portal"}],
+                        }
+                    ]
+                },
+            )
+            provenance = Provenance("enforcement_search", str(table_path), "source_extraction_enforcement_docket_discovery_table", "2026-04-30", "abc123", "test", "search#body")
+            record = CanonicalRecord(
+                record_id="enforcement_search",
+                title="Official enforcement search table",
+                body="Official public searches completed with no adverse public record recovered.",
+                source_uri=str(table_path),
+                source_type="source_extraction_enforcement_docket_discovery_table",
+                published_at="2026-04-30",
+                entities=["Shelter Group"],
+                attributes={"table_path": str(table_path), "signals": {"official_source_search_completed_no_hit": True}},
+                provenance=provenance,
+            )
+            case = CaseRequest(case_id="enforcement_search_case", title="Enforcement search case", objective="Distinguish no-record coverage.", entities=["Shelter Group"])
+            matrix = OversightRiskMatrixService().build(case, [record], EvidenceBundle(bundle_id="bundle", case_id="enforcement_search_case", query_terms=[], items=[], entity_links=[]))
+            rows = [item for item in matrix.indicators if item.risk_area == "Enforcement and docket history" and item.entity == "Shelter Group"]
+            self.assertEqual(rows[0].risk_level, "Low")
+            self.assertEqual(rows[0].data_status, "searched_no_public_official_record")
+            self.assertIn("not a legal clearance", " ".join(rows[0].caveats))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

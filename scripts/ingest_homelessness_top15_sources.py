@@ -59,8 +59,18 @@ FAC_FINDINGS_TEXT_CSV_URL = "https://app.fac.gov/dissemination/public-data/gsa/f
 FAC_CORRECTIVE_ACTION_CSV_URL = "https://app.fac.gov/dissemination/public-data/gsa/full/corrective_action_plans.csv"
 LA_CITY_CLERK_BASE_URL = "https://cityclerk.lacity.org/"
 US_DOJ_BASE_URL = "https://www.justice.gov/"
+US_DOJ_SEARCH_URL = "https://search.justice.gov/search"
 US_COURTS_PACER_URL = "https://pcl.uscourts.gov/pcl/index.jsf"
 CA_COURTS_URL = "https://www.courts.ca.gov/"
+PACER_FIND_CASE_URL = "https://pacer.uscourts.gov/find-case"
+CA_COURTS_LOOKUP_GUIDE_URL = "https://selfhelp.courts.ca.gov/court-basics/look-up-case"
+CA_DOJ_CHARITY_REGISTRY_URL = "https://rct.doj.ca.gov/"
+FHFA_OIG_SEARCH_URL = "https://www.fhfaoig.gov/search"
+LA_SUPERIOR_COURT_CASE_ACCESS_URL = "https://www.lacourt.org/casesummary/ui/"
+ALAMEDA_SUPERIOR_COURT_DOMAIN_URL = "https://www.alameda.courts.ca.gov/"
+SAN_BERNARDINO_SUPERIOR_COURT_DOMAIN_URL = "https://www.sb-court.org/"
+VENTURA_SUPERIOR_COURT_DOMAIN_URL = "https://www.ventura.courts.ca.gov/"
+SACRAMENTO_SUPERIOR_COURT_DOMAIN_URL = "https://www.saccourt.ca.gov/"
 OAKLAND_HOMEKEY_R2H2_URL = "https://www.oaklandca.gov/Business/For-Developers%E2%80%8B/City-Homekey-Rapid-Response-Homeless-Housing-R2H2-Program"
 OAKLAND_DIGNITY_VILLAGE_URL = "https://www.oaklandca.gov/News-Releases/HCD/Oakland-awarded-14.3-million-in-Homekey-funds-to-create-40-new-permanent-supportive-housing-units"
 OAKLAND_QUALITY_INN_URL = "https://www.oaklandca.gov/News-Releases/HCD/Oakland-awarded-20.4-million-in-Homekey-Round-3-funds-for-the-Quality-Inn"
@@ -1691,27 +1701,179 @@ def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> 
     return table
 
 
+ENFORCEMENT_SEARCH_TERMS = [
+    "indictment",
+    "charged",
+    "prosecution",
+    "settlement",
+    "violation",
+    "fraud",
+    "corrective action",
+    "monitoring letter",
+]
+
+PUBLIC_ENFORCEMENT_SEARCH_SOURCES = [
+    {
+        "source_id": "us_doj_searchgov",
+        "name": "U.S. Department of Justice official Search.gov index",
+        "base_url": US_DOJ_SEARCH_URL,
+        "query_param": "query",
+        "extra_params": {"affiliate": "justice"},
+        "no_results_markers": ["No results found", "Your search did not match any documents"],
+    },
+    {
+        "source_id": "fhfa_oig_site_search",
+        "name": "Federal Housing Finance Agency Office of Inspector General site search",
+        "base_url": FHFA_OIG_SEARCH_URL,
+        "query_param": "search",
+        "extra_params": {},
+        "no_results_markers": ["No results found", "no results"],
+    },
+]
+
+MANUAL_ENFORCEMENT_SEARCH_SOURCES = [
+    {"source_id": "pacer_case_locator", "name": "PACER Case Locator", "source_url": PACER_FIND_CASE_URL, "reason": "Requires PACER account and controlled export for docket-level federal search."},
+    {"source_id": "california_trial_courts", "name": "California trial court portals", "source_url": CA_COURTS_LOOKUP_GUIDE_URL, "reason": "California trial-court records are accessed through local court portals or clerk offices."},
+    {"source_id": "california_doj_charity_registry", "name": "California DOJ Registry of Charities and Fundraisers", "source_url": CA_DOJ_CHARITY_REGISTRY_URL, "reason": "Interactive registry search should be captured as a saved result or official export."},
+]
+
+ENTITY_COURT_PORTALS = {
+    "Hope the Mission": [LA_SUPERIOR_COURT_CASE_ACCESS_URL],
+    "Weingart Center Association": [LA_SUPERIOR_COURT_CASE_ACCESS_URL],
+    "DignityMoves": [ALAMEDA_SUPERIOR_COURT_DOMAIN_URL, SAN_BERNARDINO_SUPERIOR_COURT_DOMAIN_URL, VENTURA_SUPERIOR_COURT_DOMAIN_URL],
+    "The People Concern": [LA_SUPERIOR_COURT_CASE_ACCESS_URL],
+    "California Supportive Housing": [ALAMEDA_SUPERIOR_COURT_DOMAIN_URL, SACRAMENTO_SUPERIOR_COURT_DOMAIN_URL],
+}
+
+
+def enforcement_search_url(source: dict[str, Any], query: str) -> str:
+    params = dict(source.get("extra_params") or {})
+    params[str(source["query_param"])] = query
+    return f"{source['base_url']}?{urllib.parse.urlencode(params)}"
+
+
+def public_enforcement_search_runs(target: dict[str, Any]) -> list[dict[str, Any]]:
+    search_dir = DOCKET_DIR / "public_searches"
+    search_dir.mkdir(parents=True, exist_ok=True)
+    aliases = [target["name"], *target.get("aliases", [])]
+    query_names = []
+    for alias in aliases:
+        cleaned = normalize_space(alias)
+        if cleaned and cleaned not in query_names:
+            query_names.append(cleaned)
+    query_names = query_names[:2]
+    rows: list[dict[str, Any]] = []
+    for source in PUBLIC_ENFORCEMENT_SEARCH_SOURCES:
+        for query_name in query_names:
+            query = f'"{query_name}" ({ " OR ".join(ENFORCEMENT_SEARCH_TERMS[:6]) })'
+            search_url = enforcement_search_url(source, query)
+            stem = f"{target['slug']}_{source['source_id']}_{len(rows) + 1}"
+            row: dict[str, Any] = {
+                "entity": target["name"],
+                "source_id": source["source_id"],
+                "source_name": source["name"],
+                "query": query,
+                "query_name": query_name,
+                "search_url": search_url,
+                "status": "error",
+                "completed": False,
+                "possible_public_adverse_hit": False,
+                "result_interpretation": "not_completed",
+                "local_html_path": "",
+                "local_text_path": "",
+                "error": "",
+            }
+            try:
+                raw, final_url, content_type = fetch_bytes(search_url, timeout=45, attempts=1)
+                text = html_to_text(raw)
+                lower = text.lower()
+                marker_text = f"{raw.decode('utf-8', 'replace')}\n{text}".lower()
+                no_results = any(marker.lower() in marker_text for marker in source.get("no_results_markers", []))
+                legal_terms_present = any(term in lower for term in ENFORCEMENT_SEARCH_TERMS)
+                query_name_present = normalize_name(query_name) in normalize_name(text)
+                if no_results:
+                    status = "searched_no_public_official_record"
+                    interpretation = "official_search_returned_no_results"
+                    possible_hit = False
+                elif query_name_present and legal_terms_present:
+                    status = "possible_public_search_hit_needs_review"
+                    interpretation = "search_page_contains_entity_and_legal_terms"
+                    possible_hit = True
+                else:
+                    status = "searched_no_obvious_public_official_record"
+                    interpretation = "search_page_fetched_without_entity_legal_hit"
+                    possible_hit = False
+                html_path = search_dir / f"{stem}.html"
+                text_path = search_dir / f"{stem}.txt"
+                html_path.write_bytes(raw)
+                text_path.write_text(text[:20000], encoding="utf-8")
+                row.update(
+                    {
+                        "status": status,
+                        "completed": True,
+                        "possible_public_adverse_hit": possible_hit,
+                        "result_interpretation": interpretation,
+                        "final_url": final_url,
+                        "content_type": content_type,
+                        "text_chars": len(text),
+                        "local_html_path": str(html_path),
+                        "local_text_path": str(text_path),
+                        "summary": snippet(text, [query_name, "No results", "results"], radius=240),
+                    }
+                )
+            except Exception as exc:
+                row.update({"status": "source_error", "error": repr(exc)})
+            rows.append(row)
+    return rows
+
+
 def enforcement_docket_discovery_artifacts(enforcement_table: dict[str, Any]) -> dict[str, Any]:
     """Record systematic official-source enforcement/docket search targets for all entities."""
 
     DOCKET_DIR.mkdir(parents=True, exist_ok=True)
     official_entities = {str(row.get("entity")) for row in enforcement_table.get("rows", [])}
     rows: list[dict[str, Any]] = []
+    public_search_rows: list[dict[str, Any]] = []
     for target in TARGETS:
         entity = target["name"]
         has_official_row = entity in official_entities
+        searches = public_enforcement_search_runs(target)
+        public_search_rows.extend(searches)
+        completed = [row for row in searches if row.get("completed")]
+        possible_hits = [row for row in completed if row.get("possible_public_adverse_hit")]
+        manual_sources = [*MANUAL_ENFORCEMENT_SEARCH_SOURCES]
+        for portal in ENTITY_COURT_PORTALS.get(entity, []):
+            manual_sources.append({"source_id": "local_trial_court_portal", "name": "Local trial court portal", "source_url": portal, "reason": "Requires local court search workflow, saved results, or clerk-office access."})
+        if has_official_row:
+            status = "citation_ready_official_row_present"
+            source_gap = False
+        elif completed and not possible_hits:
+            status = "searched_no_public_official_record"
+            source_gap = False
+        elif possible_hits:
+            status = "possible_public_search_hit_needs_manual_review"
+            source_gap = True
+        else:
+            status = "systematic_search_gap"
+            source_gap = True
         rows.append(
             {
                 "entity": entity,
                 "official_enforcement_row_recovered": has_official_row,
-                "status": "citation_ready_official_row_present" if has_official_row else "systematic_search_gap",
-                "source_gap": not has_official_row,
+                "status": status,
+                "source_gap": source_gap,
+                "public_official_search_completed_count": len(completed),
+                "public_official_search_possible_hit_count": len(possible_hits),
+                "public_official_searches": searches,
+                "manual_sources_remaining": manual_sources,
                 "official_sources_to_search": [
                     US_DOJ_BASE_URL,
                     FHFA_OIG_HOMELESSNESS_FUNDS_PRESS_RELEASE_URL,
                     US_COURTS_PACER_URL,
                     CA_COURTS_URL,
                     LA_CITY_CLERK_BASE_URL,
+                    CA_DOJ_CHARITY_REGISTRY_URL,
+                    *[source["source_url"] for source in manual_sources],
                 ],
                 "query_terms": [
                     f'"{entity}" indictment',
@@ -1721,15 +1883,17 @@ def enforcement_docket_discovery_artifacts(enforcement_table: dict[str, Any]) ->
                     f'"{entity}" corrective action',
                     f'"{entity}" monitoring letter',
                 ],
-                "reviewer_action": "Search official agency, court, inspector-general, and municipal records; preserve named-party distinctions and presumption-of-innocence caveats.",
+                "reviewer_action": "Search official agency, court, inspector-general, and municipal records; preserve named-party distinctions and presumption-of-innocence caveats. Public no-result search is not legal clearance; PACER/local-court/manual registry searches may still be required.",
             }
         )
     table = {
         "created_at": now(),
         "case_id": CASE_ID,
-        "methodology": "Every top-15 entity receives a systematic official-source enforcement/docket search target row. Only recovered official rows count as evidence hits.",
+        "methodology": "Every top-15 entity receives official public enforcement search attempts plus manual-source instructions. Recovered official adverse rows remain hits; completed public official searches with no public adverse result are preserved as coverage, not clearance.",
         "rows": rows,
+        "public_search_rows": public_search_rows,
         "row_count": len(rows),
+        "public_search_row_count": len(public_search_rows),
         "source_family": "enforcement_or_docket",
     }
     write_json(DOCKET_DIR / "enforcement_docket_discovery_summary.json", table)
@@ -2404,8 +2568,8 @@ def write_corpus(corpus_dir: Path) -> None:
             "\n".join(
                 [
                     "Systematic official-source enforcement and docket search table for all top-15 entities.",
-                    "Only recovered official rows count as evidence hits; search target rows preserve gaps and next actions.",
-                    markdown_table(enforcement_discovery_rows, ["entity", "official_enforcement_row_recovered", "status", "source_gap"], limit=30),
+                    "Recovered official rows count as evidence hits; completed public official no-record searches count as source coverage, not legal clearance. Search target rows preserve remaining manual gaps and next actions.",
+                    markdown_table(enforcement_discovery_rows, ["entity", "official_enforcement_row_recovered", "status", "public_official_search_completed_count", "public_official_search_possible_hit_count", "source_gap"], limit=30),
                 ]
             ),
             {
@@ -2419,18 +2583,38 @@ def write_corpus(corpus_dir: Path) -> None:
     )
     for row in enforcement_discovery_rows:
         entity = row["entity"]
+        status = str(row.get("status") or "")
+        no_public_record = status == "searched_no_public_official_record"
+        source_type = "enforcement_docket_official_no_record_search" if no_public_record else "enforcement_docket_discovery"
+        source_uri = (
+            str((row.get("public_official_searches") or [{}])[0].get("search_url") or US_DOJ_BASE_URL)
+            if no_public_record
+            else US_DOJ_BASE_URL
+        )
         records.append(
             build_record(
                 f"enforcement_docket_discovery_{slugify(entity)}",
-                f"Systematic enforcement/docket search target: {entity}",
-                US_DOJ_BASE_URL,
-                "enforcement_docket_discovery",
+                f"Official enforcement/docket public-source search: {entity}",
+                source_uri,
+                source_type,
                 "2026-04-30",
                 [entity],
                 "\n".join(
                     [
                         f"Official enforcement row already recovered: {row.get('official_enforcement_row_recovered')}.",
                         f"Status: {row.get('status')}.",
+                        f"Completed public official search count: {row.get('public_official_search_completed_count', 0)}.",
+                        f"Possible public adverse search-hit count: {row.get('public_official_search_possible_hit_count', 0)}.",
+                        "Public official search results:",
+                        *[
+                            f"- {item.get('source_name')}: {item.get('status')} for query {item.get('query')}; URL {item.get('search_url')}"
+                            for item in row.get("public_official_searches", [])[:8]
+                        ],
+                        "Manual/credentialed sources still requiring controlled export or saved result:",
+                        *[
+                            f"- {item.get('name')}: {item.get('source_url')} ({item.get('reason')})"
+                            for item in row.get("manual_sources_remaining", [])[:8]
+                        ],
                         f"Official sources to search: {', '.join(row.get('official_sources_to_search') or [])}.",
                         f"Query terms: {', '.join(row.get('query_terms') or [])}.",
                         f"Reviewer action: {row.get('reviewer_action')}",
@@ -2438,9 +2622,11 @@ def write_corpus(corpus_dir: Path) -> None:
                 ),
                 {
                     "enforcement_docket_discovery_attempted": True,
-                    "discovery_only_source_gap": True,
-                    "source_gap_only": True,
-                    "not_citation_ready": True,
+                    "official_source_search_completed_no_hit": no_public_record,
+                    "searched_no_public_official_record": no_public_record,
+                    "discovery_only_source_gap": not no_public_record,
+                    "source_gap_only": not no_public_record,
+                    "not_citation_ready": not no_public_record,
                     "official_enforcement_row_recovered": bool(row.get("official_enforcement_row_recovered")),
                     "missing_data": bool(row.get("source_gap")),
                 },
@@ -2448,6 +2634,9 @@ def write_corpus(corpus_dir: Path) -> None:
                     "official_sources_to_search": row.get("official_sources_to_search", []),
                     "query_terms": row.get("query_terms", []),
                     "status": row.get("status"),
+                    "public_official_searches": row.get("public_official_searches", []),
+                    "manual_sources_remaining": row.get("manual_sources_remaining", []),
+                    "source_urls": [item.get("search_url") for item in row.get("public_official_searches", []) if item.get("search_url")],
                 },
             )
         )

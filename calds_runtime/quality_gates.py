@@ -75,13 +75,19 @@ class CompletionGuardService:
                     for record in records
                     if self._record_mentions_entity(record, entity) and self.source_family(record) == family
                 ]
-                matched = [record for record in candidates if not self._is_source_gap_record(record)]
+                no_public_record = [record for record in candidates if self._is_official_no_public_record(record)]
+                matched = [record for record in candidates if not self._is_source_gap_record(record) and not self._is_official_no_public_record(record)]
                 query = self._query_for(entity, family)
-                status = "hit" if matched else "miss"
+                status = "hit" if matched else "searched_no_public_official_record" if no_public_record else "miss"
                 attempted_sources = list(SOURCE_FAMILY_TARGETS.get(family, [family]))
-                attempted_sources.extend(self._dedupe(record.source_uri for record in candidates if self._is_source_gap_record(record)))
+                attempted_sources.extend(self._dedupe(record.source_uri for record in candidates if self._is_source_gap_record(record) or self._is_official_no_public_record(record)))
                 if matched:
                     blocker = ""
+                elif no_public_record:
+                    blocker = (
+                        f"Configured public official {family} searches completed for {entity} with no public adverse record recovered; "
+                        "this is source coverage, not legal clearance. Manual PACER, local court, and records-request work may still be required."
+                    )
                 elif candidates:
                     blocker = (
                         f"Only discovery/source-gap {family} records were recovered for {entity}; "
@@ -97,10 +103,10 @@ class CompletionGuardService:
                         source_family=family,
                         query=query,
                         attempted_sources=attempted_sources,
-                        matched_record_ids=sorted({record.record_id for record in matched}),
-                        source_uris=self._dedupe(record.source_uri for record in matched),
+                        matched_record_ids=sorted({record.record_id for record in matched or no_public_record}),
+                        source_uris=self._dedupe(record.source_uri for record in matched or no_public_record),
                         status=status,
-                        confidence="High" if matched else "Blocked",
+                        confidence="High" if matched else "PublicNoRecord" if no_public_record else "Blocked",
                         blocker_reason=blocker,
                     )
                 )
@@ -120,14 +126,15 @@ class CompletionGuardService:
         for entity in entities:
             for family in families:
                 run = by_key.get((entity, family))
-                if run is None or run.status != "hit":
+                if run is None or run.status not in {"hit", "searched_no_public_official_record"}:
                     missing_required.append(f"{entity}: {family}")
         counts = Counter(run.status for run in ledger)
         status = "PASS" if not missing_required else "PASS_WITH_BLOCKERS"
         if not ledger or not entities:
             status = "FAIL"
         notes = [
-            "Completion guard records both hits and misses; misses are blockers, not clearance.",
+            "Completion guard records hits, public official no-record searches, and misses; misses are blockers, not clearance.",
+            "A searched_no_public_official_record status means configured public official sources were searched without recovering a public adverse record; it is not legal clearance.",
             "Dossier compilation may proceed only because unresolved source gaps are preserved for human review.",
         ]
         if status == "FAIL":
@@ -172,6 +179,14 @@ class CompletionGuardService:
             or signals.get("source_gap_only")
             or str(record.source_type).endswith("_discovery")
             or "discovery_gap" in str(record.source_type).lower()
+        )
+
+    def _is_official_no_public_record(self, record: CanonicalRecord) -> bool:
+        signals = dict(record.attributes.get("signals", {}))
+        return bool(
+            signals.get("official_source_search_completed_no_hit")
+            or signals.get("searched_no_public_official_record")
+            or record.source_type == "enforcement_docket_official_no_record_search"
         )
 
     def _record_mentions_entity(self, record: CanonicalRecord, entity: str) -> bool:
