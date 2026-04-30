@@ -121,19 +121,10 @@ class CaseWorkflow:
             "top_15_triage",
             "deep_forensic_investigation",
             [str(triage_path), str(forensic_plan_path), str(forensic_findings_path)],
-            [
-                "case_id",
-                "entities",
-                "source_families",
-                "triage_results",
-                "selected_entities",
-                "evidence_record_ids",
-                "source_uris",
-                "caveats",
-                "next_steps",
-            ],
         )
         handoff_path = store.write_artifact("context_handoff_ledger.json", handoff)
+        if handoff.status != "PASS":
+            raise ValueError("context handoff failed; triage artifacts do not preserve required fields")
         self._write_task(
             store,
             request,
@@ -384,8 +375,10 @@ class CaseWorkflow:
             risk_matrix,
         )
         citation_verification_path = store.write_artifact("citation_verification.json", citation_verification)
-        if citation_verification.status == "FAIL":
-            raise ValueError("citation verification failed; dossier contains unsupported or overstated claims")
+        if citation_verification.status != "PASS":
+            raise ValueError(
+                "citation verification requires repair; dossier contains uncited, unsupported, or overstated claims"
+            )
         self._write_task(
             store,
             request,

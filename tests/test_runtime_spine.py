@@ -11,7 +11,7 @@ from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CanonicalRecord, CaseRequest, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
 from calds_runtime.publication import extract_urls, publish_case_site_from_run
-from calds_runtime.quality_gates import CompletionGuardService, RunReadinessService
+from calds_runtime.quality_gates import CitationVerifierService, CompletionGuardService, RunReadinessService
 from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
 from calds_runtime.sentinel import find_escalated_language
@@ -106,8 +106,9 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertEqual(review_decision["decision"], "PENDING")
             self.assertTrue(result.review_packet_path.exists())
             citation_verification = read_json(Path(state["artifacts"]["citation_verification"]))
-            self.assertIn(citation_verification["status"], {"PASS", "PASS_WITH_WARNINGS"})
+            self.assertEqual(citation_verification["status"], "PASS")
             self.assertEqual(citation_verification["error_count"], 0)
+            self.assertEqual(citation_verification["warning_count"], 0)
             self.assertGreater(citation_verification["checked_claim_count"], 0)
             packet_text = result.review_packet_path.read_text(encoding="utf-8")
             self.assertIn("## 1. Reviewer Orientation", packet_text)
@@ -129,6 +130,8 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("Internal evidence ID", packet_text)
             self.assertIn("Score Summary", packet_text)
             self.assertIn("Score Formula", packet_text)
+            self.assertIn("Risk severity score", packet_text)
+            self.assertIn("Publication confidence score", packet_text)
             self.assertIn("What this flags", packet_text)
             self.assertIn("How to use it", packet_text)
             self.assertNotIn("Evidence IDs:", packet_text)
@@ -142,6 +145,7 @@ class RuntimeSpineTests(unittest.TestCase):
             public_ledger = read_json(Path(public_site.source_ledger_json))
             public_manifest = read_json(Path(public_site.publication_manifest_json))
             self.assertTrue(public_manifest["safety"]["passed"])
+            self.assertEqual(public_manifest["citation_verification"]["status"], "PASS")
             self.assertIn("link_integrity", public_manifest)
             self.assertIn(public_manifest["link_integrity"]["status"], {"PASS", "PASS_WITH_WARNINGS"})
             self.assertIn("CalDS Public Case Viewer", public_html)
@@ -153,6 +157,20 @@ class RuntimeSpineTests(unittest.TestCase):
                 self.assertTrue(entry["source_urls"] or entry["link_note"])
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_citation_verifier_requires_repair_for_uncited_claims(self) -> None:
+        case = CaseRequest(case_id="citation_gate", title="Citation gate", objective="Block uncited claims.")
+        bundle = EvidenceBundle(bundle_id="bundle", case_id="citation_gate", query_terms=[], items=[], entity_links=[])
+        matrix = OversightRiskMatrixService().build(case, [], bundle)
+        result = CitationVerifierService().verify(
+            case,
+            "Briefing judgment: CalDS flags Example NGO as a high-priority possible waste, fraud, abuse, or mismanagement review subject.",
+            bundle,
+            matrix,
+        )
+        self.assertEqual(result.status, "REPAIR_REQUIRED")
+        self.assertEqual(result.error_count, 0)
+        self.assertGreater(result.warning_count, 0)
 
     def test_briefing_claim_context_requires_direct_entity_source(self) -> None:
         service_item = EvidenceItem(
@@ -438,6 +456,8 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("ice enforcement", module.HOMELESSNESS_SCOPE_HIGH_TERMS)
         self.assertEqual(module.propublica_org_page("956054617"), "https://projects.propublica.org/nonprofits/organizations/956054617")
         self.assertTrue(str(module.IRS_RAW_DIR).endswith("irs_raw"))
+        self.assertTrue(str(module.DEFAULT_ARTIFACT_BASE_DIR).endswith("homelessness_top15_sources_2026_04_29"))
+        self.assertTrue(hasattr(module, "configure_artifact_dirs"))
         self.assertTrue(str(module.FAC_DIR).endswith("fac"))
         self.assertTrue(str(module.CONTRACT_DIR).endswith("contracts"))
         self.assertTrue(str(module.DOCKET_DIR).endswith("enforcement_dockets"))

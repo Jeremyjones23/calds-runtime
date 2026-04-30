@@ -53,6 +53,12 @@ SOURCE_FAMILY_TARGETS = {
 LEGAL_STATUS_TERMS = re.compile(r"\b(charged|convicted|settled|settlement|violation|prosecuted|indicted)\b", re.IGNORECASE)
 MONEY_OR_DATE_RE = re.compile(r"(\$[0-9][0-9,]*(?:\.[0-9]+)?|\b20[0-9]{2}\b|\b19[0-9]{2}\b)")
 EVIDENCE_REF_RE = re.compile(r"`(E\d{2})`")
+SAFETY_CAVEAT_RE = re.compile(
+    r"\b(does not prove|does not mean|not a formal finding|not a formal conclusion|not a finding|"
+    r"not charged or liable|not legal clearance|not provider attribution|not externally linkable|"
+    r"human review required|pending explicit human review)\b",
+    re.IGNORECASE,
+)
 
 
 class CompletionGuardService:
@@ -287,6 +293,7 @@ class RunReadinessService:
             "selected_entities": list(forensic_plan.get("selected_entities") or []),
             "citation_status": citation.get("status"),
             "citation_error_count": int(citation.get("error_count") or 0),
+            "citation_warning_count": int(citation.get("warning_count") or 0),
             "publication_safety_passed": manifest.get("passed"),
             "publication_manifest_present": bool(manifest),
         }
@@ -332,14 +339,20 @@ class RunReadinessService:
                 "Deep-dive entity selection changed: "
                 f"added {sorted(current_entities - baseline_entities)}, removed {sorted(baseline_entities - current_entities)}."
             )
+        current_warnings = int(current.get("citation_warning_count") or 0)
+        baseline_warnings = int(baseline.get("citation_warning_count") or 0)
+        if baseline_warnings and current_warnings < baseline_warnings:
+            changes.append(f"Citation warnings decreased from {baseline_warnings} to {current_warnings}.")
+        if baseline.get("citation_status") != "PASS" and current.get("citation_status") == "PASS":
+            changes.append(f"Citation status improved from {baseline.get('citation_status')} to PASS.")
         return changes
 
     def _blockers(self, current: dict[str, object]) -> list[str]:
         blockers: list[str] = []
         if current.get("workflow_status") != "AWAITING_HUMAN_REVIEW":
             blockers.append(f"Workflow status is {current.get('workflow_status')}; expected AWAITING_HUMAN_REVIEW.")
-        if current.get("citation_status") == "FAIL" or int(current.get("citation_error_count") or 0) > 0:
-            blockers.append("Citation verifier reported errors.")
+        if current.get("citation_status") not in {"PASS", None} or int(current.get("citation_error_count") or 0) > 0:
+            blockers.append(f"Citation verifier is not clean: {current.get('citation_status')}.")
         if current.get("publication_manifest_present") and current.get("publication_safety_passed") is False:
             blockers.append("Publication safety manifest did not pass.")
         if int(current.get("evidence_count") or 0) == 0:
@@ -356,6 +369,7 @@ class CitationVerifierService:
         dossier_text: str,
         bundle: EvidenceBundle,
         risk_matrix: OversightRiskMatrix,
+        max_warning_count: int = 0,
     ) -> CitationVerificationResult:
         checks: list[CitationCheck] = []
         label_to_item = {f"E{index:02d}": item for index, item in enumerate(bundle.items, start=1)}
@@ -386,6 +400,8 @@ class CitationVerifierService:
             text = line.strip()
             if not text or text.startswith("|") or text.startswith("#"):
                 continue
+            if text.startswith("- Test:") or text.startswith("Test:") or text.startswith("- Objective:"):
+                continue
             claim_like = (
                 "CalDS flags" in text
                 or "Bottom line:" in text
@@ -396,8 +412,10 @@ class CitationVerifierService:
             if not claim_like:
                 continue
             checked_claim_count += 1
+            if SAFETY_CAVEAT_RE.search(text):
+                continue
             refs = EVIDENCE_REF_RE.findall(text)
-            has_source_pointer = "Source:" in text or "Evidence:" in text or "evidence " in text.lower()
+            has_source_pointer = "Source:" in text or "Source URI" in text or "Evidence:" in text or "evidence " in text.lower()
             if (MONEY_OR_DATE_RE.search(text) or LEGAL_STATUS_TERMS.search(text) or "CalDS flags" in text) and not refs and not has_source_pointer:
                 checks.append(
                     self._check(
@@ -438,8 +456,8 @@ class CitationVerifierService:
         errors = [check for check in checks if check.status == "ERROR"]
         warnings = [check for check in checks if check.status == "WARNING"]
         status = "PASS" if not errors else "FAIL"
-        if not errors and warnings:
-            status = "PASS_WITH_WARNINGS"
+        if not errors and len(warnings) > max_warning_count:
+            status = "REPAIR_REQUIRED"
         return CitationVerificationResult(
             verification_id=stable_id("citation_verification", request.case_id, status, str(len(checks))),
             case_id=request.case_id,

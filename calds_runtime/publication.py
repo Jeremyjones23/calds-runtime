@@ -12,11 +12,12 @@ from .case_compiler import (
     _archive_path_remaps,
     compile_dossier_from_run,
     evidence_bundle_from_dict,
+    risk_matrix_from_dict,
     sentinel_result_from_dict,
 )
 from .contracts import CaseRequest, EvidenceBundle, EvidenceItem, read_json, stable_id, to_jsonable, utc_now, write_json
 from .plain_language import expand_reviewer_acronyms
-from .quality_gates import LinkIntegrityService
+from .quality_gates import CitationVerifierService, LinkIntegrityService
 from .review import SOURCE_TYPE_LABELS
 
 
@@ -56,12 +57,21 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     request = CaseRequest.from_dict(read_json(artifacts_dir / "case_request.json"))
     bundle = evidence_bundle_from_dict(read_json(artifacts_dir / "evidence_bundle.json"))
     sentinel = sentinel_result_from_dict(read_json(artifacts_dir / "sentinel_decision.json"))
+    risk_matrix = risk_matrix_from_dict(read_json(artifacts_dir / "oversight_risk_matrix.json"))
 
     labels = evidence_labels(bundle)
     remaps = _archive_path_remaps(run_dir)
     source_ledger = build_source_ledger(bundle, labels, remaps)
 
-    public_markdown = sanitize_public_text(Path(compiled.markdown_path).read_text(encoding="utf-8"))
+    compiled_markdown = Path(compiled.markdown_path).read_text(encoding="utf-8")
+    citation_verification = CitationVerifierService().verify(request, compiled_markdown, bundle, risk_matrix)
+    if citation_verification.status != "PASS":
+        raise ValueError(
+            f"public case-site citation validation failed: {citation_verification.status} "
+            f"({citation_verification.warning_count} warnings, {citation_verification.error_count} errors)"
+        )
+
+    public_markdown = sanitize_public_text(compiled_markdown)
     public_markdown_path = output_dir / "case_dossier.md"
     public_markdown_path.write_text(public_markdown, encoding="utf-8")
 
@@ -102,6 +112,7 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
         },
         "safety": safety,
         "link_integrity": to_jsonable(link_integrity),
+        "citation_verification": to_jsonable(citation_verification),
     }
     manifest_path = output_dir / "publication_manifest.json"
     write_json(manifest_path, manifest)

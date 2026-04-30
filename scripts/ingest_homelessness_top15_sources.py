@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import ssl
 import struct
 import time
@@ -22,14 +23,16 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CASE_ID = "live_ca_homelessness_top15_2026_04_29"
 COLLECTED_AT = "2026-04-29T00:00:00+00:00"
-RAW_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "raw"
-OUTCOME_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "outcomes"
-WEB_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "web"
-PROPUBLICA_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "propublica"
-IRS_RAW_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "irs_raw"
-FAC_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "fac"
-CONTRACT_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "contracts"
-DOCKET_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "enforcement_dockets"
+DEFAULT_ARTIFACT_BASE_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29"
+ARTIFACT_BASE_DIR = DEFAULT_ARTIFACT_BASE_DIR
+RAW_DIR = ARTIFACT_BASE_DIR / "raw"
+OUTCOME_DIR = ARTIFACT_BASE_DIR / "outcomes"
+WEB_DIR = ARTIFACT_BASE_DIR / "web"
+PROPUBLICA_DIR = ARTIFACT_BASE_DIR / "propublica"
+IRS_RAW_DIR = ARTIFACT_BASE_DIR / "irs_raw"
+FAC_DIR = ARTIFACT_BASE_DIR / "fac"
+CONTRACT_DIR = ARTIFACT_BASE_DIR / "contracts"
+DOCKET_DIR = ARTIFACT_BASE_DIR / "enforcement_dockets"
 DEFAULT_CORPUS_DIR = PROJECT_ROOT / "data" / "live_corpus" / f"{CASE_ID}_stage1"
 
 HCD_ROUND3_URL = "https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/homekey-round-3-awardee-list.pdf"
@@ -156,6 +159,31 @@ def sha256_bytes(value: bytes) -> str:
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def configure_artifact_dirs(base_dir: Path) -> Path:
+    """Point source acquisition artifacts at a run-scoped directory."""
+
+    global ARTIFACT_BASE_DIR, RAW_DIR, OUTCOME_DIR, WEB_DIR, PROPUBLICA_DIR, IRS_RAW_DIR, FAC_DIR, CONTRACT_DIR, DOCKET_DIR
+    ARTIFACT_BASE_DIR = Path(base_dir)
+    RAW_DIR = ARTIFACT_BASE_DIR / "raw"
+    OUTCOME_DIR = ARTIFACT_BASE_DIR / "outcomes"
+    WEB_DIR = ARTIFACT_BASE_DIR / "web"
+    PROPUBLICA_DIR = ARTIFACT_BASE_DIR / "propublica"
+    IRS_RAW_DIR = ARTIFACT_BASE_DIR / "irs_raw"
+    FAC_DIR = ARTIFACT_BASE_DIR / "fac"
+    CONTRACT_DIR = ARTIFACT_BASE_DIR / "contracts"
+    DOCKET_DIR = ARTIFACT_BASE_DIR / "enforcement_dockets"
+    return ARTIFACT_BASE_DIR
+
+
+def reset_run_scoped_artifact_dir(corpus_dir: Path, artifacts_dir: Path) -> None:
+    resolved_corpus = corpus_dir.resolve()
+    resolved_artifacts = artifacts_dir.resolve()
+    if resolved_artifacts == resolved_corpus or resolved_artifacts == PROJECT_ROOT.resolve():
+        raise ValueError(f"refusing to clear unsafe artifacts directory: {resolved_artifacts}")
+    if resolved_artifacts.parent == resolved_corpus and resolved_artifacts.name == "_source_artifacts":
+        shutil.rmtree(resolved_artifacts, ignore_errors=True)
 
 
 def fetch_bytes(url: str, timeout: int = 60, attempts: int = 3) -> tuple[bytes, str, str]:
@@ -2071,8 +2099,11 @@ def top_award_summary_lines(summary_rows: list[dict[str, Any]], limit: int = 15)
     return "\n".join(lines)
 
 
-def write_corpus(corpus_dir: Path) -> None:
+def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
     corpus_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir = artifacts_dir or corpus_dir / "_source_artifacts"
+    reset_run_scoped_artifact_dir(corpus_dir, artifacts_dir)
+    configure_artifact_dirs(artifacts_dir)
     for old in corpus_dir.glob("*.json"):
         old.unlink()
 
@@ -2824,13 +2855,14 @@ def write_corpus(corpus_dir: Path) -> None:
     for record in records:
         write_json(corpus_dir / f"{record['record_id']}.json", record)
 
-    summary_path = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29" / "ingest_summary.json"
+    summary_path = ARTIFACT_BASE_DIR / "ingest_summary.json"
     write_json(
         summary_path,
         {
             "case_id": CASE_ID,
             "created_at": now(),
             "corpus_dir": str(corpus_dir),
+            "artifacts_dir": str(ARTIFACT_BASE_DIR),
             "record_count": len(records),
             "target_count": len(TARGETS),
             "source_documents": source_manifest,
@@ -2852,10 +2884,17 @@ def write_corpus(corpus_dir: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build CalDS homelessness top-15 state-award corpus.")
     parser.add_argument("--corpus-dir", type=Path, default=DEFAULT_CORPUS_DIR)
+    parser.add_argument(
+        "--artifacts-dir",
+        type=Path,
+        default=None,
+        help="Run-scoped source artifact directory. Defaults to <corpus-dir>/_source_artifacts.",
+    )
     args = parser.parse_args()
-    write_corpus(args.corpus_dir)
+    write_corpus(args.corpus_dir, args.artifacts_dir)
     print(f"case_id={CASE_ID}")
     print(f"corpus_dir={args.corpus_dir}")
+    print(f"artifacts_dir={ARTIFACT_BASE_DIR}")
     print(f"records={len([path for path in args.corpus_dir.glob('*.json') if not path.name.startswith('_')])}")
     return 0
 

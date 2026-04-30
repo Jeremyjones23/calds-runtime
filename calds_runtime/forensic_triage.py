@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
+from pathlib import Path
 import re
 from typing import Iterable
 
@@ -122,7 +124,7 @@ class HomelessnessTriageService:
         from_step: str,
         to_step: str,
         artifact_refs: list[str],
-        present_fields: list[str],
+        present_fields: list[str] | None = None,
     ) -> ContextHandoffLedger:
         required = [
             "case_id",
@@ -135,18 +137,66 @@ class HomelessnessTriageService:
             "caveats",
             "next_steps",
         ]
-        missing = [field for field in required if field not in present_fields]
+        derived_fields = self._derive_handoff_present_fields(request, artifact_refs)
+        present = derived_fields or list(present_fields or [])
+        missing = [field for field in required if field not in present]
         return ContextHandoffLedger(
             ledger_id=stable_id("handoff", request.case_id, from_step, to_step, *artifact_refs),
             case_id=request.case_id,
             from_step=from_step,
             to_step=to_step,
             required_fields=required,
-            present_fields=present_fields,
+            present_fields=present,
             missing_fields=missing,
             artifact_refs=artifact_refs,
             status="PASS" if not missing else "REPAIR_REQUIRED",
         )
+
+    def _derive_handoff_present_fields(self, request: CaseRequest, artifact_refs: list[str]) -> list[str]:
+        artifacts = {Path(ref).name: self._load_json(Path(ref)) for ref in artifact_refs}
+        triage = artifacts.get("entity_triage_results.json", {})
+        plan = artifacts.get("forensic_investigation_plan.json", {})
+        forensic = artifacts.get("forensic_findings.json", {})
+        results = list(triage.get("results", [])) if isinstance(triage, dict) else []
+        findings = list(forensic.get("findings", [])) if isinstance(forensic, dict) else []
+        selected = list(plan.get("selected_entities", [])) if isinstance(plan, dict) else []
+        triage_findings = [finding for result in results for finding in result.get("findings", [])]
+
+        present: list[str] = []
+        if request.case_id and (
+            plan.get("case_id") == request.case_id
+            or any(result.get("case_id") == request.case_id for result in results)
+            or any(finding.get("case_id") == request.case_id for finding in findings)
+        ):
+            present.append("case_id")
+        if request.entities and {item.get("entity") for item in results} & set(request.entities):
+            present.append("entities")
+        if isinstance(plan, dict) and plan.get("source_families"):
+            present.append("source_families")
+        if results:
+            present.append("triage_results")
+        if "selected_entities" in plan:
+            present.append("selected_entities")
+        if not selected:
+            present.extend(["evidence_record_ids", "source_uris", "caveats", "next_steps"])
+            return present
+        if any(finding.get("evidence_record_ids") for finding in findings) or any(finding.get("record_ids") for finding in triage_findings):
+            present.append("evidence_record_ids")
+        if any(finding.get("source_uris") for finding in findings) or any(finding.get("source_uris") for finding in triage_findings):
+            present.append("source_uris")
+        if any(finding.get("caveats") for finding in findings) or any(finding.get("caveats") for finding in triage_findings):
+            present.append("caveats")
+        if any(finding.get("next_steps") for finding in findings):
+            present.append("next_steps")
+        return present
+
+    def _load_json(self, path: Path) -> dict[str, object]:
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
 
     def priority_record_ids(self, results: list[EntityTriageResult]) -> list[str]:
         priority = []

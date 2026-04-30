@@ -133,15 +133,18 @@ class ReviewArtifactService:
                 "",
                 "### Score Summary",
                 "",
-                f"Score: {lead.score} / 100",
+                f"Review priority score: {lead.score} / 100",
                 "",
                 self._score_interpretation(lead.score),
                 "",
-                "The score is a deterministic triage-priority score. It is not a probability, not a dollar estimate, and not a finding. Higher scores mean stronger retrieved-source coverage and entity linkage, after penalties for missing or contradictory data.",
+                "The score is deterministic triage priority, not a probability, not a dollar estimate, and not a finding. CalDS separates risk severity from source completeness and publication confidence so reviewers can distinguish a serious lead from a publishable record.",
                 "",
                 "| Field | Value | Meaning |",
                 "| --- | --- | --- |",
-                f"| Final score | {lead.score} / 100 | Clamped to the 0-100 range |",
+                f"| Review priority score | {lead.score} / 100 | Weighted blend used for internal triage queueing |",
+                f"| Risk severity score | {score_inputs.risk_severity_score} / 100 | Strength of retrieved source-backed review signal before source-gap penalties |",
+                f"| Source completeness score | {score_inputs.source_completeness_score} / 100 | How much missing or contradictory data still limits judgment |",
+                f"| Publication confidence score | {score_inputs.publication_confidence_score} / 100 | Whether the record is ready to share after source-completeness checks |",
                 f"| Support count | {score_inputs.support_count} | Number of evidence items retrieved |",
                 f"| Average relevance | {score_inputs.average_relevance} | Keyword relevance across retrieved evidence |",
                 f"| Source diversity | {score_inputs.source_diversity} source type(s) | Variety of independent source classes |",
@@ -151,7 +154,7 @@ class ReviewArtifactService:
                 "",
                 "### Score Formula",
                 "",
-                "The implemented formula is: `20 base + average_relevance*35 + support bonus up to 20 + source-diversity bonus up to 15 + hard-link bonus up to 20 - contradiction penalties - missing-data penalties`, then clamped to `0-100`.",
+                "The implemented formula first calculates risk severity from source strength, then calculates source completeness from missing-data and contradiction penalties. The final review-priority score is a weighted blend: `risk severity*0.65 + source completeness*0.25 + publication confidence*0.10`, then clamped to `0-100`.",
                 "",
                 "| Component | Value | Contribution |",
                 "| --- | --- | --- |",
@@ -162,7 +165,10 @@ class ReviewArtifactService:
                 f"| Hard entity links | min(20, {score_inputs.hard_link_count} * 5) | +{formula['hard_links']:.2f} |",
                 f"| Contradictions | {score_inputs.contradiction_count} * -6 | -{formula['contradiction_penalty']:.2f} |",
                 f"| Missing data | {score_inputs.missing_data_count} * -5 | -{formula['missing_penalty']:.2f} |",
-                f"| Raw score before clamp |  | {formula['raw']:.2f} |",
+                f"| Risk severity before completeness penalties |  | {formula['risk_severity']:.2f} |",
+                f"| Source completeness | 100 - penalties | {formula['source_completeness']:.2f} |",
+                f"| Publication confidence | completeness and source diversity blend | {formula['publication_confidence']:.2f} |",
+                f"| Weighted review-priority score before clamp |  | {formula['raw']:.2f} |",
                 "",
                 f"Support summary: {self._plain_language(lead.support_summary)}",
                 "",
@@ -482,14 +488,20 @@ class ReviewArtifactService:
             "contradiction_penalty": score_inputs.contradiction_count * 6.0,
             "missing_penalty": score_inputs.missing_data_count * 5.0,
         }
-        values["raw"] = round(
+        values["risk_severity"] = round(
             values["base"]
             + values["relevance"]
             + values["support"]
             + values["diversity"]
-            + values["hard_links"]
-            - values["contradiction_penalty"]
-            - values["missing_penalty"],
+            + values["hard_links"],
+            2,
+        )
+        values["source_completeness"] = score_inputs.source_completeness_score
+        values["publication_confidence"] = score_inputs.publication_confidence_score
+        values["raw"] = round(
+            score_inputs.risk_severity_score * 0.65
+            + score_inputs.source_completeness_score * 0.25
+            + score_inputs.publication_confidence_score * 0.10,
             2,
         )
         return values

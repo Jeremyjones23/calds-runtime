@@ -211,6 +211,9 @@ class ScoreInputs:
     contradiction_count: int
     missing_data_count: int
     final_score: float
+    risk_severity_score: float = 0.0
+    source_completeness_score: float = 0.0
+    publication_confidence_score: float = 0.0
 
 
 @dataclass(frozen=True)

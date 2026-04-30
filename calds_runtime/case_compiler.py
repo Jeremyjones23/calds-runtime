@@ -73,6 +73,7 @@ class CaseDossierService:
     ) -> CompiledCaseDossier:
         path.parent.mkdir(parents=True, exist_ok=True)
         labels = self._evidence_labels(bundle)
+        triage_tiers = self._triage_tiers(source_artifact_refs)
         priority_rows = self._priority_indicators(risk_matrix)
         source_counts = Counter(item.source_type for item in bundle.items)
         sentinel_items = [f"- {self._plain_language(item)}" for item in sentinel.repair_instructions] or ["- none"]
@@ -83,7 +84,7 @@ class CaseDossierService:
             "",
             "## 1. Supervisor Brief",
             "",
-            f"Bottom line: {self._case_bottom_line(request, bundle, lead, sentinel, risk_matrix, labels)}",
+            f"Bottom line: {self._case_bottom_line(request, bundle, lead, sentinel, risk_matrix, labels, triage_tiers)}",
             "",
             "### What CalDS Found First",
             "",
@@ -104,7 +105,7 @@ class CaseDossierService:
             "### Decision Needed",
             "",
             f"- Human-review state: `{review_decision.decision.value}`. The workflow is paused until a reviewer approves, downgrades, repairs, or rejects the case.",
-            f"- Score: {lead.score} / 100. {self._brief_score_meaning(lead.score)}",
+            f"- Score: {self._brief_score_summary(lead.score_inputs)}",
             f"- Sentinel: `{sentinel.decision.value}`. {sentinel.rationale}",
             f"- Immediate reviewer action: {self._supervisor_next_action(bundle, risk_matrix, sentinel)}",
             "",
@@ -118,22 +119,25 @@ class CaseDossierService:
             "",
             "## 2. Entity Briefs",
             "",
-            "These briefs assume the reader has not seen the agent work. They summarize specific cited records first, then explain why the system held or flagged each NGO.",
+            "These briefs assume the reader has not seen the agent work. Deep-review entities are separated from watchlist or matrix-only entities so the reader can see what CalDS selected for deeper review versus what remains contextual.",
             "",
-            *self._briefing_memo_lines(request, bundle, lead, sentinel, risk_matrix, labels),
+            *self._briefing_memo_lines(request, bundle, lead, sentinel, risk_matrix, labels, triage_tiers),
             "",
             "## 3. Score, Sentinel, and Case Context",
             "",
             f"Lead statement: {lead.statement}",
             "",
-            f"Score: {lead.score} / 100",
+            f"Review priority score: {lead.score} / 100",
             "",
             self._score_interpretation(lead.score),
             "",
-            "The score is deterministic triage priority, not a probability, not a dollar loss estimate, and not a conclusion. Higher scores mean stronger retrieved-source coverage and entity linkage after missing-data and contradiction penalties.",
+            "The score is deterministic triage priority, not a probability, not a dollar loss estimate, and not a conclusion. CalDS now splits the score into risk severity, source completeness, and publication confidence so a strong review signal is not confused with publication readiness.",
             "",
             "| Field | Value |",
             "| --- | --- |",
+            f"| Risk severity score | {lead.score_inputs.risk_severity_score} / 100 |",
+            f"| Source completeness score | {lead.score_inputs.source_completeness_score} / 100 |",
+            f"| Publication confidence score | {lead.score_inputs.publication_confidence_score} / 100 |",
             f"| Support count | {lead.score_inputs.support_count} |",
             f"| Average relevance | {lead.score_inputs.average_relevance} |",
             f"| Source diversity | {lead.score_inputs.source_diversity} |",
@@ -176,7 +180,7 @@ class CaseDossierService:
             "",
             "This section preserves the system opinion and source-fact detail behind the briefing memo. It remains an internal possible waste, fraud, abuse, or mismanagement screening opinion, not a formal allegation or outside-facing conclusion.",
             "",
-            *self._entity_opinion_lines(risk_matrix, labels),
+            *self._entity_opinion_lines(risk_matrix, labels, triage_tiers),
             "",
             "## 6. Flagged Review Matrix",
             "",
@@ -212,14 +216,14 @@ class CaseDossierService:
                             f"#### {level}-{index}: {item.entity} - {item.risk_area}",
                             "",
                             f"- Test: {item.test_name}",
-                            f"- What CalDS found: {self._plain_language(item.observed_fact)}",
-                            f"- When/where: {self._when_where(item)}",
-                            f"- How this triggered review: {self._trigger_text(item)}",
+                            f"- What CalDS found: {self._plain_language(item.observed_fact)} Evidence: {refs}.",
+                            f"- When/where: {self._when_where(item)} Evidence: {refs}.",
+                            f"- How this triggered review: {self._trigger_text(item)} Evidence: {refs}.",
                             f"- Evidence refs: {refs}",
                             f"- Source URI(s): {self._format_source_uris(item.source_uris)}",
-                            f"- System opinion: {self._plain_language(self._system_opinion(item))}",
+                            f"- System opinion: {self._plain_language(self._system_opinion(item))} Evidence: {refs}.",
                             f"- Why this matters: {self._plain_language(self._why_it_matters(item))}",
-                            f"- What this flags: {self._plain_language(item.reviewer_action)}",
+                            f"- What this flags: {self._plain_language(item.reviewer_action)} Evidence: {refs}.",
                             f"- What this does not prove: {self._plain_language(self._not_proven_text(item))}",
                             f"- Human next step: {self._plain_language(self._indicator_next_step(item))}",
                             *[f"- Caveat: {self._plain_language(caveat)}" for caveat in item.caveats],
@@ -332,9 +336,15 @@ class CaseDossierService:
         sentinel: SentinelResult,
         matrix: OversightRiskMatrix,
         labels: dict[str, str],
+        triage_tiers: dict[str, object],
     ) -> str:
         entities = ", ".join(request.entities) or "the named entity set"
-        substantive = self._substantive_rows(matrix.indicators)
+        selected = set(triage_tiers.get("selected_entities", []))
+        substantive = [
+            item
+            for item in self._substantive_rows(matrix.indicators)
+            if not selected or item.entity in selected or item.entity == "Case-wide"
+        ]
         gaps = self._data_gap_rows(matrix.indicators)
         if substantive:
             top = substantive[0]
@@ -342,7 +352,7 @@ class CaseDossierService:
             return (
                 f"CalDS keeps {top.entity or entities} at the top of this {len(request.entities) or 'multi'}-entity case for possible waste, fraud, abuse, or mismanagement review because the top source-backed trigger is: "
                 f"{fact} Evidence: {self._matrix_refs(top, labels)}. "
-                f"The lead score is {lead.score} / 100 and the sentinel posture is `{sentinel.decision.value}`; "
+                f"The review priority score is {lead.score} / 100, source completeness is {lead.score_inputs.source_completeness_score} / 100, publication confidence is {lead.score_inputs.publication_confidence_score} / 100, and the sentinel posture is `{sentinel.decision.value}`; "
                 "this is a review priority, not a formal conclusion."
             )
         if bundle.items:
@@ -488,6 +498,26 @@ class CaseDossierService:
                 return {}
         return {}
 
+    def _triage_tiers(self, source_artifact_refs: list[str]) -> dict[str, object]:
+        triage = self._load_artifact_json(source_artifact_refs, "entity_triage_results.json")
+        plan = self._load_artifact_json(source_artifact_refs, "forensic_investigation_plan.json")
+        selected = list(plan.get("selected_entities", [])) if isinstance(plan, dict) else []
+        priority_by_entity: dict[str, str] = {}
+        selected_lookup = set(selected)
+        watchlist: list[str] = []
+        for item in list(triage.get("results", [])) if isinstance(triage, dict) else []:
+            entity = str(item.get("entity", ""))
+            if not entity:
+                continue
+            priority_by_entity[entity] = str(item.get("triage_priority", "Unranked"))
+            if entity not in selected_lookup:
+                watchlist.append(entity)
+        return {
+            "selected_entities": selected,
+            "watchlist_entities": watchlist,
+            "priority_by_entity": priority_by_entity,
+        }
+
     def _brief_score_meaning(self, score: float) -> str:
         if score >= 75:
             return "High triage priority from retrieval strength and entity linkage; still requires human verification."
@@ -496,6 +526,15 @@ class CaseDossierService:
         if score >= 25:
             return "Limited triage priority; repair likely needed before escalation."
         return "Low deterministic score because unresolved source gaps outweigh the retrieved source coverage under the current formula."
+
+    def _brief_score_summary(self, score_inputs: ScoreInputs) -> str:
+        return (
+            f"review priority {score_inputs.final_score} / 100; "
+            f"risk severity {score_inputs.risk_severity_score} / 100; "
+            f"source completeness {score_inputs.source_completeness_score} / 100; "
+            f"publication confidence {score_inputs.publication_confidence_score} / 100. "
+            "Risk severity answers whether the retrieved facts deserve review; publication confidence answers whether the record is ready to share."
+        )
 
     def _supervisor_next_action(
         self,
@@ -554,6 +593,7 @@ class CaseDossierService:
         sentinel: SentinelResult,
         matrix: OversightRiskMatrix,
         labels: dict[str, str],
+        triage_tiers: dict[str, object],
     ) -> list[str]:
         by_entity: dict[str, list[OversightRiskIndicator]] = {}
         case_wide: list[OversightRiskIndicator] = []
@@ -574,10 +614,23 @@ class CaseDossierService:
                 pair[0],
             ),
         )
+        selected = set(triage_tiers.get("selected_entities", []))
+        selected_order = [pair for pair in ordered if pair[0] in selected]
+        watch_order = [pair for pair in ordered if pair[0] not in selected]
         if not ordered:
             lines.extend(["No entity-specific briefing could be generated from the current matrix.", ""])
-        for entity, indicators in ordered:
-            lines.extend(self._briefing_entity_lines(entity, indicators, bundle, labels))
+        if selected_order:
+            lines.extend(["### Deep-Review Entities", ""])
+            lines.append("These entities crossed the implemented triage threshold for deeper forensic review in this run.")
+            lines.append("")
+            for entity, indicators in selected_order:
+                lines.extend(self._briefing_entity_lines(entity, indicators, bundle, labels, True, "####"))
+        if watch_order:
+            lines.extend(["### Watchlist And Matrix-Only Entities", ""])
+            lines.append("These entities have matrix signals or source gaps, but they were not selected for deep forensic review by the implemented triage threshold in this run.")
+            lines.append("")
+            for entity, indicators in watch_order:
+                lines.extend(self._briefing_entity_lines(entity, indicators, bundle, labels, False, "####"))
 
         if case_wide:
             lines.extend(["### Case-wide Source Gaps", ""])
@@ -601,23 +654,26 @@ class CaseDossierService:
         indicators: list[OversightRiskIndicator],
         bundle: EvidenceBundle,
         labels: dict[str, str],
+        selected_for_deep_review: bool = True,
+        heading_prefix: str = "###",
     ) -> list[str]:
         priority = sorted(
             indicators,
             key=lambda item: (RISK_ORDER.get(item.risk_level, 99), item.risk_area, item.test_name),
         )
         review_rows = [item for item in priority if item.risk_level in {"High", "Medium", "Data gap"}]
-        posture = self._entity_posture(Counter(item.risk_level for item in indicators))
+        posture = self._entity_posture(Counter(item.risk_level for item in indicators), selected_for_deep_review)
         claim = self._entity_claim_context(entity, bundle, labels)
         source_facts = self._entity_source_fact_bullets(entity, bundle, labels)
         facts = self._briefing_fact_bullets(review_rows, labels)
         why = self._briefing_why_flagged(review_rows)
         limits = self._briefing_limits(review_rows)
         next_step = self._briefing_next_step(review_rows)
+        refs = self._matrix_refs_for_many(review_rows, labels)
         return [
-            f"### {entity}",
+            f"{heading_prefix} {entity}",
             "",
-            f"Briefing judgment: CalDS flags {entity} as a {posture}.",
+            f"Briefing judgment: CalDS treats {entity} as a {posture}. Evidence: {refs}.",
             "",
             f"What the organization says or is described as doing: {self._plain_language(claim)}",
             "",
@@ -631,7 +687,7 @@ class CaseDossierService:
             "",
             *facts,
             "",
-            f"Why this is on the review list: {why}",
+            f"Why this is on the review list: {why} Evidence: {refs}.",
             "",
             f"What this does not prove: {limits}",
             "",
@@ -842,24 +898,32 @@ class CaseDossierService:
 
     def _normalize(self, text: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", str(text).lower())
-    def _entity_opinion_lines(self, matrix: OversightRiskMatrix, labels: dict[str, str]) -> list[str]:
+    def _entity_opinion_lines(
+        self,
+        matrix: OversightRiskMatrix,
+        labels: dict[str, str],
+        triage_tiers: dict[str, object],
+    ) -> list[str]:
         rows = [item for item in matrix.indicators if item.entity]
         by_entity: dict[str, list[OversightRiskIndicator]] = {}
         for item in rows:
             by_entity.setdefault(item.entity, []).append(item)
         lines: list[str] = []
+        selected = set(triage_tiers.get("selected_entities", []))
         for entity in sorted(by_entity):
             indicators = by_entity[entity]
             priority = sorted(
                 indicators,
                 key=lambda item: (RISK_ORDER.get(item.risk_level, 99), item.risk_area, item.test_name),
             )
-            posture = self._entity_posture(Counter(item.risk_level for item in indicators))
+            selected_for_deep_review = entity in selected
+            posture = self._entity_posture(Counter(item.risk_level for item in indicators), selected_for_deep_review)
+            refs = self._matrix_refs_for_many(priority[:6], labels)
             lines.extend(
                 [
                     f"### {entity}",
                     "",
-                    f"CalDS flags {entity} as a {posture}. The entity is in this dossier because the current source bundle contains the specific source facts below.",
+                    f"CalDS treats {entity} as a {posture}. The entity is in this dossier because the current source bundle contains the specific source facts below. Evidence: {refs}.",
                     "",
                     "Specific findings that drove the flag:",
                     "",
@@ -889,19 +953,25 @@ class CaseDossierService:
         refs = self._matrix_refs(item, labels)
         source_text = self._format_source_uris(item.source_uris)
         return [
-            f"{index}. {item.risk_level} - {item.risk_area}: {self._plain_language(item.observed_fact)}",
-            f"   - When/where: {self._when_where(item)}",
-            f"   - How it triggered: {self._trigger_text(item)}",
+            f"{index}. {item.risk_level} - {item.risk_area}: {self._plain_language(item.observed_fact)} Evidence: {refs}.",
+            f"   - When/where: {self._when_where(item)} Evidence: {refs}.",
+            f"   - How it triggered: {self._trigger_text(item)} Evidence: {refs}.",
             f"   - Evidence: {refs}; source: {source_text}",
             f"   - Why it matters: {self._plain_language(self._why_it_matters(item))}",
             "",
         ]
 
-    def _entity_posture(self, counts: Counter[str]) -> str:
+    def _entity_posture(self, counts: Counter[str], selected_for_deep_review: bool = True) -> str:
+        if not selected_for_deep_review:
+            if counts.get("High", 0) or counts.get("Medium", 0):
+                return "watchlist or matrix-only subject, not a deep-review target selected by this run"
+            if counts.get("Data gap", 0):
+                return "watchlist source-gap subject, not a deep-review target selected by this run"
+            return "context-only subject, not a deep-review target selected by this run"
         if counts.get("High", 0):
-            return "high-priority possible waste, fraud, abuse, or mismanagement review subject"
+            return "deep-review possible waste, fraud, abuse, or mismanagement review subject"
         if counts.get("Medium", 0):
-            return "moderate-priority possible waste, fraud, abuse, or mismanagement review subject"
+            return "moderate-priority deep-review possible waste, fraud, abuse, or mismanagement review subject"
         if counts.get("Data gap", 0):
             return "source-gap review subject"
         return "context-only subject"
