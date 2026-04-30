@@ -351,6 +351,7 @@ class CaseDossierService:
             f"- Entities selected for deep review: {selected_text}.",
             f"- Main signal pattern: {signal_summary}.",
             f"- Review priority: {lead.score_inputs.final_score} / 100; risk severity: {lead.score_inputs.risk_severity_score} / 100; source completeness: {lead.score_inputs.source_completeness_score} / 100; publication confidence: {lead.score_inputs.publication_confidence_score} / 100.",
+            "- Score scope: these are case-level scores for this run's evidence bundle. They are not entity-by-entity grades, not probabilities, and not a measure of how polished the report is.",
             f"- Current workflow state: `{review_decision.decision.value}` with sentinel posture `{sentinel.decision.value}`.",
             "",
             "What CalDS found first:",
@@ -418,12 +419,26 @@ class CaseDossierService:
 
     def _score_plain_language_lines(self, lead: LeadCandidate) -> list[str]:
         inputs = lead.score_inputs
+        missing_data_penalty = inputs.missing_data_count * 5.0
+        contradiction_penalty = inputs.contradiction_count * 6.0
+        diversity_confidence = min(100.0, inputs.source_diversity * 12.5)
+        publication_from_completeness = round(inputs.source_completeness_score * 0.7, 2)
+        publication_from_diversity = round(diversity_confidence * 0.3, 2)
         return [
+            "- What these scores apply to: the whole compiled case/run and its evidence bundle, not one nonprofit organization by itself.",
             f"- Review priority {inputs.final_score} / 100: how urgently this case should stay in the review queue.",
             f"- Risk severity {inputs.risk_severity_score} / 100: how strong the implemented source-backed risk indicators are.",
-            f"- Source completeness {inputs.source_completeness_score} / 100: how much of the required source set was actually recovered.",
-            f"- Publication confidence {inputs.publication_confidence_score} / 100: whether the public-facing record is complete enough for outside use.",
+            f"- Source completeness {inputs.source_completeness_score} / 100: how much of the required source set was actually recovered and conflict-free. The current formula starts at 100, subtracts 5 points for each missing-data signal, and subtracts 6 points for each contradiction signal. This run has {inputs.missing_data_count} missing-data signal(s) and {inputs.contradiction_count} contradiction signal(s), creating {missing_data_penalty:g} missing-data penalty points and {contradiction_penalty:g} contradiction penalty points; because those penalties meet or exceed the starting 100 points, the score is capped at {inputs.source_completeness_score} / 100.",
+            f"- Publication confidence {inputs.publication_confidence_score} / 100: whether the record is complete enough for outside-facing use. The current formula weights source completeness at 70% and source diversity at 30%. This run has {inputs.source_diversity} source type(s), which gives {diversity_confidence:g} / 100 source-diversity confidence; with source completeness at {inputs.source_completeness_score} / 100, publication confidence becomes {publication_from_completeness:g} + {publication_from_diversity:g} = {inputs.publication_confidence_score} / 100.",
             "- Meaning: a high risk-severity score with low source completeness is a strong reason to keep reviewing, not a reason to publish allegations.",
+            "",
+            "Questions this score should raise:",
+            "",
+            "- Which missing source records are driving the missing-data count?",
+            "- Which missing records would most change the decision: direct contracts and payments, raw tax-return source documents, audit source documents and finding status, facility histories, or provider-attributable outcomes?",
+            "- Are the strongest risk signals concentrated in a few selected entities, or spread across the full screened set?",
+            "- Are the gaps caused by unavailable public records, missing ingestion coverage, or records that exist but have not been pulled into this run?",
+            "- What would raise publication confidence enough to move from internal review lead to a stronger public brief?",
         ]
 
     def _case_bottom_line(
