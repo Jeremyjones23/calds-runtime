@@ -31,6 +31,15 @@ PROTECTED_CODE_RE = re.compile(r"`([^`]+)`")
 NON_BROWSABLE_PUBLIC_URLS = (
     "https://data.ca.gov/api/3/action/datastore_search",
 )
+PUBLIC_URL_REPAIRS = {
+    "https://data.chhs.ca.gov/api/3/action": "https://data.chhs.ca.gov/",
+    "https://data.ca.gov/api/3/action": "https://lab.data.ca.gov/",
+    "https://data.chhs.ca.gov/dataset/medication-assisted-treatment-in-medi-cal-for-opioid-use-disorders-by-county": "https://lab.data.ca.gov/dataset/medication-assisted-treatment-in-medi-cal-for-opioid-use-disorders-by-county",
+    "https://www.tarzanatc.org/news-events/": "https://www.tarzanatc.org/treatment-news/",
+    "https://socialmodelrecovery.org/annual-report/": "https://socialmodelrecovery.org/annual-report/?amp",
+    "https://www.socialmodelrecovery.org/about-us/": "https://socialmodelrecovery.org/services/",
+    "https://www.socialmodelrecovery.org/programs/": "https://socialmodelrecovery.org/services/",
+}
 
 
 @dataclass(frozen=True)
@@ -75,6 +84,9 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     public_markdown_path = output_dir / "case_dossier.md"
     public_markdown_path.write_text(public_markdown, encoding="utf-8", newline="\n")
 
+    source_ledger, link_repair = repair_public_source_urls(source_ledger)
+    link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
+
     source_ledger_path = output_dir / "source_ledger.json"
     write_json(source_ledger_path, {"case_id": request.case_id, "evidence": source_ledger})
 
@@ -112,6 +124,7 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
         },
         "safety": safety,
         "link_integrity": to_jsonable(link_integrity),
+        "link_repair": link_repair,
         "citation_verification": to_jsonable(citation_verification),
     }
     manifest_path = output_dir / "publication_manifest.json"
@@ -172,6 +185,66 @@ def build_source_ledger(bundle: EvidenceBundle, labels: dict[str, str], path_rem
             }
         )
     return entries
+
+
+def repair_public_source_urls(source_ledger: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    affected_refs: list[str] = []
+    replacements: list[dict[str, str]] = []
+    updated: list[dict[str, Any]] = []
+    for entry in source_ledger:
+        row = dict(entry)
+        urls = [str(url) for url in row.get("source_urls", [])]
+        repaired_urls: list[str] = []
+        row_replacements: list[tuple[str, str]] = []
+        for url in urls:
+            repaired = repair_public_url(url)
+            repaired_urls.append(repaired)
+            if repaired != url:
+                row_replacements.append((url, repaired))
+                replacements.append(
+                    {
+                        "ref": str(row.get("ref", "")),
+                        "old_unlinked_reference": unlinked_url_reference(url),
+                        "new_url": repaired,
+                    }
+                )
+        if row_replacements:
+            affected_refs.append(str(row.get("ref", "")))
+            existing_note = str(row.get("link_note", "")).strip()
+            repair_note = (
+                f"Publication link repair replaced {len(row_replacements)} stale or renamed public URL(s) with working public source page(s)."
+            )
+            row["link_note"] = " ".join(part for part in [existing_note, repair_note] if part)
+            row["source_urls"] = unique_preserve_order(repaired_urls)
+            row["source_reference"] = repair_public_source_reference(str(row.get("source_reference", "")))
+            row["link_status"] = "external_source_linked" if row["source_urls"] else "not_externally_linkable"
+        updated.append(row)
+
+    return updated, {
+        "repaired_public_links": len(replacements),
+        "affected_evidence_refs": [ref for ref in affected_refs if ref],
+        "replacements": replacements,
+        "note": "Stale or renamed public URLs are repaired to working source pages before publication. Links are not removed as a substitute for repair.",
+    }
+
+
+def repair_public_urls(urls: Iterable[str]) -> list[str]:
+    return unique_preserve_order(repair_public_url(url) for url in urls)
+
+
+def repair_public_url(url: str) -> str:
+    return PUBLIC_URL_REPAIRS.get(str(url).strip(), str(url).strip())
+
+
+def repair_public_source_reference(value: str) -> str:
+    repaired = value
+    for old, new in PUBLIC_URL_REPAIRS.items():
+        repaired = repaired.replace(old, new)
+    return repaired
+
+
+def unlinked_url_reference(url: str) -> str:
+    return re.sub(r"^https?://", "", str(url).strip())
 
 
 def infer_external_urls(item: EvidenceItem, bundle: EvidenceBundle, path_remaps: dict[str, str]) -> list[str]:
@@ -283,11 +356,323 @@ def sanitize_public_text(value: object) -> str:
     return text
 
 
+def public_case_css() -> str:
+    return """
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap');
+:root {
+  color-scheme: light;
+  --paper: #f3ead8;
+  --paper-2: #fff9ed;
+  --paper-3: #e6d7bb;
+  --ink: #19150f;
+  --muted: #665f52;
+  --quiet: #867866;
+  --charcoal: #121615;
+  --charcoal-2: #1e2925;
+  --civic-blue: #214f72;
+  --civic-blue-2: #2d6f8f;
+  --docket-red: #9e2f2b;
+  --audit-amber: #d89d28;
+  --ledger-green: #2f6d55;
+  --line: rgba(25, 21, 15, .18);
+  --line-dark: rgba(255, 249, 237, .18);
+  --shadow: 0 24px 65px rgba(25, 21, 15, .18);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, rgba(25, 21, 15, .035) 1px, transparent 1px) 0 0 / 38px 38px,
+    linear-gradient(180deg, rgba(25, 21, 15, .028) 1px, transparent 1px) 0 0 / 38px 38px,
+    radial-gradient(circle at 10% 0%, rgba(216, 157, 40, .22), transparent 34%),
+    linear-gradient(145deg, #f6ecd7 0%, #efe0c2 38%, #f8f1e2 100%);
+  font-family: "Source Serif 4", Georgia, serif;
+  line-height: 1.58;
+}
+a { color: var(--civic-blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+code, pre, .mono, .evidence-ref {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  letter-spacing: 0;
+}
+code {
+  background: rgba(255, 249, 237, .82);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.case-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(18, 22, 21, .97), rgba(30, 41, 37, .95)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 1px, transparent 1px 32px);
+  color: var(--paper-2);
+  border-bottom: 7px solid var(--docket-red);
+}
+.case-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(120deg, transparent 0 56%, rgba(216,157,40,.18) 56% 58%, transparent 58%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,.035) 0 1px, transparent 1px 18px);
+  pointer-events: none;
+}
+.case-hero__inner {
+  position: relative;
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 44px 24px 34px;
+}
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--audit-amber);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.case-hero h1 {
+  margin: 0;
+  max-width: 940px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(38px, 7vw, 86px);
+  line-height: .92;
+  letter-spacing: 0;
+}
+.case-title {
+  max-width: 860px;
+  margin: 18px 0 0;
+  color: rgba(255, 249, 237, .88);
+  font-size: 20px;
+}
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 30px 0 0;
+}
+.status-tile {
+  min-height: 108px;
+  padding: 14px;
+  border: 1px solid var(--line-dark);
+  background: rgba(255, 249, 237, .08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.status-tile strong {
+  display: block;
+  color: #fff9ed;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status-tile span {
+  display: block;
+  margin-top: 8px;
+  color: rgba(255, 249, 237, .82);
+  font-size: 18px;
+}
+.case-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+.case-nav a {
+  color: var(--paper-2);
+  border: 1px solid rgba(255, 249, 237, .35);
+  background: rgba(255, 249, 237, .08);
+  padding: 8px 11px;
+  text-decoration: none;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.case-shell {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  gap: 28px;
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 30px 24px 72px;
+}
+.case-rail {
+  position: sticky;
+  top: 18px;
+  align-self: start;
+  padding: 18px;
+  background: rgba(255, 249, 237, .82);
+  border: 1px solid var(--line);
+  box-shadow: 8px 8px 0 rgba(158, 47, 43, .12);
+}
+.case-rail h2 {
+  margin: 0 0 10px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 24px;
+  line-height: 1;
+}
+.case-rail a {
+  display: block;
+  margin: 7px 0;
+  color: var(--charcoal);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+.case-main { min-width: 0; }
+.notice {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding: 18px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.notice::before { content: ""; background: var(--audit-amber); }
+.notice strong { color: var(--docket-red); }
+.dossier, #source-ledger {
+  background: rgba(255, 249, 237, .9);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.dossier {
+  padding: 28px;
+}
+#source-ledger {
+  margin-top: 28px;
+  padding: 28px;
+}
+h1, h2, h3, h4 {
+  font-family: "Fraunces", Georgia, serif;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+.dossier h1 {
+  margin-top: 0;
+  font-size: clamp(34px, 4vw, 52px);
+}
+.dossier h2, #source-ledger h2 {
+  margin-top: 38px;
+  padding-top: 18px;
+  border-top: 2px solid rgba(158, 47, 43, .28);
+  color: var(--charcoal);
+}
+.dossier h3 { color: var(--civic-blue); }
+.dossier p, .dossier li { font-size: 18px; }
+.dossier ul, .dossier ol { padding-left: 26px; }
+.table-block {
+  overflow: auto;
+  margin: 18px 0;
+  padding: 14px;
+  color: #f9edd4;
+  background:
+    linear-gradient(90deg, rgba(216, 157, 40, .1), transparent 26%),
+    #18201d;
+  border: 1px solid rgba(25, 21, 15, .42);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+  white-space: pre;
+}
+.evidence-ref {
+  display: inline-block;
+  color: var(--paper-2);
+  background: var(--docket-red);
+  border: 1px solid rgba(25, 21, 15, .22);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: .78em;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.evidence-card {
+  position: relative;
+  margin: 16px 0;
+  padding: 18px 18px 18px 26px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(90deg, rgba(47, 109, 85, .12), transparent 32%),
+    #fffaf0;
+}
+.evidence-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: var(--ledger-green);
+}
+.evidence-card--not-externally-linkable::before { background: var(--audit-amber); }
+.evidence-card--external-source-linked::before { background: var(--ledger-green); }
+.evidence-card--derived-external-source-linked::before { background: var(--civic-blue-2); }
+.evidence-card h3 {
+  margin: 0 0 10px;
+  font-size: 24px;
+}
+.meta, .link-status, footer {
+  color: var(--muted);
+  font-size: 14px;
+}
+.source-list {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  overflow-wrap: anywhere;
+}
+.source-list a { word-break: break-word; }
+footer {
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 22px 24px 38px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .case-hero__inner, .notice, .dossier, #source-ledger, .evidence-card {
+    animation: rise-in .7s ease both;
+  }
+  .notice { animation-delay: .08s; }
+  .dossier { animation-delay: .14s; }
+  #source-ledger { animation-delay: .2s; }
+  .evidence-card:nth-of-type(2n) { animation-delay: .05s; }
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+@media (max-width: 880px) {
+  .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .case-shell { grid-template-columns: 1fr; }
+  .case-rail { position: static; }
+}
+@media (max-width: 560px) {
+  .case-hero__inner, .case-shell { padding-left: 16px; padding-right: 16px; }
+  .status-strip { grid-template-columns: 1fr; }
+  .dossier, #source-ledger { padding: 18px; }
+  .dossier p, .dossier li { font-size: 16px; }
+}
+@media print {
+  body { background: #fff; color: #000; }
+  .case-hero, .case-rail, .case-nav { background: #fff; color: #000; border: 0; }
+  .case-shell { display: block; max-width: none; padding: 0; }
+  .dossier, #source-ledger, .notice { box-shadow: none; border-color: #999; }
+}
+"""
+
+
 def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: list[dict[str, Any]], sentinel_decision: str) -> str:
     body = render_markdown_fragment(markdown_text)
     cards = "\n".join(render_evidence_card(entry) for entry in source_ledger)
     title = html.escape(request.title)
     generated = html.escape(utc_now())
+    css = public_case_css()
+    evidence_count = len(source_ledger)
+    linked_count = sum(1 for entry in source_ledger if entry.get("source_urls"))
+    not_linked_count = evidence_count - linked_count
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -295,39 +680,41 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <title>{title} | CalDS Public Case Viewer</title>
   <style>
-    :root {{ color-scheme: light; --ink:#172026; --muted:#59666f; --line:#d8dee4; --soft:#f6f8fa; --accent:#0b5cad; --warn:#8a4b00; }}
-    body {{ margin:0; font-family: Arial, Helvetica, sans-serif; color:var(--ink); background:#fff; line-height:1.5; }}
-    header {{ background:#102a43; color:#fff; padding:28px 36px; }}
-    header h1 {{ margin:0 0 8px; font-size:28px; }}
-    header p {{ margin:4px 0; max-width:960px; }}
-    main {{ max-width:1120px; margin:0 auto; padding:28px 24px 64px; }}
-    nav {{ display:flex; flex-wrap:wrap; gap:12px; margin:18px 0 0; }}
-    nav a {{ color:#fff; border:1px solid rgba(255,255,255,.5); padding:6px 10px; text-decoration:none; }}
-    h1, h2, h3, h4 {{ line-height:1.25; }}
-    h2 {{ margin-top:34px; padding-top:14px; border-top:1px solid var(--line); }}
-    a {{ color:var(--accent); }}
-    code {{ background:var(--soft); border:1px solid var(--line); padding:1px 4px; border-radius:4px; }}
-    .notice {{ border-left:4px solid var(--warn); background:#fff8ec; padding:12px 14px; margin:18px 0; }}
-    .dossier {{ margin-top:24px; }}
-    .table-block {{ overflow:auto; background:var(--soft); border:1px solid var(--line); padding:12px; white-space:pre; }}
-    .evidence-ref {{ font-weight:700; text-decoration:none; }}
-    .evidence-card {{ border:1px solid var(--line); padding:16px; margin:14px 0; border-radius:6px; }}
-    .evidence-card h3 {{ margin-top:0; }}
-    .meta {{ color:var(--muted); font-size:14px; }}
-    .source-list {{ margin:8px 0 0; padding-left:20px; }}
-    footer {{ color:var(--muted); border-top:1px solid var(--line); margin-top:42px; padding-top:18px; font-size:14px; }}
+{css}
   </style>
 </head>
 <body>
-<header>
-  <h1>CalDS Public Case Viewer</h1>
-  <p>{title}</p>
-  <p>Sentinel posture: <strong>{html.escape(sentinel_decision)}</strong>. This is an internal-review aid, not a formal finding.</p>
-  <nav><a href=\"#dossier\">Dossier</a><a href=\"#source-ledger\">Source Ledger</a><a href=\"case_dossier.md\">Markdown</a><a href=\"source_ledger.json\">Source JSON</a></nav>
+<header class=\"case-hero\">
+  <div class=\"case-hero__inner\">
+    <p class=\"eyebrow\">California Evidence Room</p>
+    <h1>CalDS Public Case Viewer</h1>
+    <p class=\"case-title\">{title}</p>
+    <div class=\"status-strip\" aria-label=\"Case publication status\">
+      <div class=\"status-tile\"><strong>Sentinel posture</strong><span>{html.escape(sentinel_decision)}</span></div>
+      <div class=\"status-tile\"><strong>Human posture</strong><span>Review required</span></div>
+      <div class=\"status-tile\"><strong>Evidence ledger</strong><span>{evidence_count} records</span></div>
+      <div class=\"status-tile\"><strong>Internet links</strong><span>{linked_count} linked / {not_linked_count} marked</span></div>
+    </div>
+    <nav class=\"case-nav\" aria-label=\"Case links\">
+      <a href=\"#dossier\">Briefing</a>
+      <a href=\"#source-ledger\">Source Ledger</a>
+      <a href=\"case_dossier.md\">Markdown</a>
+      <a href=\"source_ledger.json\">Source JSON</a>
+    </nav>
+  </div>
 </header>
-<main>
+<main class=\"case-shell\">
+  <aside class=\"case-rail\" aria-label=\"Case navigation\">
+    <h2>Read Order</h2>
+    <a href=\"#dossier\">Start With The Brief</a>
+    <a href=\"#source-ledger\">Audit The Sources</a>
+    <a href=\"case_dossier.md\">Open Markdown</a>
+    <a href=\"case_dossier.json\">Open Metadata</a>
+    <a href=\"source_ledger.json\">Open Source JSON</a>
+  </aside>
+  <div class=\"case-main\">
   <section class=\"notice\">
-    <strong>Publication safety note:</strong> local file paths are omitted. Evidence labels link to source-ledger cards with official internet source links where recovered. Items without an internet source are marked explicitly.
+    <div><strong>Publication safety note:</strong> This page is a public-safe review aid, not a formal finding. Local file paths are omitted. Evidence labels jump to source-ledger cards; source rows either link to recovered internet sources or state why the record is not externally linkable in this run.</div>
   </section>
   <section id=\"dossier\" class=\"dossier\">{body}</section>
   <section id=\"source-ledger\">
@@ -335,8 +722,9 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
     <p>Every evidence label used in the dossier resolves here. Original URLs are linked when available; otherwise the row states why the source is not externally linkable in this run.</p>
 {cards}
   </section>
-  <footer>Generated {generated}. Human review remains required before outside-facing use.</footer>
+  </div>
 </main>
+<footer>Generated {generated}. Human review remains required before outside-facing use.</footer>
 </body>
 </html>
 """
@@ -422,9 +810,12 @@ def render_evidence_card(entry: dict[str, Any]) -> str:
     else:
         source_items = f"<li>{html.escape(entry.get('link_note', 'No external source URL recovered.'))}</li>"
     excerpt = html.escape(str(entry.get("excerpt", "")))
+    link_status = html.escape(str(entry.get("link_status", "not_externally_linkable")).replace("_", "-"))
+    link_status_text = html.escape(str(entry.get("link_status", "not_externally_linkable")).replace("_", " "))
     return f"""
-<article class=\"evidence-card\" id=\"{html.escape(entry['anchor'])}\">
+<article class=\"evidence-card evidence-card--{link_status}\" id=\"{html.escape(entry['anchor'])}\">
   <h3>{html.escape(entry['ref'])}: {html.escape(entry['title'])}</h3>
+  <p class=\"link-status mono\">Link status: {link_status_text}</p>
   <p class=\"meta\"><strong>Record:</strong> <code>{html.escape(entry['record_id'])}</code> | <strong>Source type:</strong> {html.escape(entry['source_type_label'])} | <strong>Published:</strong> {html.escape(entry['published_at'])}</p>
   <p><strong>Source reference:</strong> {html.escape(entry['source_reference'])}</p>
   <p><strong>Checksum:</strong> <code>{html.escape(entry['checksum'])}</code></p>

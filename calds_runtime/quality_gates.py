@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 import re
 import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -534,36 +535,72 @@ class LinkIntegrityService:
         )
 
     def _check_url(self, url: str, timeout: int) -> SourceLinkCheck:
-        headers = {"User-Agent": "CalDS link integrity checker/1.0"}
-        request = urllib.request.Request(url, headers=headers, method="GET")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CalDS-link-integrity-checker/1.0",
+            "Accept": "text/html,application/xhtml+xml,application/pdf,application/json,text/csv,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
         context = ssl.create_default_context()
-        try:
-            with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
-                status = int(getattr(response, "status", response.getcode()))
-                final_url = response.geturl()
-                content_type = response.headers.get("content-type", "")
-                response.read(2048)
-            check_status = "PASS" if 200 <= status < 400 else "ERROR"
-            error = "" if check_status == "PASS" else f"HTTP {status}"
-            return SourceLinkCheck(
-                check_id=stable_id("link_check", url, str(status), final_url),
-                url=url,
-                status=check_status,
-                http_status=status,
-                final_url=final_url,
-                content_type=content_type,
-                error=error,
-            )
-        except Exception as exc:
-            return SourceLinkCheck(
-                check_id=stable_id("link_check", url, "error", str(exc)),
-                url=url,
-                status="ERROR",
-                http_status=None,
-                final_url="",
-                content_type="",
-                error=str(exc),
-            )
+        last_error = ""
+        for attempt in range(3):
+            request = urllib.request.Request(url, headers=headers, method="GET")
+            try:
+                with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+                    status = int(getattr(response, "status", response.getcode()))
+                    final_url = response.geturl()
+                    content_type = response.headers.get("content-type", "")
+                    response.read(2048)
+                check_status = "PASS" if 200 <= status < 400 else "ERROR"
+                error = "" if check_status == "PASS" else f"HTTP {status}"
+                if check_status == "ERROR" and status in {403, 408, 429, 500, 502, 503, 504} and attempt < 2:
+                    time.sleep(0.75 * (attempt + 1))
+                    continue
+                return SourceLinkCheck(
+                    check_id=stable_id("link_check", url, str(status), final_url),
+                    url=url,
+                    status=check_status,
+                    http_status=status,
+                    final_url=final_url,
+                    content_type=content_type,
+                    error=error,
+                )
+            except urllib.error.HTTPError as exc:
+                last_error = f"HTTP Error {exc.code}: {exc.reason}"
+                if exc.code in {403, 408, 429, 500, 502, 503, 504} and attempt < 2:
+                    time.sleep(0.75 * (attempt + 1))
+                    continue
+                return SourceLinkCheck(
+                    check_id=stable_id("link_check", url, "error", last_error),
+                    url=url,
+                    status="ERROR",
+                    http_status=None,
+                    final_url="",
+                    content_type="",
+                    error=last_error,
+                )
+            except Exception as exc:
+                last_error = str(exc)
+                if attempt < 2:
+                    time.sleep(0.75 * (attempt + 1))
+                    continue
+                return SourceLinkCheck(
+                    check_id=stable_id("link_check", url, "error", last_error),
+                    url=url,
+                    status="ERROR",
+                    http_status=None,
+                    final_url="",
+                    content_type="",
+                    error=last_error,
+                )
+        return SourceLinkCheck(
+            check_id=stable_id("link_check", url, "error", last_error),
+            url=url,
+            status="ERROR",
+            http_status=None,
+            final_url="",
+            content_type="",
+            error=last_error,
+        )
 
     def _dedupe(self, values: list[str]) -> list[str]:
         seen: set[str] = set()

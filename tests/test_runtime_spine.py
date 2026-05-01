@@ -11,7 +11,7 @@ from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CanonicalRecord, CaseRequest, CompletionGuardResult, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
-from calds_runtime.publication import extract_urls, publish_case_site_from_run
+from calds_runtime.publication import extract_urls, publish_case_site_from_run, repair_public_source_urls
 from calds_runtime.quality_gates import CitationVerifierService, CompletionGuardService, RunReadinessService
 from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
@@ -163,8 +163,12 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("link_integrity", public_manifest)
             self.assertIn(public_manifest["link_integrity"]["status"], {"PASS", "PASS_WITH_WARNINGS"})
             self.assertIn("CalDS Public Case Viewer", public_html)
+            self.assertIn("California Evidence Room", public_html)
+            self.assertIn("class=\"case-hero\"", public_html)
+            self.assertIn("class=\"status-strip\"", public_html)
             self.assertIn("#source-ledger", public_html)
             self.assertIn("id=\"evidence-E01\"", public_html)
+            self.assertNotIn("font-family: Arial", public_html)
             self.assertNotIn(str(PROJECT_ROOT), public_html)
             self.assertNotIn(str(PROJECT_ROOT), public_md)
             for entry in public_ledger["evidence"]:
@@ -185,6 +189,36 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(result.status, "REPAIR_REQUIRED")
         self.assertEqual(result.error_count, 0)
         self.assertGreater(result.warning_count, 0)
+
+    def test_publication_repairs_stale_public_source_links_before_publish(self) -> None:
+        ledger = [
+            {
+                "ref": "E01",
+                "source_urls": ["https://www.tarzanatc.org/news-events/"],
+                "link_status": "external_source_linked",
+                "source_reference": "https://www.tarzanatc.org/news-events/",
+                "link_note": "",
+            },
+            {
+                "ref": "E02",
+                "source_urls": ["https://www.socialmodelrecovery.org/programs/"],
+                "link_status": "external_source_linked",
+                "source_reference": "https://www.socialmodelrecovery.org/programs/",
+                "link_note": "",
+            },
+        ]
+        updated, repair = repair_public_source_urls(ledger)
+
+        self.assertEqual(repair["repaired_public_links"], 2)
+        self.assertEqual(updated[0]["source_urls"], ["https://www.tarzanatc.org/treatment-news/"])
+        self.assertEqual(updated[0]["link_status"], "external_source_linked")
+        self.assertEqual(updated[1]["source_urls"], ["https://socialmodelrecovery.org/services/"])
+        self.assertEqual(updated[1]["source_reference"], "https://socialmodelrecovery.org/services/")
+        self.assertEqual(updated[1]["link_status"], "external_source_linked")
+        self.assertIn("replaced 1 stale or renamed public URL", updated[1]["link_note"])
+        self.assertIn("Links are not removed as a substitute for repair", repair["note"])
+        self.assertEqual(repair["replacements"][0]["old_unlinked_reference"], "www.tarzanatc.org/news-events/")
+        self.assertNotIn("old_url", repair["replacements"][0])
 
     def test_sentinel_escalated_language_catches_legal_and_causal_overclaims(self) -> None:
         self.assertTrue(find_escalated_language("The records prove misconduct occurred."))
