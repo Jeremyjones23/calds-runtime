@@ -46,12 +46,14 @@ class LeadScoringService:
         guard_blockers = int(completion_guard.blocker_count) if completion_guard else 0
         guard_misses = int(completion_guard.miss_count) if completion_guard else 0
         if guard_total > 0:
-            guard_unresolved = min(guard_total, guard_blockers + guard_misses)
+            # blocker_count is the authoritative unresolved-required-check count.
+            # miss_count is retained as a diagnostic and can overlap with blockers.
+            guard_unresolved = min(guard_total, guard_blockers)
             guard_resolved = max(0, guard_total - guard_unresolved)
             source_completeness_score = round((guard_resolved / guard_total) * 100.0, 2)
         else:
             guard_resolved = 0
-            source_completeness_score = round(min(100.0, source_diversity * 12.5), 2)
+            source_completeness_score = 0.0
 
         diversity_confidence = min(100.0, source_diversity * 12.5)
         if support_count:

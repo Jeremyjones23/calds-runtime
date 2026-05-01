@@ -37,6 +37,9 @@ from .truth import JsonCorpusTruthStore, tokenize
 from .workflow import FileWorkflowStore, WorkflowRunResult
 
 
+RUNTIME_LOGIC_VERSION = "2026-05-01-prompt-logic-audit-v1"
+
+
 class CaseWorkflow:
     """Workflow-first case runner with local adapters for missing production stack."""
 
@@ -55,13 +58,14 @@ class CaseWorkflow:
         self.runs_dir = runs_dir
 
     def run_case(self, request: CaseRequest) -> WorkflowRunResult:
-        store = FileWorkflowStore(self.runs_dir, request.case_id)
+        store = FileWorkflowStore(self.runs_dir, request.case_id, runtime_logic_version=RUNTIME_LOGIC_VERSION)
         prior_state = store.read_state()
         prior_packet = store.artifact_path("review_packet.md")
         prior_dossier = store.artifact_path("case_dossier.md")
         if (
             prior_state
             and prior_state.get("status") == WorkflowStatus.AWAITING_HUMAN_REVIEW.value
+            and prior_state.get("runtime_logic_version") == RUNTIME_LOGIC_VERSION
             and prior_packet.exists()
             and prior_dossier.exists()
         ):
@@ -286,7 +290,12 @@ class CaseWorkflow:
             metadata=self.provider.describe_role_call(AgentRole.ENTITY_NETWORK_ANALYST.value),
         )
 
-        lead = LeadScorerAgent(self.scoring_service).create_candidate(request, bundle, completion_guard)
+        lead = LeadScorerAgent(self.scoring_service).create_candidate(
+            request,
+            bundle,
+            completion_guard,
+            forensic_plan.selected_entities,
+        )
         lead_path = store.write_artifact("lead_candidate.json", lead)
         self._write_task(store, request, AgentRole.LEAD_SCORER, "Create reviewer-safe lead candidate.", [str(lead_path)])
         artifacts["lead_candidate"] = str(lead_path)
@@ -506,7 +515,7 @@ class CaseWorkflow:
         decision: HumanDecision,
         rationale: str,
     ) -> Path:
-        store = FileWorkflowStore(self.runs_dir, case_id)
+        store = FileWorkflowStore(self.runs_dir, case_id, runtime_logic_version=RUNTIME_LOGIC_VERSION)
         review_decision = ReviewDecision(
             decision_id=stable_id("review", case_id, reviewer, decision.value, utc_now()),
             case_id=case_id,

@@ -33,8 +33,8 @@ INPUT TYPE: ITERATE
     <constraint>Agent plane owns bounded synthesis only from supplied artifacts and cannot add facts from memory.</constraint>
     <constraint>Keep Context Steward as the anti-context-loss role. It must verify case scope, entity, source family, evidence IDs, record IDs, source URIs, caveats, unresolved gaps, and next task at every handoff.</constraint>
     <constraint>Keep Triage Screener separate from deep forensic synthesis. Triage screens all top-15 entities; deep forensic work runs only for thresholded entities.</constraint>
-    <constraint>Connected-party indictment, charge, conviction, settlement, violation, or official adverse action tied to a public-funded project must trigger deep review with 100 percent triage confirmation, while preserving exact named-party legal status.</constraint>
-    <constraint>Voter registration, citizenship, naturalization, immigration, ICE enforcement, advocacy, power-building, lobbying, or political language by a homelessness-funded entity is a scope-mismatch screen, not automatic wrongdoing.</constraint>
+    <constraint>Connected-party indictment, charge, conviction, settlement, violation, or official adverse action may trigger deep review only when source records establish a material nexus to a public-funded project, transaction, operator, counterparty, control environment, or payment chain. Preserve exact named-party legal status and treat the trigger as review priority, not entity culpability.</constraint>
+    <constraint>Voter registration, citizenship, naturalization, immigration, ICE enforcement, advocacy, power-building, lobbying, or political language is a homelessness scope-mismatch screen only when attributable to the entity and plausibly connected to homelessness-funded work, staffing, cost allocation, grant scope, or public-funds exposure; otherwise it is contextual public speech, not an adverse signal.</constraint>
     <constraint>Do not publish private hypotheses or unsanitized source caches. Public output must remain source-cited, caveated, and free of local paths or tokens.</constraint>
   </constraints>
   <reasoning>Use high reasoning depth. Prefer auditability, source coverage, context preservation, legal-status precision, falsifiability, and reproducible tests over narrative force or agent count.</reasoning>
@@ -46,8 +46,8 @@ INPUT TYPE: ITERATE
     <rule>Keep or revise a role only when it owns a distinct handoff, source family, synthesis task, or verification gate.</rule>
     <rule>Move facts, parsed values, source acquisition, joins, thresholds, and publication safety into deterministic code.</rule>
     <rule>Use ProPublica as an API/viewer access layer for 990 triage and IRS XML/PDF as controlling source for final interpretation.</rule>
-    <rule>Treat connected-party official legal records as mandatory deep-review triggers, not entity guilt.</rule>
-    <rule>Treat homelessness NGO voter/citizenship/immigration/advocacy language as a funding-scope and cost-allocation test, not automatic illegality.</rule>
+    <rule>Treat connected-party official legal records as deep-review triggers only after material nexus is preserved; never treat them as entity guilt.</rule>
+    <rule>Treat homelessness NGO voter/citizenship/immigration/advocacy language as a funding-scope and cost-allocation test only when attribution and plausible homelessness-funding nexus are preserved.</rule>
     <rule>Require completion guards against lazy acquisition before synthesis.</rule>
     <rule>Require hallucination checks that every substantive statement resolves to source IDs, evidence IDs, URIs, checksums, or artifacts.</rule>
     <rule>Require link integrity checks before public publication.</rule>

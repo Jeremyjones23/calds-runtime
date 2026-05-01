@@ -30,8 +30,8 @@ INPUT TYPE: ITERATE
     <constraint>Use only supplied source records, source URIs, checksums, evidence IDs, risk indicators, and verified link outputs.</constraint>
     <constraint>Screen all top-15 entities before deep-dive selection.</constraint>
     <constraint>ProPublica Nonprofit Explorer can supply public API/viewer summaries and filing links; raw IRS XML/PDF remains controlling for final interpretation.</constraint>
-    <constraint>Official indictment, charge, prosecution, settlement, violation, conviction, or adverse action tied to a connected person, project, transaction, counterparty, or operator must trigger deep review with exact named-party caveats.</constraint>
-    <constraint>Voter registration, get-out-the-vote, voter engagement, citizenship, naturalization, immigration legal services, ICE enforcement, deportation defense, power building, political action, lobbying, or advocacy language by a homelessness-funded entity is a homelessness scope-mismatch screen, not automatic illegality.</constraint>
+    <constraint>Official indictment, charge, prosecution, settlement, violation, conviction, or adverse action tied to a connected person, project, transaction, counterparty, or operator triggers deep review only when the source record preserves a material nexus to public funds, project operations, controls, payment flow, or named-party relationship; exact named-party caveats remain mandatory.</constraint>
+    <constraint>Voter registration, get-out-the-vote, voter engagement, citizenship, naturalization, immigration legal services, ICE enforcement, deportation defense, power building, political action, lobbying, or advocacy language is a homelessness scope-mismatch screen only when attributable to the entity and plausibly connected to homelessness-funded work, staffing, cost allocation, grant scope, or public-funds exposure; otherwise it remains contextual public speech.</constraint>
     <constraint>Public output may say possible waste, fraud, abuse, mismanagement, or off-scope use only as a screening lead, not as a conclusion.</constraint>
     <constraint>Do not hide source gaps. Completion guard misses are blockers or caveats, not silent omissions.</constraint>
     <constraint>Every substantive dossier statement must resolve to evidence IDs, record IDs, source URIs, checksums, or artifact references.</constraint>
@@ -47,7 +47,7 @@ INPUT TYPE: ITERATE
     <rule>Triage Screener selects deep dive only from implemented thresholds, not subjective impressions.</rule>
     <rule>Enforcement and Docket Analyst must distinguish charged party, counterparty, operator, witness, source pointer, official finding, and nonprofit named-party status.</rule>
     <rule>Tax and Audit Analyst must use public Form 990 access layers when available and preserve IRS/Federal Audit Clearinghouse control-source caveats.</rule>
-    <rule>Web and Social Statements Analyst must preserve attribution, timestamp, URL, matched term, scope caveat, and funding-source question for every statement or social signal.</rule>
+    <rule>Web and Social Statements Analyst must preserve attribution, timestamp, URL, matched term, scope caveat, and the specific funding-source or cost-allocation nexus question for every statement or social signal.</rule>
     <rule>Forensic Synthesis Analyst may state internal hypotheses, but every hypothesis must include basis, caveat, and human-only next steps.</rule>
     <rule>Completion Guard must mark missing required source families as blockers or explicit caveats before synthesis.</rule>
     <rule>Citation Verifier must block hallucinated or unresolvable claims.</rule>
@@ -61,7 +61,7 @@ INPUT TYPE: ITERATE
   <phase name="Literal Misread">Failure: role reads possible fraud, waste, and abuse screening as permission to accuse an entity. Exploited ambiguity: stronger dossier voice. Prompt change: possible-only screening posture and official named-party legal status are mandatory.</phase>
   <phase name="Scope Drift">Failure: workflow deep-dives a known interesting entity and skips broad top-15 ingestion. Exploited ambiguity: examples can dominate the run. Prompt change: first rule requires all 15 entities be screened before selection.</phase>
   <phase name="Boundary Violation">Failure: agent treats ProPublica API output as final IRS record or treats a website phrase as spending proof. Exploited ambiguity: source accessibility. Prompt change: deterministic records preserve access-layer caveats and require raw control-source verification for conclusions.</phase>
-  <phase name="Adversarial Reinterpretation">Failure: a third-party prosecution linked to a transaction becomes an allegation against the nonprofit. Exploited ambiguity: transaction counterparty language. Prompt change: Enforcement and Docket Analyst must distinguish charged party, counterparty, operator, witness, source pointer, official finding, and nonprofit named-party status.</phase>
+  <phase name="Adversarial Reinterpretation">Failure: a third-party prosecution linked to a transaction becomes an allegation against the nonprofit. Exploited ambiguity: transaction counterparty language. Prompt change: Enforcement and Docket Analyst must distinguish charged party, counterparty, operator, witness, source pointer, official finding, nonprofit named-party status, and material nexus to public funds or project controls.</phase>
   <phase name="Truncation and Format Failure">Failure: dossier drops source URIs, checksums, caveats, or link status when trying to brief a supervisor. Exploited ambiguity: concise output. Prompt change: Context Steward, Citation Verifier, and Link Integrity Checker make these fields mandatory.</phase>
 </stress_test>
 

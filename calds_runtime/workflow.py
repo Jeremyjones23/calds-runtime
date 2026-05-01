@@ -50,12 +50,13 @@ class WorkflowRunResult:
 class FileWorkflowStore:
     """Local durable workflow-plane adapter with JSON artifacts and trace events."""
 
-    def __init__(self, runs_dir: Path, case_id: str) -> None:
+    def __init__(self, runs_dir: Path, case_id: str, runtime_logic_version: str = "") -> None:
         self.run_dir = runs_dir / case_id
         self.artifact_dir = self.run_dir / "artifacts"
         self.trace_jsonl_path = self.run_dir / "trace.jsonl"
         self.trace_json_path = self.run_dir / "run_trace.json"
         self.state_path = self.run_dir / "workflow_state.json"
+        self.runtime_logic_version = runtime_logic_version
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self._events: list[TraceEvent] = []
@@ -78,6 +79,7 @@ class FileWorkflowStore:
             {
                 "case_id": request.case_id,
                 "status": status,
+                "runtime_logic_version": self.runtime_logic_version,
                 "completed_steps": completed_steps,
                 "artifacts": artifacts,
                 "updated_at": utc_now(),

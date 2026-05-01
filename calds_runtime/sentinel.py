@@ -8,8 +8,10 @@ from .contracts import CaseRequest, LeadCandidate, SentinelDecision, SentinelRes
 PROHIBITED_TERMS = ["corruption", "illegality", "intent"]
 ESCALATED_LANGUAGE_PATTERNS = [
     r"\b(fraudulent|defrauded|defraud)\b",
-    r"\b(committed|commits|engaged in|engages in|proved|proves|found|finding of|evidence of)\s+(fraud|corruption|illegality|illegal)\b",
-    r"\b(fraud|corruption|illegality)\s+(occurred|scheme|finding|proven|proved)\b",
+    r"\b(committed|commits|engaged in|engages in|proved|proves|found|finding of|evidence of)\s+(fraud|corruption|illegality|illegal|misconduct|abuse)\b",
+    r"\b(fraud|corruption|illegality|misconduct|abuse)\s+(occurred|scheme|finding|proven|proved)\b",
+    r"\b(found|proved|proves|is|are|was|were)\s+(guilty|liable|culpable)\b",
+    r"\b(responsible for|caused|causing)\s+(provider failure|homelessness|overdose|crime|misuse|misconduct|abuse|fraud)\b",
 ]
 PUBLICATION_PRESSURE_TERMS = [
     "public claim",
@@ -89,9 +91,17 @@ class SentinelPolicy:
             flags.append("low_entity_linkage")
             repair_instructions.append("Keep the lead downgraded until entity linkage is corroborated.")
 
+        if lead.score_inputs.completion_guard_blocker_count:
+            flags.append("source_acquisition_blockers")
+            repair_instructions.append("Resolve completion-guard blockers or preserve them as blocking caveats before any outside-facing use.")
+
+        if lead.score_inputs.publication_confidence_score < 50.0:
+            flags.append("low_publication_confidence")
+            repair_instructions.append("Keep the lead internal-only until source coverage, traceability, open gap burden, and contradiction burden support outside-facing use.")
+
         if lead.score_inputs.missing_data_count:
-            flags.append("missing_data")
-            repair_instructions.append("Preserve missing-data caveats in the review packet.")
+            flags.append("open_gap_burden")
+            repair_instructions.append("Preserve open gap-burden caveats in the review packet.")
 
         if lead.score_inputs.contradiction_count:
             flags.append("unresolved_contradiction")

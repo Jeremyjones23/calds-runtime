@@ -6,6 +6,7 @@ import shutil
 import unittest
 from uuid import uuid4
 
+from calds_runtime.agents import LeadScorerAgent
 from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CanonicalRecord, CaseRequest, CompletionGuardResult, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json, write_json
@@ -184,6 +185,12 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(result.status, "REPAIR_REQUIRED")
         self.assertEqual(result.error_count, 0)
         self.assertGreater(result.warning_count, 0)
+
+    def test_sentinel_escalated_language_catches_legal_and_causal_overclaims(self) -> None:
+        self.assertTrue(find_escalated_language("The records prove misconduct occurred."))
+        self.assertTrue(find_escalated_language("The provider was found liable for fraud."))
+        self.assertTrue(find_escalated_language("The entity caused provider failure."))
+        self.assertFalse(find_escalated_language("CalDS flags possible waste, fraud, abuse, or mismanagement for human review."))
 
     def test_briefing_claim_context_requires_direct_entity_source(self) -> None:
         service_item = EvidenceItem(
@@ -364,6 +371,31 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(guard.blocker_count, 0)
         self.assertIn("not legal clearance", " ".join(guard.notes))
 
+    def test_triage_missing_source_families_ignore_discovery_gap_records(self) -> None:
+        record = CanonicalRecord(
+            record_id="enforcement_docket_discovery_shelter_group",
+            title="Enforcement/docket discovery gap: Shelter Group",
+            body="Searches attempted but no citation-ready official enforcement row was recovered.",
+            source_uri="https://www.justice.gov/",
+            source_type="enforcement_docket_discovery",
+            published_at="2026-05-01",
+            entities=["Shelter Group"],
+            attributes={"signals": {"discovery_only_source_gap": True, "not_citation_ready": True}},
+            provenance=Provenance(
+                record_id="enforcement_docket_discovery_shelter_group",
+                source_uri="https://www.justice.gov/",
+                source_type="enforcement_docket_discovery",
+                collected_at="2026-05-01T00:00:00+00:00",
+                checksum="discovery-gap",
+                corpus_name="test",
+                chunk_id="discovery#body",
+            ),
+        )
+        case = CaseRequest(case_id="triage_gap_test", title="Triage gap", objective="Do not count discovery gap as coverage.", entities=["Shelter Group"])
+        result = HomelessnessTriageService().build(case, [record])[0]
+        self.assertIn("enforcement_or_docket", result.missing_source_families)
+        self.assertEqual(result.triage_priority, "Source-gap")
+
     def test_scoring_separates_acquisition_coverage_from_gap_burden(self) -> None:
         provenance = Provenance(
             record_id="gap_record",
@@ -436,6 +468,77 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(score.missing_data_source_types["contract_payment_discovery"], 1)
         self.assertEqual(score.missing_data_source_types["irs_990_summary"], 1)
 
+    def test_scoring_does_not_double_count_completion_guard_misses(self) -> None:
+        guard = CompletionGuardResult(
+            guard_id="guard",
+            case_id="score_miss_test",
+            status="PASS_WITH_BLOCKERS",
+            required_source_families=["contracts", "tax"],
+            selected_entities=["Shelter Group"],
+            total_searches=2,
+            hit_count=1,
+            miss_count=1,
+            blocker_count=1,
+            missing_required=["Shelter Group: tax"],
+        )
+        bundle = EvidenceBundle(bundle_id="bundle", case_id="score_miss_test", query_terms=[], items=[], entity_links=[])
+        score = LeadScoringService().score(bundle, guard)
+        self.assertEqual(score.completion_guard_resolved, 1)
+        self.assertEqual(score.completion_guard_miss_count, 1)
+        self.assertEqual(score.completion_guard_blocker_count, 1)
+        self.assertEqual(score.source_completeness_score, 50.0)
+
+    def test_scoring_does_not_substitute_source_diversity_for_completion_coverage(self) -> None:
+        provenance = Provenance(
+            record_id="record",
+            source_uri="https://example.test/source",
+            source_type="irs_990_summary",
+            collected_at="2026-05-01T00:00:00+00:00",
+            checksum="checksum",
+            corpus_name="test",
+            chunk_id="record#body",
+        )
+        bundle = EvidenceBundle(
+            bundle_id="bundle",
+            case_id="score_no_guard_test",
+            query_terms=[],
+            items=[
+                EvidenceItem(
+                    item_id="E1",
+                    record_id="record",
+                    title="IRS summary",
+                    source_uri="https://example.test/source",
+                    source_type="irs_990_summary",
+                    published_at="2026-05-01",
+                    excerpt="IRS summary row.",
+                    relevance_score=1.0,
+                    matched_terms=["irs"],
+                    provenance=provenance,
+                )
+            ],
+            entity_links=[],
+        )
+        score = LeadScoringService().score(bundle)
+        self.assertEqual(score.completion_guard_total, 0)
+        self.assertEqual(score.source_completeness_score, 0.0)
+        self.assertGreater(score.source_diversity_confidence_score, 0.0)
+
+    def test_lead_scorer_uses_selected_deep_dive_entities(self) -> None:
+        case = CaseRequest(
+            case_id="selected_entities_test",
+            title="Selected entities",
+            objective="Use selected entities.",
+            entities=["Unselected One", "Unselected Two"],
+        )
+        bundle = EvidenceBundle(bundle_id="bundle", case_id="selected_entities_test", query_terms=[], items=[], entity_links=[])
+        lead = LeadScorerAgent(LeadScoringService()).create_candidate(
+            case,
+            bundle,
+            selected_entities=["Flagged Entity"],
+        )
+        self.assertIn("Flagged Entity", lead.statement)
+        self.assertNotIn("Unselected One", lead.statement)
+
     def test_workflow_adds_selected_entity_deep_source_context_hits(self) -> None:
         temp_dir = PROJECT_ROOT / "runs" / "tests" / f"deep-source-context-{uuid4().hex}"
         corpus = temp_dir / "corpus"
@@ -495,7 +598,7 @@ class RuntimeSpineTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_homelessness_scope_mismatch_flags_voter_registration(self) -> None:
+    def test_homelessness_scope_mismatch_keeps_keyword_only_signal_medium(self) -> None:
         record = CanonicalRecord(
             record_id="public_statements_shelter_group",
             title="Public statement page harvest: Shelter Group",
@@ -524,8 +627,45 @@ class RuntimeSpineTests(unittest.TestCase):
         matrix = OversightRiskMatrixService().build(case, [record], EvidenceBundle(bundle_id="bundle", case_id="scope_test", query_terms=[], items=[], entity_links=[]))
         scope_rows = [item for item in matrix.indicators if item.risk_area == "Homelessness scope mismatch" and item.entity == "Shelter Group"]
         self.assertTrue(scope_rows)
-        self.assertTrue(any(item.risk_level == "High" for item in scope_rows))
+        self.assertTrue(any(item.risk_level == "Medium" and item.data_status == "observed_keyword_only" for item in scope_rows))
         self.assertIn("501(c)(3)", " ".join(caveat for item in scope_rows for caveat in item.caveats))
+
+    def test_homelessness_scope_mismatch_requires_funding_nexus_for_high(self) -> None:
+        record = CanonicalRecord(
+            record_id="public_statements_shelter_group_nexus",
+            title="Public statement page harvest: Shelter Group",
+            body="The shelter group page advertises a voter registration drive charged to a homelessness grant outreach budget.",
+            source_uri="https://example.org/shelter-nexus",
+            source_type="public_statement_source",
+            published_at="2026-05-01",
+            entities=["Shelter Group"],
+            attributes={
+                "signals": {
+                    "public_statement_source_checked": True,
+                    "off_scope_keyword_match": True,
+                    "funding_scope_linked": True,
+                },
+                "matched_terms": ["voter registration"],
+            },
+            provenance=Provenance(
+                record_id="public_statements_shelter_group_nexus",
+                source_uri="https://example.org/shelter-nexus",
+                source_type="public_statement_source",
+                collected_at="2026-05-01T00:00:00+00:00",
+                checksum="scope-nexus",
+                corpus_name="test",
+                chunk_id="scope-nexus#body",
+            ),
+        )
+        case = CaseRequest(
+            case_id="scope_nexus_test",
+            title="Scope nexus regression",
+            objective="Flag homelessness scope mismatch.",
+            entities=["Shelter Group"],
+        )
+        matrix = OversightRiskMatrixService().build(case, [record], EvidenceBundle(bundle_id="bundle", case_id="scope_nexus_test", query_terms=[], items=[], entity_links=[]))
+        scope_rows = [item for item in matrix.indicators if item.risk_area == "Homelessness scope mismatch" and item.entity == "Shelter Group"]
+        self.assertTrue(any(item.risk_level == "High" and item.data_status == "observed_with_funding_nexus" for item in scope_rows))
 
     def test_homelessness_ingestor_configures_propublica_and_scope_terms(self) -> None:
         script_path = PROJECT_ROOT / "scripts" / "ingest_homelessness_top15_sources.py"

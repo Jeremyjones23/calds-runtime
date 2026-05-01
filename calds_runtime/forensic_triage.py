@@ -321,8 +321,14 @@ class HomelessnessTriageService:
                     "electioneering",
                 }
                 level = "Medium"
-                if any(term in high_terms for term in matched_terms):
+                funding_nexus = self._has_scope_funding_nexus(record)
+                if any(term in high_terms for term in matched_terms) and funding_nexus:
                     level = "High"
+                trigger_reason = (
+                    "Public language is tied to a specific funding-source, contract-scope, or cost-allocation nexus in the record."
+                    if funding_nexus
+                    else "Keyword-only scope language requires funding-source, contract-scope, or cost-allocation evidence before high-priority escalation."
+                )
                 findings.append(
                     self._finding(
                         request,
@@ -331,8 +337,8 @@ class HomelessnessTriageService:
                         "homelessness scope-mismatch public language",
                         self._short_body(record),
                         level,
-                        "observed",
-                        "Public language that may be legal for a nonprofit can still require homelessness-grant scope, funding-source, and cost-allocation review.",
+                        "observed_with_funding_nexus" if funding_nexus else "observed_keyword_only",
+                        trigger_reason,
                         [record],
                         [
                             "Website language alone does not prove money was spent outside scope.",
@@ -360,9 +366,35 @@ class HomelessnessTriageService:
         return "Low", False, "No configured triage trigger fired from the current corpus."
 
     def _missing_source_families(self, records: list[CanonicalRecord]) -> list[str]:
-        present = {self._source_family(record) for record in records}
+        present = {self._source_family(record) for record in records if not self._is_source_gap_only(record)}
         present.discard("")
         return [family for family in SOURCE_FAMILIES if family not in present]
+
+    def _is_source_gap_only(self, record: CanonicalRecord) -> bool:
+        signals = dict(record.attributes.get("signals", {}))
+        source_type = str(record.source_type).lower()
+        return bool(
+            signals.get("discovery_only_source_gap")
+            or signals.get("not_citation_ready")
+            or signals.get("source_gap_only")
+            or source_type.endswith("_discovery")
+            or "discovery_gap" in source_type
+        )
+
+    def _has_scope_funding_nexus(self, record: CanonicalRecord) -> bool:
+        signals = dict(record.attributes.get("signals", {}))
+        return any(
+            bool(signals.get(key) or record.attributes.get(key))
+            for key in (
+                "funding_scope_linked",
+                "cost_allocation_evidence",
+                "grant_scope_linked",
+                "contract_scope_linked",
+                "homelessness_funding_nexus",
+                "funding_source_nexus",
+                "public_funds_nexus",
+            )
+        )
 
     def _source_family(self, record: CanonicalRecord) -> str:
         source_type = record.source_type

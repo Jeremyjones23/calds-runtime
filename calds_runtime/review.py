@@ -483,7 +483,7 @@ class ReviewArtifactService:
         if signals.get("missing_data"):
             refs = self._refs_for(bundle, labels, "missing_data")
             bullets.append(
-                f"- Missing-data caveat: at least one item marks missing or incomplete data. Review use: resolve these gaps before any outside-facing use. Cited refs: {refs}."
+                f"- Open gap-burden caveat: at least one item marks an unresolved review question. Review use: resolve these gaps before any outside-facing use. Cited refs: {refs}."
             )
         return bullets
 
@@ -558,7 +558,7 @@ class ReviewArtifactService:
         if item.source_type == "county_contract_or_monitoring":
             return f"{label}: county source context requiring current-status check"
         if signals.get("missing_data"):
-            return f"{label}: includes missing-data caveat"
+            return f"{label}: includes open gap-burden caveat"
         return f"{label}: source support for reviewer triage"
 
     def _review_flag(self, item: EvidenceItem) -> str:

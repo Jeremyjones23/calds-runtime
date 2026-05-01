@@ -144,12 +144,14 @@ class LeadScorerAgent:
         request: CaseRequest,
         bundle: EvidenceBundle,
         completion_guard: CompletionGuardResult | None = None,
+        selected_entities: list[str] | None = None,
     ) -> LeadCandidate:
         score_inputs = self.scoring_service.score(bundle, completion_guard)
         evidence_ids = [item.item_id for item in bundle.items]
-        entity_phrase = ", ".join(request.entities[:2]) if request.entities else "the requested subject"
+        focus_entities = list(selected_entities or request.entities)
+        entity_phrase = ", ".join(focus_entities[:3]) if focus_entities else "the requested subject"
         theme = self._theme(bundle)
-        low_linkage = len(request.entities) > 1 and score_inputs.hard_link_count == 0
+        low_linkage = len(focus_entities) > 1 and score_inputs.hard_link_count == 0
 
         if not bundle.items:
             statement = f"No reviewable lead candidate is supported for {entity_phrase} from the allowed corpus."

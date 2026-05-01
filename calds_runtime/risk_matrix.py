@@ -735,17 +735,22 @@ class OversightRiskMatrixService:
         medium_terms = self.HOMELESSNESS_SCOPE_MEDIUM_TERMS
         found_high = [term for term in high_terms if term in text]
         found_medium = [term for term in medium_terms if term in text]
-        if found_high:
+        funding_nexus = any(self._has_scope_funding_nexus(record) for record in records)
+        if found_high and funding_nexus:
             level = "High"
             found = found_high
-        elif found_medium:
+            data_status = "observed_with_funding_nexus"
+        elif found_high or found_medium:
             level = "Medium"
-            found = found_medium
+            found = found_high or found_medium
+            data_status = "observed_keyword_only"
         else:
             level = "Low"
             found = []
+            data_status = "observed"
         observed = (
-            f"Retrieved official/service pages screened for homelessness funding-scope exact phrases. Matched phrases: {', '.join(found) if found else 'none from configured list'}."
+            f"Retrieved official/service pages screened for homelessness funding-scope exact phrases. Matched phrases: {', '.join(found) if found else 'none from configured list'}. "
+            f"Funding or cost-allocation nexus present: {'yes' if funding_nexus else 'no'}."
         )
         return [
             self._indicator(
@@ -755,8 +760,8 @@ class OversightRiskMatrixService:
                 "Retrieved website/service-page keyword screen",
                 observed,
                 level,
-                "observed",
-                "If matches exist, compare page context to homelessness grant scope, contract restrictions, cost allocation, and funding source before drawing conclusions.",
+                data_status,
+                "If matches exist, compare page context to homelessness grant scope, contract restrictions, cost allocation, and funding source before drawing conclusions; keyword-only matches remain medium review signals until that nexus is documented.",
                 record_ids,
                 [
                     "A 501(c)(3) may conduct some voter, civic, citizenship, immigration, advocacy, or education work depending on facts and law; the CalDS test is whether a homelessness-funded entity's activity is in-scope and correctly funded.",
@@ -812,25 +817,29 @@ class OversightRiskMatrixService:
         medium_terms = self.HOMELESSNESS_SCOPE_MEDIUM_TERMS
         found_high = [term for term in high_terms if term in body]
         found_medium = [term for term in medium_terms if term in body]
-        if found_high:
+        funding_nexus = any(self._has_scope_funding_nexus(record) for record in records)
+        if found_high and funding_nexus:
             level = "High"
             found = found_high
-        elif found_medium:
+            data_status = "observed_with_funding_nexus"
+        elif found_high or found_medium:
             level = "Medium"
-            found = found_medium
+            found = found_high or found_medium
+            data_status = "observed_keyword_only"
         else:
             level = "Low"
             found = []
+            data_status = "observed"
         return [
             self._indicator(
                 request,
                 "Homelessness scope mismatch",
                 entity,
                 "Official/public page term screen",
-                f"Configured public statement pages were harvested. Matched review terms: {', '.join(found) if found else 'none from configured high/medium list'}.",
+                f"Configured public statement pages were harvested. Matched review terms: {', '.join(found) if found else 'none from configured high/medium list'}. Funding or cost-allocation nexus present: {'yes' if funding_nexus else 'no'}.",
                 level,
-                "observed",
-                "If terms are present, inspect the archived page context, speaker attribution, homelessness funding restrictions, contract scope, and cost allocation; statements alone do not establish spending outside scope.",
+                data_status,
+                "If terms are present, inspect the archived page context, speaker attribution, homelessness funding restrictions, contract scope, and cost allocation; statements alone do not establish spending outside scope or support high-priority escalation.",
                 record_ids,
                 [
                     "A 501(c)(3) may conduct some voter, civic, citizenship, immigration, advocacy, or education work depending on facts and law; the CalDS test is whether a homelessness-funded entity's activity is in-scope and correctly funded.",
@@ -838,6 +847,21 @@ class OversightRiskMatrixService:
                 ],
             )
         ]
+
+    def _has_scope_funding_nexus(self, record: CanonicalRecord) -> bool:
+        signals = dict(record.attributes.get("signals", {}))
+        return any(
+            bool(signals.get(key) or record.attributes.get(key))
+            for key in (
+                "funding_scope_linked",
+                "cost_allocation_evidence",
+                "grant_scope_linked",
+                "contract_scope_linked",
+                "homelessness_funding_nexus",
+                "funding_source_nexus",
+                "public_funds_nexus",
+            )
+        )
 
     def _outcome_source_gap_indicators(self, request: CaseRequest, manifest: dict[str, Any]) -> list[OversightRiskIndicator]:
         if not isinstance(manifest, dict) or not manifest:

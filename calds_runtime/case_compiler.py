@@ -132,7 +132,7 @@ class CaseDossierService:
             "",
             self._score_interpretation(lead.score),
             "",
-            "The score is deterministic triage priority, not a probability, not a dollar loss estimate, and not a conclusion. CalDS now splits the score into risk severity, source completeness, and publication confidence so a strong review signal is not confused with publication readiness.",
+            "The score is deterministic triage priority, not a probability, not a dollar loss estimate, and not a conclusion. CalDS now splits the score into risk severity, source completeness, open gap burden, contradiction burden, and publication confidence so a strong review signal is not confused with publication readiness.",
             "",
             "| Field | Value |",
             "| --- | --- |",
@@ -414,7 +414,7 @@ class CaseDossierService:
                 "",
                 (
                     f"Sentinel posture remains `{sentinel.decision.value}`. The score is a deterministic triage score, not a probability, "
-                    "not a dollar-loss estimate, and not a conclusion that misconduct occurred."
+                    "not a dollar-loss estimate, and not a misconduct conclusion."
                 ),
             ]
         )
@@ -444,7 +444,7 @@ class CaseDossierService:
         return [
             "- What these scores apply to: the whole compiled case/run and its evidence bundle, not one nonprofit organization by itself.",
             f"- Review priority {inputs.final_score} / 100: how urgently this case should stay in the review queue after combining risk severity, source-acquisition coverage, and publication confidence.",
-            f"- Risk severity {inputs.risk_severity_score} / 100: how strong the implemented source-backed risk indicators are. This is the flag-strength score; it does not say misconduct occurred.",
+            f"- Risk severity {inputs.risk_severity_score} / 100: how strong the implemented source-backed risk indicators are. This is the flag-strength score; it is not a misconduct conclusion.",
             f"- Source completeness {inputs.source_completeness_score} / 100: whether the required source-family acquisition checks were resolved. This run resolved {resolved_text} required check(s), with {inputs.completion_guard_blocker_count} unresolved blocker(s) and {inputs.completion_guard_miss_count} miss(es). A completed search with no public official adverse record counts as coverage, not as clearance.",
             f"- Open gap burden: {inputs.gap_burden_count} caveat signal(s). These are unresolved review questions inside the evidence bundle, not proof that source acquisition failed. Current gap buckets: {gap_buckets}.",
             f"- Contradiction burden: {inputs.contradiction_count} caution signal(s). Contradictions are never positive evidence and are not rewarded; they lower publication confidence and stay in front of the reviewer. Current contradiction buckets: {contradiction_buckets}.",
@@ -907,7 +907,7 @@ class CaseDossierService:
             "",
             f"What this does not prove: {limits}",
             "",
-            f"Recommended human next step: {next_step}",
+            f"Recommended human next step: {next_step} Source: risk matrix rows for this entity.",
             "",
         ]
 

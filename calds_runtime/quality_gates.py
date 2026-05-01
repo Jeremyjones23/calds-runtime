@@ -53,6 +53,17 @@ SOURCE_FAMILY_TARGETS = {
 LEGAL_STATUS_TERMS = re.compile(r"\b(charged|convicted|settled|settlement|violation|prosecuted|indicted)\b", re.IGNORECASE)
 MONEY_OR_DATE_RE = re.compile(r"(\$[0-9][0-9,]*(?:\.[0-9]+)?|\b20[0-9]{2}\b|\b19[0-9]{2}\b)")
 EVIDENCE_REF_RE = re.compile(r"`(E\d{2})`")
+OPINION_CLAIM_PREFIXES = (
+    "Briefing judgment:",
+    "Reviewer readout:",
+    "Why this matters:",
+    "System opinion:",
+    "What this flags:",
+    "What CalDS found:",
+    "How this triggered review:",
+    "Why CalDS flagged it:",
+    "Recommended human next step:",
+)
 SAFETY_CAVEAT_RE = re.compile(
     r"\b(does not prove|does not mean|not a formal finding|not a formal conclusion|not a finding|"
     r"not charged or liable|not legal clearance|not provider attribution|not externally linkable|"
@@ -402,8 +413,11 @@ class CitationVerifierService:
                 continue
             if text.startswith("- Test:") or text.startswith("Test:") or text.startswith("- Objective:"):
                 continue
+            if text in OPINION_CLAIM_PREFIXES:
+                continue
             claim_like = (
-                "CalDS flags" in text
+                text.startswith(OPINION_CLAIM_PREFIXES)
+                or "CalDS flags" in text
                 or "Bottom line:" in text
                 or "Evidence:" in text
                 or LEGAL_STATUS_TERMS.search(text)
@@ -416,7 +430,12 @@ class CitationVerifierService:
                 continue
             refs = EVIDENCE_REF_RE.findall(text)
             has_source_pointer = "Source:" in text or "Source URI" in text or "Evidence:" in text or "evidence " in text.lower()
-            if (MONEY_OR_DATE_RE.search(text) or LEGAL_STATUS_TERMS.search(text) or "CalDS flags" in text) and not refs and not has_source_pointer:
+            if (
+                MONEY_OR_DATE_RE.search(text)
+                or LEGAL_STATUS_TERMS.search(text)
+                or "CalDS flags" in text
+                or text.startswith(OPINION_CLAIM_PREFIXES)
+            ) and not refs and not has_source_pointer:
                 checks.append(
                     self._check(
                         request,
