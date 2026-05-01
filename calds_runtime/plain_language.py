@@ -82,6 +82,12 @@ def expand_reviewer_acronyms(text: object) -> str:
     value = PROTECTED_TEXT_RE.sub(protect, value)
     for pattern, replacement in ACRONYM_REPLACEMENTS:
         value = re.sub(pattern, replacement, value)
+    value = value.replace("salaries/compensation/benefits", "salaries, compensation, and benefits")
+    value = value.replace(
+        "A searched_no_public_official_record status means",
+        "A completed public official no-record search means",
+    )
+    value = value.replace("searched_no_public_official_record", "completed public official no-record search")
     for index, original in enumerate(protected):
         value = value.replace(f"@@CALDS_PROTECTED_{index}@@", original)
     return value

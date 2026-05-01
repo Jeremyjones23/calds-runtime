@@ -3,7 +3,7 @@ INPUT TYPE: ITERATE
 <decomposition>
   <task_summary>Upgrade the CalDS homelessness workflow into a two-tier triage and forensic investigation system that screens the top 15 California homelessness funding recipients, deep-dives thresholded entities, and produces clear source-cited review leads.</task_summary>
   <inputs>CaseRequest, canonical records, ProPublica/IRS Form 990 records, HCD award rows, Federal Audit Clearinghouse records, enforcement/docket rows, county contracts/monitoring records, web/social/public statement records, official outcome series, evidence bundle, risk matrix, context handoff ledger, completion guard, citation verifier, link integrity checker, sentinel result, review decision, private dossier, and public publication adapter.</inputs>
-  <outputs>EntityTriageResult, TriageFinding, ForensicInvestigationPlan, ForensicFinding, ContextHandoffLedger, OversightRiskMatrix, reviewer-safe private dossier, sanitized public brief, completion/citation/link verification reports, and explicit human-review pause.</outputs>
+  <outputs>EntityTriageResult, TriageFinding, ForensicInvestigationPlan, ForensicFinding, ContextHandoffLedger, OversightRiskMatrix, reviewer-safe private dossier, sanitized public brief, completion/citation/link verification reports, and explicit human-review pause. Dossier and public-brief prose must read as a decision-maker briefing, not parser output.</outputs>
   <constraints>Do not treat the model as system of record. Do not invent source facts. Do not convert connected-party charges into entity-level findings. Do not label voter registration, citizenship, immigration, advocacy, or political language as automatic wrongdoing. Do not skip top-15 triage, sentinel review, citation verification, link checks, or human-review pause. Public output must remain sanitized and source-cited.</constraints>
   <ambiguities>The user wants stronger possible waste, fraud, and abuse posture, but not unsupported allegations. Deep search could be misread as unbounded autonomous browsing. Public statements can be useful but are not spending proof. A 501(c)(3) can perform some civic or citizenship work, but homelessness grant scope may still be an oversight issue.</ambiguities>
   <assumptions>
@@ -17,7 +17,7 @@ INPUT TYPE: ITERATE
     <failure_mode>Form 990 revenue, expense, grant, compensation, payroll, and lobbying fields are unavailable because the workflow does not call public APIs or downloads.</failure_mode>
     <failure_mode>Scope-mismatch language is either ignored or overstated as illegal conduct.</failure_mode>
     <failure_mode>Context is lost between source acquisition, triage, forensic synthesis, sentinel, dossier, and public publishing.</failure_mode>
-    <failure_mode>The public case page contains stale links, private paths, or unsupported claims.</failure_mode>
+    <failure_mode>The public case page contains stale links, private paths, unsupported claims, or technically traceable facts that still read like raw table rows.</failure_mode>
   </failure_modes>
   <reasoning_tier>high</reasoning_tier>
 </decomposition>
@@ -34,6 +34,7 @@ INPUT TYPE: ITERATE
     <constraint>Voter registration, get-out-the-vote, voter engagement, citizenship, naturalization, immigration legal services, ICE enforcement, deportation defense, power building, political action, lobbying, or advocacy language is a homelessness scope-mismatch screen only when attributable to the entity and plausibly connected to homelessness-funded work, staffing, cost allocation, grant scope, or public-funds exposure; otherwise it remains contextual public speech.</constraint>
     <constraint>Public output may say possible waste, fraud, abuse, mismanagement, or off-scope use only as a screening lead, not as a conclusion.</constraint>
   <constraint>Do not hide source gaps. Completion guard misses, public no-record searches, and source-access-required rows are blockers or caveats, not silent omissions or clearance.</constraint>
+    <constraint>Dossier and public brief prose must translate audit-traceable facts into plain English: what the source says, when or where it applies, why it triggered review, what it does not prove, and what human verification remains.</constraint>
     <constraint>Every substantive dossier statement must resolve to evidence IDs, record IDs, source URIs, checksums, or artifact references.</constraint>
   </constraints>
   <reasoning>Use high reasoning depth. Prefer source-family coverage, causality caveats, context preservation, named-party precision, and falsifiability over narrative force.</reasoning>
@@ -62,7 +63,7 @@ INPUT TYPE: ITERATE
   <phase name="Scope Drift">Failure: workflow deep-dives a known interesting entity and skips broad top-15 ingestion. Exploited ambiguity: examples can dominate the run. Prompt change: first rule requires all 15 entities be screened before selection.</phase>
   <phase name="Boundary Violation">Failure: agent treats ProPublica API output as final IRS record or treats a website phrase as spending proof. Exploited ambiguity: source accessibility. Prompt change: deterministic records preserve access-layer caveats and require raw control-source verification for conclusions.</phase>
   <phase name="Adversarial Reinterpretation">Failure: a third-party prosecution linked to a transaction becomes an allegation against the nonprofit. Exploited ambiguity: transaction counterparty language. Prompt change: Enforcement and Docket Analyst must distinguish charged party, counterparty, operator, witness, source pointer, official finding, nonprofit named-party status, and material nexus to public funds or project controls.</phase>
-  <phase name="Truncation and Format Failure">Failure: dossier drops source URIs, checksums, caveats, or link status when trying to brief a supervisor. Exploited ambiguity: concise output. Prompt change: Context Steward, Citation Verifier, and Link Integrity Checker make these fields mandatory.</phase>
+  <phase name="Truncation and Format Failure">Failure: dossier drops source URIs, checksums, caveats, or link status when trying to brief a supervisor, or preserves those facts in unreadable parser prose. Exploited ambiguity: concise output. Prompt change: Context Steward, Citation Verifier, Link Integrity Checker, and Case Compiler plain-language checks make traceability and readability mandatory.</phase>
 </stress_test>
 
 <selection>Two variants were considered: adding more autonomous specialist agents or tightening the existing bounded role set with stronger deterministic services. The tightened role set wins because current failures are source-coverage, handoff, and dossier-clarity problems, not a shortage of agent labels. Falsification condition: if source coverage and handoffs pass but synthesis still loses source context, split Forensic Synthesis into separate financial, legal, and web/social synthesis roles.</selection>

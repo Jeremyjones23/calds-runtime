@@ -33,6 +33,23 @@ PROTECTED_CODE_RE = re.compile(r"`([^`]+)`")
 NON_BROWSABLE_PUBLIC_URLS = (
     "https://data.ca.gov/api/3/action/datastore_search",
 )
+PUBLIC_READER_TECHNICAL_PHRASES = (
+    "source table",
+    "source dataset",
+    "Source status:",
+    "source status is recorded",
+    "row count",
+    "When/where",
+    "Why this row",
+    "implemented screen",
+    "screen fired",
+    "Latest parsed Internal Revenue Service row with both fields",
+    "material weakness years=",
+    "internal-control deficiency years=",
+    "findings rows=",
+    "Parsed salaries/compensation/benefits",
+    "Parsed entity growth context:",
+)
 PUBLIC_URL_REPAIRS = {
     "https://data.chhs.ca.gov/api/3/action": "https://data.chhs.ca.gov/",
     "https://data.ca.gov/api/3/action": "https://lab.data.ca.gov/",
@@ -484,9 +501,9 @@ def public_source_reference(item: EvidenceItem) -> str:
 
 def friendly_source_name(value: object) -> str:
     text = str(value or "source artifact")
-    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "parsed source dataset", text)
+    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "parsed source collection", text)
     if text == "source table":
-        text = "parsed source dataset"
+        text = "parsed source collection"
     text = text.replace("_", " ").strip()
     return text or "source artifact"
 
@@ -516,7 +533,7 @@ def sanitize_public_text(value: object) -> str:
     text = ARCHIVED_COPY_RE.sub("", text)
     text = WINDOWS_PATH_RE.sub("[private source artifact]", text)
     text = RELATIVE_LOCAL_PATH_RE.sub("[private source artifact]", text)
-    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "source table", text)
+    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "source collection", text)
     return text
 
 
@@ -1325,6 +1342,10 @@ def validate_publication(
             errors.append(f"{name} contains a local filesystem path")
         if SECRET_RE.search(text):
             errors.append(f"{name} contains a token-like secret")
+    for name, text in {"case_dossier.md": markdown_text, "index.html": html_text}.items():
+        for phrase in PUBLIC_READER_TECHNICAL_PHRASES:
+            if phrase in text:
+                errors.append(f"{name} contains reader-facing technical phrase: {phrase}")
     if "Human Review Required" not in markdown_text:
         errors.append("case dossier is missing explicit human-review pause")
     if "Sentinel" not in markdown_text:

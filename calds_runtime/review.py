@@ -26,8 +26,8 @@ SOURCE_TYPE_LABELS = {
     "irs_990_full_text_fallback": "Rendered Form 990 secondary source",
     "fac_audit_summary": "Federal Audit Clearinghouse audit summary",
     "fac_audit_pdf": "Federal Audit Clearinghouse audit source document",
-    "fac_findings": "Federal Audit Clearinghouse findings table",
-    "fac_federal_awards": "Federal Audit Clearinghouse federal awards table",
+    "fac_findings": "Federal Audit Clearinghouse findings records",
+    "fac_federal_awards": "Federal Audit Clearinghouse federal awards records",
     "dhcs_page": "California Department of Health Care Services page",
     "dhcs_facility_status": "California Department of Health Care Services facility-status row set",
     "dhcs_adverse_status_manifest": "California Department of Health Care Services adverse-status page manifest",
@@ -38,17 +38,17 @@ SOURCE_TYPE_LABELS = {
     "enforcement_or_docket_source": "Official enforcement or docket source",
     "contract_payment_discovery": "Contract and payment acquisition gap record",
     "social_media_source": "Social media source",
-    "source_extraction_state_homeless_award_table": "Parsed California state homelessness award dataset",
-    "source_extraction_enforcement_docket_table": "Parsed enforcement and docket source dataset",
-    "source_extraction_irs_990_table": "Parsed Internal Revenue Service dataset",
-    "source_extraction_fac_audit_table": "Parsed Federal Audit Clearinghouse audit dataset",
-    "source_extraction_fac_award_table": "Parsed Federal Audit Clearinghouse award dataset",
-    "source_extraction_dhcs_status_table": "Parsed California Department of Health Care Services status dataset",
+    "source_extraction_state_homeless_award_table": "California state homelessness award source collection",
+    "source_extraction_enforcement_docket_table": "Enforcement and docket source collection",
+    "source_extraction_irs_990_table": "Internal Revenue Service source collection",
+    "source_extraction_fac_audit_table": "Federal Audit Clearinghouse audit source collection",
+    "source_extraction_fac_award_table": "Federal Audit Clearinghouse award source collection",
+    "source_extraction_dhcs_status_table": "California Department of Health Care Services status source collection",
     "source_extraction_pdf_text_index": "Parsed source document text index",
-    "source_extraction_official_outcome_table": "Parsed official outcome source dataset",
-    "source_extraction_spend_vs_results_table": "Parsed spend-versus-results join",
-    "source_extraction_public_statement_table": "Parsed public statement source dataset",
-    "source_extraction_social_web_table": "Parsed social and website source dataset",
+    "source_extraction_official_outcome_table": "Official outcome source collection",
+    "source_extraction_spend_vs_results_table": "Spend-versus-results source collection",
+    "source_extraction_public_statement_table": "Public statement source collection",
+    "source_extraction_social_web_table": "Social and website source collection",
     "public_statement_source": "Public statement source",
     "org_service_page": "Organization service page",
 }
@@ -600,27 +600,27 @@ class ReviewArtifactService:
         if item.source_type == "social_media_source":
             return "Public social-media source context requiring timestamped scope and attribution review."
         if item.source_type == "source_extraction_irs_990_table":
-            return "Parsed Internal Revenue Service financial table flags year-window coverage and missing return fields."
+            return "Internal Revenue Service financial source collection shows year-window coverage and missing return fields."
         if item.source_type == "source_extraction_fac_audit_table":
-            return "Parsed Federal Audit Clearinghouse audit-control table flags audit years, report coverage, and control/finding indicators."
+            return "Federal Audit Clearinghouse audit-control source collection shows audit years, report coverage, and control or finding indicators."
         if item.source_type == "source_extraction_fac_award_table":
-            return "Parsed Federal Audit Clearinghouse award table flags program and amount concentrations for funding-trace review."
+            return "Federal Audit Clearinghouse award source collection shows program and amount concentrations for funding-trace review."
         if item.source_type == "source_extraction_dhcs_status_table":
-            return "Parsed California Department of Health Care Services table flags facility counts, active/closed status counts, and counties."
+            return "California Department of Health Care Services source collection shows facility counts, active or closed status counts, and counties."
         if item.source_type == "source_extraction_pdf_text_index":
             return "PDF extraction index flags where reviewer navigation aids are available."
         if item.source_type == "source_extraction_state_homeless_award_table":
-            return "Parsed state homelessness award table ranks source-listed co-applicant project-award exposure and preserves direct-receipt caveats."
+            return "State homelessness award source collection ranks source-listed co-applicant project-award exposure and preserves direct-receipt caveats."
         if item.source_type == "source_extraction_official_outcome_table":
             return "Official outcome-source manifest flags which county or Continuum of Care datasets were ingested or blocked."
         if item.source_type == "source_extraction_spend_vs_results_table":
             return "Spend-versus-results join flags county or Continuum of Care outcome movement next to entity spending and facility footprint."
         if item.source_type == "source_extraction_public_statement_table":
-            return "Public-statement source table flags harvested pages and matched review terms."
+            return "Public-statement source collection shows harvested pages and matched review terms."
         if item.source_type == "source_extraction_enforcement_docket_table":
-            return "Parsed enforcement and docket table flags official case, violation, prosecution, or legal-status source coverage."
+            return "Enforcement and docket source collection shows official case, violation, prosecution, or legal-status source coverage."
         if item.source_type == "source_extraction_social_web_table":
-            return "Parsed social and website table flags account/page coverage and source gaps."
+            return "Social and website source collection shows account or page coverage and source gaps."
         if item.source_type == "public_statement_source":
             return "Public statement page provides attributable context and off-scope keyword screening."
         if item.source_type == "org_service_page":

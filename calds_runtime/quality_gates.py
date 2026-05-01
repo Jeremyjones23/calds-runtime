@@ -152,7 +152,7 @@ class CompletionGuardService:
             status = "FAIL"
         notes = [
             "Completion guard records hits, public official no-record searches, and misses; anything short of a citation-ready hit remains a source-access blocker, not clearance.",
-            "A searched_no_public_official_record status means configured public official sources were searched without recovering a public adverse record; it is not legal clearance and still leaves manual PACER, local court, records-request, or credentialed-source work unresolved.",
+            "A completed public official no-record search means configured public official sources were searched without recovering a public adverse record; it is not legal clearance and still leaves manual PACER, local court, records-request, or credentialed-source work unresolved.",
             "Dossier compilation may proceed as a review packet only because unresolved source-access blockers are preserved for human review.",
         ]
         if status == "FAIL":
@@ -324,7 +324,7 @@ class RunReadinessService:
             ("evidence_count", "evidence item count"),
             ("source_type_count", "source-type diversity"),
             ("risk_indicator_count", "risk indicator count"),
-            ("high_risk_count", "high-risk row count"),
+            ("high_risk_count", "high-risk review item count"),
             ("completion_guard_hit_count", "completion-guard hit count"),
         ]
         for field, label in numeric_fields:

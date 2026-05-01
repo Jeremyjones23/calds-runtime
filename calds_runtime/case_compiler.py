@@ -264,7 +264,7 @@ class CaseDossierService:
             f"- Jurisdiction: {request.jurisdiction}",
             f"- Objective: {request.objective}",
             f"- Named entities: {', '.join(request.entities) or 'none specified'}",
-            f"- Allowed source types: {', '.join(request.allowed_sources) or 'none specified'}",
+            f"- Allowed source types: {self._allowed_source_types_phrase(request.allowed_sources)}",
             f"- Review packet: `{review_packet.markdown_path}`",
             "",
             "## 5. Case Dossier Orientation",
@@ -299,7 +299,7 @@ class CaseDossierService:
         lines.extend(
             [
                 "",
-                "High and medium rows are review priorities. Data-gap rows are source-collection blockers. Low rows are not expanded here unless they are needed for context.",
+                "High and medium items are review priorities. Data-gap items are source-collection blockers. Low items are not expanded here unless they are needed for context.",
                 "",
 
             ]
@@ -309,7 +309,7 @@ class CaseDossierService:
                 level_rows = [item for item in priority_rows if item.risk_level == level]
                 if not level_rows:
                     continue
-                lines.extend([f"### {level} Rows", ""])
+                lines.extend([f"### {level} Priority Items", ""])
                 for index, item in enumerate(level_rows, start=1):
                     refs = self._matrix_refs(item, labels)
                     lines.extend(
@@ -318,8 +318,8 @@ class CaseDossierService:
                             "",
                             f"- Test: {item.test_name}",
                             f"- What CalDS found: {self._reader_fact(item.observed_fact)} Evidence: {refs}.",
-                            f"- When/where: {self._when_where(item)} Evidence: {refs}.",
-                            f"- Why this row is here: {self._trigger_text(item)} Evidence: {refs}.",
+                            f"- Relevant time and place: {self._when_where(item)} Evidence: {refs}.",
+                            f"- Why CalDS included it: {self._trigger_text(item)} Evidence: {refs}.",
                             f"- Source access: {self._format_source_uris(item.source_uris)} Evidence: {refs}.",
                             f"- System opinion: {self._plain_language(self._system_opinion(item))} Evidence: {refs}.",
                             f"- Why this matters: {self._plain_language(self._why_it_matters(item))}",
@@ -331,7 +331,7 @@ class CaseDossierService:
                         ]
                     )
         else:
-            lines.extend(["No high, medium, or data-gap rows were generated from the current source corpus.", ""])
+            lines.extend(["No high, medium, or data-gap review items were generated from the current source corpus.", ""])
 
         lines.extend(
             [
@@ -429,6 +429,9 @@ class CaseDossierService:
         return self._tidy_sentence(value)
 
     def _reader_excerpt(self, item: EvidenceItem, limit: int = 260) -> str:
+        source_description = self._source_dataset_description(item)
+        if source_description:
+            return self._short_excerpt(source_description, limit)
         excerpt = self._plain_language(item.excerpt)
         if item.source_type in {"org_service_page", "public_statement_source"}:
             excerpt = self._clean_service_excerpt(excerpt)
@@ -445,7 +448,7 @@ class CaseDossierService:
         if grant_match:
             year, grants, revenue, ratio = grant_match.groups()
             return (
-                f"The latest parsed Internal Revenue Service return in this run is {year}. "
+                f"The latest Internal Revenue Service Form 990 data captured in this run is for {year}. "
                 f"It reports {grants} in government grants and {revenue} in total revenue, so government grants were {ratio} of revenue."
             )
 
@@ -457,8 +460,18 @@ class CaseDossierService:
             previous, previous_year, current, current_year, movement = salary_match.groups()
             direction = "increased" if movement.strip().startswith("+") else "changed"
             return (
-                f"Parsed salaries, compensation, and benefits {direction} from {previous} in {previous_year} "
+                f"The Form 990 data shows salaries, compensation, and benefits {direction} from {previous} in {previous_year} "
                 f"to {current} in {current_year} ({movement})."
+            )
+
+        salary_gap_match = re.search(
+            r"No two downloaded (?:Internal Revenue Service|IRS) returns with parsed salaries/compensation/benefits totals are available for this entity\.",
+            value,
+        )
+        if salary_gap_match:
+            return (
+                "This run did not capture two downloaded Form 990 returns with salaries, compensation, "
+                "and benefits totals for this entity, so payroll growth cannot be compared yet."
             )
 
         revenue_match = re.search(
@@ -469,7 +482,19 @@ class CaseDossierService:
             previous, previous_year, current, current_year, movement = revenue_match.groups()
             direction = "increased" if movement.strip().startswith("+") else "changed"
             return (
-                f"Parsed Internal Revenue Service revenue {direction} from {previous} in {previous_year} "
+                f"The Form 990 data shows total revenue {direction} from {previous} in {previous_year} "
+                f"to {current} in {current_year} ({movement})."
+            )
+
+        expenses_match = re.search(
+            r"(?:Internal Revenue Service|IRS) parsed expenses moved from (\$[\d,]+) in (\d{4}) to (\$[\d,]+) in (\d{4}) \(([^)]+)\)\.",
+            value,
+        )
+        if expenses_match:
+            previous, previous_year, current, current_year, movement = expenses_match.groups()
+            direction = "increased" if movement.strip().startswith("+") else "changed"
+            return (
+                f"The Form 990 data shows expenses {direction} from {previous} in {previous_year} "
                 f"to {current} in {current_year} ({movement})."
             )
 
@@ -480,8 +505,8 @@ class CaseDossierService:
         if compensation_match:
             year, subject, amount, ratio = compensation_match.groups()
             return (
-                f"The latest parsed return in this run is {year}. It reports {subject} compensation of {amount}, "
-                f"equal to {ratio} of parsed expenses."
+                f"The latest Form 990 compensation data captured in this run is for {year}. "
+                f"It reports {subject} compensation of {amount}, equal to {ratio} of expenses reported in the parsed return."
             )
 
         political_match = re.search(
@@ -491,8 +516,8 @@ class CaseDossierService:
         if political_match:
             year, campaign, lobbying = political_match.groups()
             return (
-                f"The latest parsed return in this run is {year}. The parsed political-campaign activity indicator is {campaign}; "
-                f"the parsed lobbying-activity indicator is {lobbying}."
+                f"The latest Form 990 data captured in this run is for {year}. The return's political-campaign activity field is {campaign}; "
+                f"the lobbying-activity field is {lobbying}."
             )
 
         fac_match = re.search(
@@ -502,17 +527,84 @@ class CaseDossierService:
         if fac_match:
             material, deficiency, not_low, findings = fac_match.groups()
             return (
-                "Federal Audit Clearinghouse data in this run reports "
-                f"material-weakness year(s): {material}; internal-control-deficiency year(s): {deficiency}; "
-                f"not-low-risk year(s): {not_low}; finding row count: {findings}."
+                "Federal Audit Clearinghouse data in this run shows "
+                f"{self._year_phrase(material, 'material weakness')} "
+                f"It shows {self._year_phrase(deficiency, 'internal-control deficiency').lower()} "
+                f"{self._not_low_risk_phrase(not_low)} "
+                f"{self._audit_findings_phrase(findings)}"
             )
 
+        federal_award_match = re.search(
+            r"Parsed Federal Audit Clearinghouse award amount total across retrieved reports is (\$[\d,]+)\.",
+            value,
+        )
+        if federal_award_match:
+            amount = federal_award_match.group(1)
+            return f"Federal Audit Clearinghouse award data captured in this run totals {amount} across the retrieved audit reports."
+
         value = value.replace("California Department of Housing and Community Development award lists name", "California housing-award records name")
-        value = value.replace("Homekey/Homekey+ project row(s)", "Homekey/Homekey+ project rows")
-        value = value.replace("project row(s)", "project rows")
-        value = value.replace("row(s)", "rows")
+        value = value.replace("parsed salaries/compensation/benefits totals", "salaries, compensation, and benefits totals")
+        value = value.replace("Parse the salaries/compensation/benefits line", "Review the salaries, compensation, and benefits line")
+        value = value.replace("No parsed California Department of Health Care Services facility-status summary row is present for this entity.", "This run did not capture a California Department of Health Care Services facility-status summary for this entity.")
+        value = value.replace("facility rows", "facility records")
+        value = value.replace("Homekey/Homekey+ project row(s)", "Homekey/Homekey+ project entries")
+        value = value.replace("project row(s)", "project entries")
+        value = value.replace("row(s)", "entries")
+        value = value.replace("Parsed Federal Audit Clearinghouse award amount total across retrieved reports", "Federal Audit Clearinghouse award data captured in this run totals")
+        value = value.replace("Internal Revenue Service parsed expenses moved", "The Form 990 data shows expenses changed")
+        value = value.replace("Parsed Internal Revenue Service", "The Form 990 data shows")
+        value = re.sub(r"\b([A-Za-z ]+ Continuum of Care) M1a service-system volume\b", r"the \1 M1a service-system volume measure", value)
+        value = value.replace("State project-award exposure=", "State project-award exposure is ")
         value = self._rewrite_growth_context(value)
         return value
+
+    def _year_phrase(self, years: str, label: str) -> str:
+        cleaned = self._plain_year_list(years)
+        if cleaned == "no year listed in this source collection":
+            return f"no {label} year listed in this source collection."
+        article = "an" if label[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+        return f"{article} {label} in {cleaned}."
+
+    def _plain_year_list(self, years: str) -> str:
+        cleaned = str(years).strip()
+        if not cleaned or cleaned.lower() in {"none", "not parsed", "n/a"}:
+            return "no year listed in this source collection"
+        return cleaned
+
+    def _not_low_risk_phrase(self, years: str) -> str:
+        cleaned = self._plain_year_list(years)
+        if cleaned == "no year listed in this source collection":
+            return "The data does not list the auditee as not low risk."
+        return f"The auditee was listed as not low risk in {cleaned}."
+
+    def _audit_findings_phrase(self, count_text: str) -> str:
+        count = str(count_text).strip()
+        if count == "0":
+            return "The audit data captured in this run lists no audit findings."
+        if count == "1":
+            return "The audit data captured in this run lists 1 audit finding."
+        return f"The audit data captured in this run lists {count} audit findings."
+
+    def _source_dataset_description(self, item: EvidenceItem) -> str:
+        source_type = item.source_type.lower()
+        title = self._reader_title(item)
+        if source_type == "source_extraction_enforcement_docket_table":
+            return f"{title}. This source collection stores official enforcement and docket records captured for triage. It can trigger deeper review, but it does not create a legal conclusion by itself."
+        if source_type == "source_extraction_irs_990_table":
+            return f"{title}. This source collection contains Form 990 fields used for revenue, government-grant share, expense, payroll, and compensation checks."
+        if source_type == "source_extraction_fac_audit_table":
+            return f"{title}. This source collection contains federal audit fields used to check material weaknesses, internal-control findings, low-risk status, and audit finding counts."
+        if source_type == "source_extraction_fac_award_table":
+            return f"{title}. This source collection contains federal audit award totals used to understand public-funding exposure."
+        if source_type == "source_extraction_state_homeless_award_table":
+            return f"{title}. This source collection contains California Homekey and Homekey+ award entries used to identify project-award exposure and project geography."
+        if source_type == "source_extraction_official_outcome_table":
+            return f"{title}. This source collection contains official homelessness outcome measures used for county or Continuum of Care context."
+        if source_type == "source_extraction_spend_vs_results_table":
+            return f"{title}. This source collection joins state-award geography with official outcome movement so reviewers can decide whether provider-specific outcome records are needed."
+        if source_type.startswith("source_extraction_"):
+            return f"{title}. This source collection supports the cited review checks and remains tied to the source ledger for audit traceability."
+        return ""
 
     def _rewrite_growth_context(self, text: str) -> str:
         marker = "Parsed entity growth context:"
@@ -569,11 +661,15 @@ class CaseDossierService:
         value = re.sub(r"\s*local path: [^.]+\.?", " ", value, flags=re.IGNORECASE)
         value = re.sub(r"\s*source document SHA256: not available\.?", " ", value, flags=re.IGNORECASE)
         value = re.sub(r"\s*Internal Revenue Service object ID: not available\.?", " ", value, flags=re.IGNORECASE)
-        value = value.replace("project row(s)", "project rows")
-        value = value.replace("row(s)", "rows")
-        value = value.replace("source table", "source dataset")
-        value = value.replace("Source table", "Source dataset")
-        value = value.replace("This table", "This dataset")
+        value = re.sub(r"Filtered Federal Audit Clearinghouse findings table rows for target report IDs\.?\s*Row count:\s*(\d+)\.?", r"Federal Audit Clearinghouse findings records were filtered to the target audit reports. The filtered set contains \1 finding record(s).", value, flags=re.IGNORECASE)
+        value = re.sub(r"Filtered Federal Audit Clearinghouse federal_awards table rows for target report IDs\.?\s*Row count:\s*(\d+)\.?", r"Federal Audit Clearinghouse federal-award records were filtered to the target audit reports. The filtered set contains \1 award record(s).", value, flags=re.IGNORECASE)
+        value = value.replace("table rows", "source records")
+        value = value.replace("Row count:", "Record count:")
+        value = value.replace("project row(s)", "project entries")
+        value = value.replace("row(s)", "entries")
+        value = value.replace("source table", "source collection")
+        value = value.replace("Source table", "Source collection")
+        value = value.replace("This table", "This source collection")
         value = self._rewrite_growth_context(value)
         value = re.sub(r"\s+", " ", value).strip()
         return value
@@ -618,29 +714,70 @@ class CaseDossierService:
     def _source_type_label(self, source_type: str) -> str:
         return self._plain_language(SOURCE_TYPE_LABELS.get(source_type, source_type))
 
+    def _source_family_label(self, value: object) -> str:
+        raw = str(value or "").strip()
+        labels = {
+            "enforcement_or_docket": "enforcement or docket records",
+            "irs_990": "Internal Revenue Service Form 990 records",
+            "fac_audit": "Federal Audit Clearinghouse audit records",
+            "fac_award": "Federal Audit Clearinghouse award records",
+            "dhcs_status": "California Department of Health Care Services facility-status records",
+            "state_homelessness_award": "California homelessness award records",
+            "public_statement": "public statements",
+            "social_media_source": "social media sources",
+            "county_contract_or_monitoring": "county contract or monitoring records",
+        }
+        if raw in SOURCE_TYPE_LABELS:
+            return self._source_type_label(raw)
+        return labels.get(raw, self._plain_language(raw.replace("_", " ")))
+
+    def _allowed_source_types_phrase(self, sources: list[str]) -> str:
+        if not sources:
+            return "none specified"
+        labels = [self._source_family_label(source) for source in sources]
+        return ", ".join(labels)
+
     def _reader_title(self, item: EvidenceItem) -> str:
         title = self._plain_language(item.title)
         lower = f"{item.source_type} {item.record_id} {title}".lower()
+        if item.source_type == "source_extraction_enforcement_docket_table":
+            return "Official enforcement and docket source collection"
+        if item.source_type == "source_extraction_irs_990_table":
+            return "Internal Revenue Service Form 990 summary source collection"
+        if item.source_type == "source_extraction_fac_audit_table":
+            return "Federal Audit Clearinghouse audit summary source collection"
+        if item.source_type == "source_extraction_fac_award_table":
+            return "Federal Audit Clearinghouse award source collection"
+        if item.source_type == "source_extraction_state_homeless_award_table":
+            return "California housing-award exposure source collection"
+        if item.source_type == "source_extraction_official_outcome_table":
+            return "Official homelessness outcome source collection"
+        if item.source_type == "source_extraction_spend_vs_results_table":
+            return "Spend-versus-results context source collection"
+        if item.source_type == "source_extraction_public_statement_table":
+            return "Public statement review source collection"
+        if item.source_type == "source_extraction_social_web_table":
+            return "Social and website review source collection"
         if "contract/payment acquisition gap" in lower:
             return f"Contract and payment acquisition status: {self._entity_suffix_from_title(title)}"
         if "irs_990_raw_artifact" in lower or "raw form 990 artifact" in lower:
             return f"Internal Revenue Service Form 990 acquisition status: {self._entity_suffix_from_title(title)}"
         if "irs_990" in lower or "propublica nonprofit explorer" in lower:
-            return "Internal Revenue Service Form 990 summary table"
+            return "Internal Revenue Service Form 990 summary source collection"
         if "fac" in lower or "federal audit clearinghouse" in lower:
-            return "Federal Audit Clearinghouse audit summary table"
+            return "Federal Audit Clearinghouse audit summary source collection"
         if "state homelessness award" in lower or "homekey" in lower:
-            return "California housing-award exposure table"
+            return "California housing-award exposure source collection"
         if "org_service_page" in lower or "official service/program page harvest" in lower:
             return title.replace("Official service/program page harvest:", "Official service page:").strip()
         if "public_statement_source" in lower:
             return title.replace("Public statement source:", "Public statement:").strip()
-        return title.replace("source table", "source dataset").replace("Source table", "Source dataset")
+        return title.replace("source table", "source collection").replace("Source table", "Source collection")
 
     def _reader_record_id(self, record_id: str) -> str:
         value = str(record_id or "source record")
         if value == "source table" or value.startswith("source_table_"):
-            return "parsed source dataset"
+            return "parsed source collection"
         return value
 
     def _entity_suffix_from_title(self, title: str) -> str:
@@ -712,7 +849,7 @@ class CaseDossierService:
             "",
         ]
         if why_rows:
-            lines.append("The case is not based on a row count. It is based on these source-backed review reasons:")
+            lines.append("The case is not based on how many entries appeared. It is based on these source-backed review reasons:")
             lines.append("")
             for item in why_rows:
                 lines.append(
@@ -943,7 +1080,7 @@ class CaseDossierService:
                 )
         else:
             lines.append(
-                "- No implemented high or medium source-backed screen fired from the current matrix. The case stays open because retrieved records raise oversight questions while required official source series are incomplete."
+                "- No high or medium source-backed review question was resolved from the current matrix. The case stays open because retrieved records raise oversight questions while required official source series are incomplete."
             )
         if gaps:
             lines.append(
@@ -1006,14 +1143,16 @@ class CaseDossierService:
         if no_public_record:
             lines.append("- Public official no-record source-access blockers:")
             for item in no_public_record[:8]:
+                source_family = self._source_family_label(item.get("source_family"))
                 lines.append(
-                    f"  - {item.get('entity')}: {item.get('source_family')} - configured public official searches found no citation-ready adverse record. Treat this as unresolved source access, not legal clearance."
+                    f"  - {item.get('entity')}: {source_family} - configured public official searches found no citation-ready adverse record. Treat this as unresolved source access, not legal clearance."
                 )
         if misses:
             lines.append("- Top unresolved acquisition blockers:")
             for item in misses[:8]:
+                source_family = self._source_family_label(item.get("source_family"))
                 lines.append(
-                    f"  - {item.get('entity')}: {item.get('source_family')} - {item.get('blocker_reason') or 'No hit recorded.'}"
+                    f"  - {item.get('entity')}: {source_family} - {self._plain_language(item.get('blocker_reason') or 'No hit recorded.')}"
                 )
             if len(misses) > 8:
                 lines.append(f"  - +{len(misses) - 8} additional blocker(s) in `acquisition_ledger.json`.")
@@ -1270,7 +1409,7 @@ class CaseDossierService:
                     f"- {item.risk_area}: {self._reader_fact(item.observed_fact)} ({self._when_where(item)}; evidence {self._compact_matrix_refs(item, labels)}.)"
                 )
         else:
-            bullets.append("- No implemented high or medium possible waste, fraud, abuse, or mismanagement screen fired for this entity from the current matrix.")
+            bullets.append("- No high or medium possible waste, fraud, abuse, or mismanagement review question was resolved for this entity from the current matrix.")
         if outcome_rows:
             bullets.append(self._outcome_briefing_bullet(outcome_rows, labels))
         if data_gaps:
@@ -1517,8 +1656,8 @@ class CaseDossierService:
         fact = self._reader_fact(item.observed_fact)
         return [
             f"{index}. {item.risk_level} - {item.risk_area}: {fact} Evidence: {refs}.",
-            f"   - When/where: {self._when_where(item)} Evidence: {refs}.",
-            f"   - Why this row is here: {self._trigger_text(item)} Evidence: {refs}.",
+            f"   - Relevant time and place: {self._when_where(item)} Evidence: {refs}.",
+            f"   - Why CalDS included it: {self._trigger_text(item)} Evidence: {refs}.",
             f"   - Source access: {source_text} Evidence: {refs}.",
             f"   - Why it matters: {self._plain_language(self._why_it_matters(item))}",
             "",
@@ -1558,12 +1697,12 @@ class CaseDossierService:
         geography = self._geography_from_row(item)
         parts = []
         if years:
-            parts.append("year(s): " + ", ".join(years[:8]))
+            parts.append("years named in the cited source: " + ", ".join(years[:8]))
         if geography:
-            parts.append("place: " + geography)
+            parts.append("place named in the cited source: " + geography)
         if item.entity:
-            parts.append("subject: " + item.entity)
-        return "; ".join(parts) if parts else "subject and timing are in the cited source row; no separate date or geography field was parsed for this indicator"
+            parts.append("organization named in the cited source: " + item.entity)
+        return "; ".join(parts) if parts else "the cited source contains the subject and timing; this run did not parse a separate date or geography field for the item"
 
     def _geography_from_row(self, item: OversightRiskIndicator) -> str:
         if ":" in item.test_name and "county" in item.test_name.lower():
@@ -1572,18 +1711,39 @@ class CaseDossierService:
         if matches:
             return ", ".join(dict.fromkeys(matches))
         if "facility" in item.risk_area.lower():
-            return "DHCS facility set matched to the entity"
+            return "California Department of Health Care Services facility records matched to the entity"
         return ""
 
     def _trigger_text(self, item: OversightRiskIndicator) -> str:
-        status = f" Source status: {item.data_status}." if item.data_status else ""
-        return f"{item.risk_level} {item.risk_area} screen matched the implemented check: {item.test_name}.{status}"
+        status = self._data_status_sentence(item.data_status)
+        return f"CalDS included this item because the {item.risk_area.lower()} review found source data relevant to: {item.test_name}.{status}"
+
+    def _data_status_sentence(self, status: str) -> str:
+        value = str(status or "").strip().lower()
+        if not value:
+            return ""
+        labels = {
+            "observed": " The supporting source data was present in this run.",
+            "observed_contextual_join": " The supporting source data came from a contextual join and still needs provider-specific review.",
+            "observed_with_funding_nexus": " The supporting source data includes a funding-nexus indicator.",
+            "missing_source": " The source needed to complete this check was missing.",
+            "missing_source_or_field": " A required source or field was missing, so this remains a collection blocker.",
+            "third_party_charged_presumption_of_innocence": " The cited official source involves a charged third party and preserves the presumption of innocence.",
+            "searched_no_public_official_record": " The official-source search did not recover a citation-ready public record.",
+            "missing_parser_or_source_field": " A parser field or source field needed for this check was missing, so the item remains a collection blocker.",
+            "non_machine_readable_source": " The source was recovered, but it was not machine-readable enough for automated review.",
+            "restricted_or_non_machine_readable_source": " The source is restricted or not machine-readable enough for automated review.",
+            "missing_required_attention_sources": " Required traffic, social-media, or public-attention sources were not captured for this run.",
+            "observed_keyword_only": " The source data contains matched terms, but the funding-scope connection still needs human review.",
+        }
+        readable = str(status or "").replace("_", " ").strip()
+        return labels.get(value, f" The source status is {readable}.")
 
     def _system_opinion(self, item: OversightRiskIndicator) -> str:
         fact = self._reader_fact(item.observed_fact)
         if item.risk_level == "Data gap":
             return f"CalDS flags this as a data blocker because {fact} Without the missing source, the system cannot responsibly downgrade or clear the issue."
-        return f"CalDS flags this as a {item.risk_level.lower()} possible waste, fraud, abuse, or mismanagement review priority because {fact} This source fact matches the implemented {item.risk_area.lower()} screen and should stay in the active review queue."
+        return f"CalDS flags this as a {item.risk_level.lower()} possible waste, fraud, abuse, or mismanagement review priority because {fact} This source fact fits the {item.risk_area.lower()} review question and should stay in the active review queue."
 
     def _why_it_matters(self, item: OversightRiskIndicator) -> str:
         area = item.risk_area.lower()
@@ -1605,7 +1765,7 @@ class CaseDossierService:
             return "Public claims and program language matter when a homelessness-funded entity appears to describe voter, citizenship, immigration, advocacy, or political work that may need contract-scope, grant-scope, funding-source, or cost-allocation review."
         if item.risk_level == "Data gap":
             return "A missing source can hide the answer either way; the system keeps the issue open until the gap is resolved."
-        return "The row matters because it is a measurable source-backed proxy for public-funds oversight risk."
+        return "The item matters because it is a measurable source-backed proxy for public-funds oversight risk."
 
     def _dossier_mode(self, sentinel: SentinelResult) -> str:
         if sentinel.decision == SentinelDecision.BLOCK_REPAIR_REQUIRED:
@@ -1720,7 +1880,7 @@ class CaseDossierService:
         if "statement" in area or "scope" in area:
             return "Compare public statements to homelessness contract scopes, grant restrictions, funding source, lobbying disclosures, and accounting treatment before drawing conclusions."
         if item.risk_level == "Data gap":
-            return "Collect the missing source named in the row and rerun the matrix before upgrading the signal."
+            return "Collect the missing source named in the review item and rerun the matrix before upgrading the signal."
         return text
 
     def _human_next_steps(
