@@ -106,7 +106,7 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("Specific findings that drove the flag", dossier_text)
             self.assertIn("What CalDS found", dossier_text)
             self.assertIn("When/where", dossier_text)
-            self.assertIn("How this triggered review", dossier_text)
+            self.assertIn("Why this row is here", dossier_text)
             self.assertIn("System opinion", dossier_text)
             self.assertIn("Why this matters", dossier_text)
             self.assertIn("What this does not prove", dossier_text)

@@ -143,7 +143,7 @@ def validate_case_output(case: CaseRequest, run_dir: Path) -> dict[str, object]:
     assert_true("Specific findings that drove the flag" in dossier_text, "case dossier missing fact-first entity findings")
     assert_true("What CalDS found" in dossier_text, "case dossier missing specific source facts")
     assert_true("When/where" in dossier_text, "case dossier missing timing/location context")
-    assert_true("How this triggered review" in dossier_text, "case dossier missing trigger explanation")
+    assert_true("Why this row is here" in dossier_text, "case dossier missing trigger explanation")
     assert_true("System opinion" in dossier_text, "case dossier missing row opinion")
     assert_true("Why this matters" in dossier_text, "case dossier missing row rationale")
     assert_true("retrieved records produced" not in dossier_text, "case dossier used count-only entity summary")

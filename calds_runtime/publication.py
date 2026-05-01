@@ -207,7 +207,7 @@ def build_source_ledger(bundle: EvidenceBundle, labels: dict[str, str], path_rem
                 "anchor": f"evidence-{labels[item.item_id]}",
                 "internal_evidence_id": item.item_id,
                 "record_id": item.record_id,
-                "title": expand_reviewer_acronyms(item.title),
+                "title": editor._reader_title(item),
                 "source_type": item.source_type,
                 "source_type_label": expand_reviewer_acronyms(SOURCE_TYPE_LABELS.get(item.source_type, item.source_type)),
                 "source_reference": public_source_reference(item),
@@ -484,7 +484,9 @@ def public_source_reference(item: EvidenceItem) -> str:
 
 def friendly_source_name(value: object) -> str:
     text = str(value or "source artifact")
-    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "source table", text)
+    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "parsed source dataset", text)
+    if text == "source table":
+        text = "parsed source dataset"
     text = text.replace("_", " ").strip()
     return text or "source artifact"
 

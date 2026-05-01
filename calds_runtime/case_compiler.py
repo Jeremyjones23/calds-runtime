@@ -319,9 +319,8 @@ class CaseDossierService:
                             f"- Test: {item.test_name}",
                             f"- What CalDS found: {self._reader_fact(item.observed_fact)} Evidence: {refs}.",
                             f"- When/where: {self._when_where(item)} Evidence: {refs}.",
-                            f"- How this triggered review: {self._trigger_text(item)} Evidence: {refs}.",
-                            f"- Evidence refs: {refs}",
-                            f"- Source URI(s): {self._format_source_uris(item.source_uris)}",
+                            f"- Why this row is here: {self._trigger_text(item)} Evidence: {refs}.",
+                            f"- Source access: {self._format_source_uris(item.source_uris)} Evidence: {refs}.",
                             f"- System opinion: {self._plain_language(self._system_opinion(item))} Evidence: {refs}.",
                             f"- Why this matters: {self._plain_language(self._why_it_matters(item))}",
                             f"- What this flags: {self._plain_language(item.reviewer_action)} Evidence: {refs}.",
@@ -351,7 +350,7 @@ class CaseDossierService:
                     [
                         f"`{labels[item.item_id]}`",
                         f"`{item.item_id}`",
-                        f"`{item.record_id}`",
+                        f"`{self._reader_record_id(item.record_id)}`",
                         self._table_cell(self._source_type_label(item.source_type)),
                         self._table_cell(self._display_uri(item.source_uri)),
                         self._table_cell(item.published_at or "not provided"),
@@ -509,9 +508,28 @@ class CaseDossierService:
             )
 
         value = value.replace("California Department of Housing and Community Development award lists name", "California housing-award records name")
-        value = value.replace("Homekey/Homekey+ project row(s)", "Homekey/Homekey+ project row(s)")
-        value = value.replace("Parsed entity growth context:", "Parsed entity growth context in this run:")
+        value = value.replace("Homekey/Homekey+ project row(s)", "Homekey/Homekey+ project rows")
+        value = value.replace("project row(s)", "project rows")
+        value = value.replace("row(s)", "rows")
+        value = self._rewrite_growth_context(value)
         return value
+
+    def _rewrite_growth_context(self, text: str) -> str:
+        marker = "Parsed entity growth context:"
+        if marker not in text:
+            return text
+        before, after = text.split(marker, 1)
+        context = after.strip()
+        sentence_end = context.find(".")
+        current = context[:sentence_end] if sentence_end != -1 else context
+        rest = context[sentence_end + 1:].strip() if sentence_end != -1 else ""
+        if "spending=not parsed, revenue=not parsed, government grants=not parsed" in current:
+            replacement = "This run did not parse entity-level spending, revenue, or grant growth for that comparison."
+        else:
+            replacement = f"Parsed entity growth context in this run: {current.strip()}."
+        if rest:
+            replacement = f"{replacement} {rest}"
+        return before + replacement
 
     def _clean_service_excerpt(self, text: object) -> str:
         value = self._plain_language(text)
@@ -551,6 +569,12 @@ class CaseDossierService:
         value = re.sub(r"\s*local path: [^.]+\.?", " ", value, flags=re.IGNORECASE)
         value = re.sub(r"\s*source document SHA256: not available\.?", " ", value, flags=re.IGNORECASE)
         value = re.sub(r"\s*Internal Revenue Service object ID: not available\.?", " ", value, flags=re.IGNORECASE)
+        value = value.replace("project row(s)", "project rows")
+        value = value.replace("row(s)", "rows")
+        value = value.replace("source table", "source dataset")
+        value = value.replace("Source table", "Source dataset")
+        value = value.replace("This table", "This dataset")
+        value = self._rewrite_growth_context(value)
         value = re.sub(r"\s+", " ", value).strip()
         return value
 
@@ -593,6 +617,38 @@ class CaseDossierService:
 
     def _source_type_label(self, source_type: str) -> str:
         return self._plain_language(SOURCE_TYPE_LABELS.get(source_type, source_type))
+
+    def _reader_title(self, item: EvidenceItem) -> str:
+        title = self._plain_language(item.title)
+        lower = f"{item.source_type} {item.record_id} {title}".lower()
+        if "contract/payment acquisition gap" in lower:
+            return f"Contract and payment acquisition status: {self._entity_suffix_from_title(title)}"
+        if "irs_990_raw_artifact" in lower or "raw form 990 artifact" in lower:
+            return f"Internal Revenue Service Form 990 acquisition status: {self._entity_suffix_from_title(title)}"
+        if "irs_990" in lower or "propublica nonprofit explorer" in lower:
+            return "Internal Revenue Service Form 990 summary table"
+        if "fac" in lower or "federal audit clearinghouse" in lower:
+            return "Federal Audit Clearinghouse audit summary table"
+        if "state homelessness award" in lower or "homekey" in lower:
+            return "California housing-award exposure table"
+        if "org_service_page" in lower or "official service/program page harvest" in lower:
+            return title.replace("Official service/program page harvest:", "Official service page:").strip()
+        if "public_statement_source" in lower:
+            return title.replace("Public statement source:", "Public statement:").strip()
+        return title.replace("source table", "source dataset").replace("Source table", "Source dataset")
+
+    def _reader_record_id(self, record_id: str) -> str:
+        value = str(record_id or "source record")
+        if value == "source table" or value.startswith("source_table_"):
+            return "parsed source dataset"
+        return value
+
+    def _entity_suffix_from_title(self, title: str) -> str:
+        if ":" in title:
+            suffix = title.split(":", 1)[1].strip()
+            if suffix:
+                return suffix
+        return title
 
     def _glossary_lines(self) -> list[str]:
         return REVIEWER_GLOSSARY_LINES
@@ -857,7 +913,7 @@ class CaseDossierService:
             source_label = self._source_type_label(item.source_type)
             published = item.published_at or "date not provided"
             lines.append(
-                f"- `{ref}` {self._plain_language(item.title)} ({source_label}, {published}): {self._reader_excerpt(item, 260)}"
+                f"- `{ref}` {self._reader_title(item)} ({source_label}, {published}): {self._reader_excerpt(item, 260)}"
             )
         if len(ordered) > limit:
             lines.append(f"- {len(ordered) - limit} additional evidence item(s) are in the citation ledger.")
@@ -1190,13 +1246,13 @@ class CaseDossierService:
         if not substantive:
             gaps = self._gap_area_summary(self._data_gap_rows(rows))
             return (
-                f"CalDS keeps {entity} as a {posture} because source gaps still block a clean decision"
+                f"CalDS keeps {entity} in {posture} because source gaps still block a clean decision"
                 + (f": {gaps}." if gaps else ".")
             )
         strongest = substantive[0]
         pattern = self._signal_summary(substantive)
         return (
-            f"CalDS selected {entity} as a {posture} because the cited records show {pattern}. "
+            f"CalDS selected {entity} for {posture} because the cited records show {pattern}. "
             f"The strongest current cited trigger is: {self._reader_fact(strongest.observed_fact)}"
         )
 
@@ -1231,14 +1287,15 @@ class CaseDossierService:
             segments.append(f"{county}: {flags}")
         more = f"; plus {len(rows) - 4} additional matched county context(s)" if len(rows) > 4 else ""
         growth = self._after(rows[0].observed_fact, "Parsed entity growth context: ")
-        growth_text = f" Parsed entity growth context: {growth.rstrip('.')}." if growth else ""
+        growth_text = self._reader_fact(f"Parsed entity growth context: {growth.rstrip('.')}.") if growth else ""
+        growth_suffix = f" {growth_text}" if growth_text else ""
         refs = self._compact_matrix_refs_for_many(rows, labels)
         return (
-            "- Spend-versus-results: official county/CoC outcome context worsened in the entity's matched project geography: "
+            "- Spend-versus-results: official county or Continuum of Care outcome context worsened in the entity's matched project geography: "
             + "; ".join(segments)
             + more
             + "."
-            + growth_text
+            + growth_suffix
             + " This is a review signal, not provider attribution. Evidence "
             + refs
             + "."
@@ -1260,7 +1317,7 @@ class CaseDossierService:
             source_label = self._source_type_label(item.source_type)
             published = item.published_at or "date not provided"
             bullets.append(
-                f"- `{ref}` {self._plain_language(item.title)} ({source_label}, {published}): {self._reader_excerpt(item, 260)}"
+                f"- `{ref}` {self._reader_title(item)} ({source_label}, {published}): {self._reader_excerpt(item, 260)}"
             )
         if len(items) > limit:
             bullets.append(f"- {len(items) - limit} additional matched source item(s) appear in the citation ledger.")
@@ -1374,11 +1431,7 @@ class CaseDossierService:
                 token = f"`{labels.get(evidence_id, evidence_id)}`"
                 if token not in refs:
                     refs.append(token)
-            for record_id in item.record_ids:
-                token = f"`{record_id}`"
-                if token not in refs:
-                    refs.append(token)
-        return ", ".join(refs) if refs else "source-gap artifact listed in the risk matrix"
+        return ", ".join(refs) if refs else "risk-matrix source-gap row"
 
     def _short_excerpt(self, text: str, limit: int = 340) -> str:
         cleaned = " ".join(str(text).replace("...", " ").split())
@@ -1432,7 +1485,7 @@ class CaseDossierService:
                 [
                     f"### {entity}",
                     "",
-                    f"CalDS keeps {entity} in the dossier as a {posture}. The source-backed reasons are listed below. Evidence: {refs}.",
+                    f"CalDS keeps {entity} in the dossier for {posture}. The source-backed reasons are listed below. Evidence: {refs}.",
                     "",
                     "Specific findings that drove the flag:",
                     "",
@@ -1465,8 +1518,8 @@ class CaseDossierService:
         return [
             f"{index}. {item.risk_level} - {item.risk_area}: {fact} Evidence: {refs}.",
             f"   - When/where: {self._when_where(item)} Evidence: {refs}.",
-            f"   - How it triggered: {self._trigger_text(item)} Evidence: {refs}.",
-            f"   - Evidence: {refs}; source: {source_text}",
+            f"   - Why this row is here: {self._trigger_text(item)} Evidence: {refs}.",
+            f"   - Source access: {source_text} Evidence: {refs}.",
             f"   - Why it matters: {self._plain_language(self._why_it_matters(item))}",
             "",
         ]
@@ -1474,17 +1527,17 @@ class CaseDossierService:
     def _entity_posture(self, counts: Counter[str], selected_for_deep_review: bool = True) -> str:
         if not selected_for_deep_review:
             if counts.get("High", 0) or counts.get("Medium", 0):
-                return "watchlist or matrix-only subject, not a deep-review target selected by this run"
+                return "watchlist review; it was not selected for deep review by this run"
             if counts.get("Data gap", 0):
-                return "watchlist source-gap subject, not a deep-review target selected by this run"
-            return "context-only subject, not a deep-review target selected by this run"
+                return "watchlist source-gap review; it was not selected for deep review by this run"
+            return "context-only review; it was not selected for deep review by this run"
         if counts.get("High", 0):
-            return "deep-review possible waste, fraud, abuse, or mismanagement review subject"
+            return "deep review for possible waste, fraud, abuse, or mismanagement"
         if counts.get("Medium", 0):
-            return "moderate-priority deep-review possible waste, fraud, abuse, or mismanagement review subject"
+            return "moderate-priority deep review for possible waste, fraud, abuse, or mismanagement"
         if counts.get("Data gap", 0):
-            return "source-gap review subject"
-        return "context-only subject"
+            return "source-gap review"
+        return "context-only review"
 
     def _entity_review_stance(self, indicators: list[OversightRiskIndicator]) -> str:
         areas = {item.risk_area.lower() for item in indicators}
@@ -1523,8 +1576,8 @@ class CaseDossierService:
         return ""
 
     def _trigger_text(self, item: OversightRiskIndicator) -> str:
-        status = f" Data status: {item.data_status}." if item.data_status else ""
-        return f"{item.risk_level} {item.risk_area} screen via test '{item.test_name}'.{status}"
+        status = f" Source status: {item.data_status}." if item.data_status else ""
+        return f"{item.risk_level} {item.risk_area} screen matched the implemented check: {item.test_name}.{status}"
 
     def _system_opinion(self, item: OversightRiskIndicator) -> str:
         fact = self._reader_fact(item.observed_fact)
@@ -1572,11 +1625,7 @@ class CaseDossierService:
         refs = []
         for evidence_id in indicator.evidence_ids:
             refs.append(f"`{labels.get(evidence_id, evidence_id)}`")
-        for record_id in indicator.record_ids:
-            token = f"`{record_id}`"
-            if token not in refs:
-                refs.append(token)
-        return ", ".join(refs) if refs else "source-gap artifact listed in the risk matrix"
+        return ", ".join(refs) if refs else "risk-matrix source-gap row"
 
     def _compact_matrix_refs(self, indicator: OversightRiskIndicator, labels: dict[str, str]) -> str:
         refs = []
@@ -1586,33 +1635,27 @@ class CaseDossierService:
                 refs.append(token)
         if refs:
             return ", ".join(refs)
-        source_ref_candidates = []
-        for value in [*indicator.record_ids, *indicator.source_uris]:
-            token = f"`{value}`" if value else ""
-            if token and token not in source_ref_candidates:
-                source_ref_candidates.append(token)
-        return ", ".join(source_ref_candidates[:3]) if source_ref_candidates else "source-gap artifact listed in the risk matrix"
+        return "risk-matrix source-gap row"
 
     def _compact_matrix_refs_for_many(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> str:
         refs: list[str] = []
-        source_ref_candidates: list[str] = []
         for item in rows:
             for evidence_id in item.evidence_ids:
                 token = f"`{labels.get(evidence_id, evidence_id)}`"
                 if token not in refs:
                     refs.append(token)
-            for value in [*item.record_ids, *item.source_uris]:
-                token = f"`{value}`" if value else ""
-                if token and token not in source_ref_candidates:
-                    source_ref_candidates.append(token)
         if refs:
             return ", ".join(refs)
-        return ", ".join(source_ref_candidates[:6]) if source_ref_candidates else "source-gap artifact listed in the risk matrix"
+        return "risk-matrix source-gap row"
 
     def _format_source_uris(self, uris: Iterable[str]) -> str:
-        values = [uri for uri in uris if uri]
+        values = [
+            str(uri)
+            for uri in uris
+            if uri and not str(uri).startswith(("artifacts\\", "runs\\", "data\\", "C:\\"))
+        ]
         if not values:
-            return "not listed on this row; use evidence ledger"
+            return "Use the evidence labels for the source ledger; no public source URL is attached directly to this row."
         clipped = values[:3]
         suffix = f"; +{len(values) - len(clipped)} more" if len(values) > len(clipped) else ""
         return "; ".join(self._display_uri(uri) for uri in clipped) + suffix
