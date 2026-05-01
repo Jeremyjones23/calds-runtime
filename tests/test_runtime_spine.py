@@ -11,7 +11,7 @@ from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.contracts import CanonicalRecord, CaseRequest, CompletionGuardResult, EvidenceBundle, EvidenceItem, LinkIntegrityReport, Provenance, SourceLinkCheck, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
-from calds_runtime.publication import extract_urls, mark_unverified_source_urls, publish_case_site_from_run, repair_public_source_urls
+from calds_runtime.publication import extract_urls, mark_unverified_source_urls, publish_case_site_from_run, repair_public_source_urls, source_access_report
 from calds_runtime.quality_gates import CitationVerifierService, CompletionGuardService, RunReadinessService
 from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
@@ -164,17 +164,27 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn(public_manifest["link_integrity"]["status"], {"PASS", "PASS_WITH_WARNINGS"})
             self.assertIn("source_access", public_manifest)
             self.assertIn("source_access_required_count", public_manifest["source_access"])
+            self.assertIn("public_link_access", public_manifest)
+            self.assertIn("publication_context", public_manifest)
             self.assertIn("CalDS Public Case Viewer", public_html)
             self.assertIn("California Evidence Room", public_html)
             self.assertIn("class=\"case-hero\"", public_html)
+            self.assertIn("class=\"reviewer-panel\"", public_html)
+            self.assertIn("Source Ledger Digest", public_html)
+            self.assertIn("Publication Manifest", public_html)
             self.assertIn("class=\"status-strip\"", public_html)
             self.assertIn("#source-ledger", public_html)
             self.assertIn("id=\"evidence-E01\"", public_html)
+            self.assertIn("aria-label=\"Open evidence E01 in source ledger\"", public_html)
             self.assertNotIn("font-family: Arial", public_html)
             self.assertNotIn(str(PROJECT_ROOT), public_html)
             self.assertNotIn(str(PROJECT_ROOT), public_md)
+            if public_manifest["publication_context"]["completion_guard_blocker_count"]:
+                self.assertFalse(public_manifest["source_access"]["completion_guard_access_complete"])
             for entry in public_ledger["evidence"]:
                 self.assertTrue(entry["source_urls"] or entry["link_note"])
+                self.assertIn("source_role", entry)
+                self.assertIn("source_exactness", entry)
                 if not entry["source_urls"]:
                     self.assertEqual(entry["link_status"], "source_access_required")
         finally:
@@ -270,6 +280,20 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("unverified_source_references", updated[1])
         self.assertIn("Source access required", updated[1]["link_note"])
         self.assertEqual(unresolved["unverified_public_links"], 1)
+
+    def test_source_access_distinguishes_verified_links_from_completion_guard(self) -> None:
+        ledger = [{"ref": "E01", "source_urls": ["https://example.test"], "link_note": ""}]
+        report = source_access_report(
+            ledger,
+            {
+                "status": "PASS_WITH_BLOCKERS",
+                "blocker_count": 1,
+                "missing_required": ["Shelter Group: enforcement_or_docket"],
+            },
+        )
+        self.assertTrue(report["public_link_access_complete"])
+        self.assertFalse(report["completion_guard_access_complete"])
+        self.assertFalse(report["complete"])
 
     def test_sentinel_escalated_language_catches_legal_and_causal_overclaims(self) -> None:
         self.assertTrue(find_escalated_language("The records prove misconduct occurred."))

@@ -76,6 +76,7 @@ Run the homelessness top-15 corpus refresh and workflow:
 python scripts\ingest_homelessness_top15_sources.py --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2
 python -m calds_runtime run-case --case-file cases\live_ca_homelessness_top15_case.json --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2 --runs-dir runs\live-homelessness-forensic-local
 python -m calds_runtime publish-case-site --run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --output-dir site\cases\live_ca_homelessness_top15_2026_04_29
+python -m calds_runtime publish-site-index --site-dir site
 python -m calds_runtime compare-run-readiness --current-run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --baseline-run-dir runs\<baseline-run>\live_ca_homelessness_top15_2026_04_29 --output-file runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29\artifacts\run_readiness.json
 ```
 

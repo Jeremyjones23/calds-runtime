@@ -355,7 +355,7 @@ class CaseDossierService:
             f"- Main signal pattern: {signal_summary}.",
             f"- Review priority: {lead.score_inputs.final_score} / 100; risk severity: {lead.score_inputs.risk_severity_score} / 100; source completeness: {lead.score_inputs.source_completeness_score} / 100; publication confidence: {lead.score_inputs.publication_confidence_score} / 100.",
             "- Score scope: these are case-level scores for this run's evidence bundle. They are not entity-by-entity grades, not probabilities, and not a measure of how polished the report is.",
-            f"- Current workflow state: `{review_decision.decision.value}` with sentinel posture `{sentinel.decision.value}`.",
+            f"- Workflow state: `AWAITING_HUMAN_REVIEW`. Human decision: `{review_decision.decision.value}`. Sentinel posture: `{sentinel.decision.value}`.",
             "",
             "What CalDS found first:",
             "",
@@ -1105,7 +1105,7 @@ class CaseDossierService:
                 token = f"`{record_id}`"
                 if token not in refs:
                     refs.append(token)
-        return ", ".join(refs) if refs else "no direct evidence ref in these rows"
+        return ", ".join(refs) if refs else "source-gap artifact listed in the risk matrix"
 
     def _short_excerpt(self, text: str, limit: int = 340) -> str:
         cleaned = " ".join(str(text).replace("...", " ").split())
@@ -1301,7 +1301,7 @@ class CaseDossierService:
             token = f"`{record_id}`"
             if token not in refs:
                 refs.append(token)
-        return ", ".join(refs) if refs else "no direct evidence ref in this row"
+        return ", ".join(refs) if refs else "source-gap artifact listed in the risk matrix"
 
     def _compact_matrix_refs(self, indicator: OversightRiskIndicator, labels: dict[str, str]) -> str:
         refs = []
@@ -1316,7 +1316,7 @@ class CaseDossierService:
             token = f"`{value}`" if value else ""
             if token and token not in source_ref_candidates:
                 source_ref_candidates.append(token)
-        return ", ".join(source_ref_candidates[:3]) if source_ref_candidates else "no direct evidence ref in this row"
+        return ", ".join(source_ref_candidates[:3]) if source_ref_candidates else "source-gap artifact listed in the risk matrix"
 
     def _compact_matrix_refs_for_many(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> str:
         refs: list[str] = []
@@ -1332,7 +1332,7 @@ class CaseDossierService:
                     source_ref_candidates.append(token)
         if refs:
             return ", ".join(refs)
-        return ", ".join(source_ref_candidates[:6]) if source_ref_candidates else "no direct evidence ref in these rows"
+        return ", ".join(source_ref_candidates[:6]) if source_ref_candidates else "source-gap artifact listed in the risk matrix"
 
     def _format_source_uris(self, uris: Iterable[str]) -> str:
         values = [uri for uri in uris if uri]

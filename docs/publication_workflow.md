@@ -8,6 +8,12 @@ CalDS can publish a review-ready static case viewer from an existing run without
 python -m calds_runtime publish-case-site --run-dir <run-dir> --output-dir <output-dir>
 ```
 
+After case pages are regenerated, rebuild the public index from the case manifests:
+
+```powershell
+python -m calds_runtime publish-site-index --site-dir site
+```
+
 For the current live recovery case:
 
 ```powershell
@@ -20,7 +26,7 @@ python -m calds_runtime publish-case-site --run-dir "C:\Users\jerem\OneDrive\Doc
 - `case_dossier.md` - public-safe Markdown copy with local paths removed.
 - `case_dossier.json` - public-safe dossier metadata.
 - `source_ledger.json` - evidence-label ledger with official source URLs where recovered.
-- `publication_manifest.json` - safety gate result and file manifest.
+- `publication_manifest.json` - safety gate result, file manifest, public-link access report, completion-guard source-access report, and citation verification.
 
 ## Safety Gate
 
@@ -37,6 +43,8 @@ The publisher fails closed if:
 Evidence labels such as `E13` become clickable anchors in `index.html`. Each anchor resolves to a source-ledger card with source type, record ID, checksum, excerpt, and source links.
 
 If the evidence item points directly to an internet URL, the ledger links that URL only after link-integrity verification. If the item is a local parsed artifact, the publisher attempts to extract official upstream URLs from the artifact or infer them from related evidence in the bundle. If no verified internet source can be recovered, the row is marked `source_access_required` and preserves the internal evidence ID, record ID, source type, checksum, title, and repair note for follow-up.
+
+`public_link_access` and `source_access` are intentionally separate. `public_link_access` means the published evidence cards have working browser-openable links or explicit source-access notes. `source_access` also carries the completion guard. A page can have all public links working while still showing unresolved completion-guard blockers or a legacy run where the guard was not computed.
 
 ## Hosting Recommendation
 

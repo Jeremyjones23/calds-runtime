@@ -58,6 +58,16 @@ class PublicCaseSite:
     safety_passed: bool
 
 
+def load_optional_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = read_json(path)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSite:
     """Compile a run into a public-safe static case viewer."""
 
@@ -71,6 +81,10 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     bundle = evidence_bundle_from_dict(read_json(artifacts_dir / "evidence_bundle.json"))
     sentinel = sentinel_result_from_dict(read_json(artifacts_dir / "sentinel_decision.json"))
     risk_matrix = risk_matrix_from_dict(read_json(artifacts_dir / "oversight_risk_matrix.json"))
+    lead_candidate = load_optional_json(artifacts_dir / "lead_candidate.json")
+    completion_guard = load_optional_json(artifacts_dir / "completion_guard.json")
+    review_decision = load_optional_json(artifacts_dir / "review_decision.json")
+    workflow_state = load_optional_json(run_dir / "workflow_state.json")
 
     labels = evidence_labels(bundle)
     remaps = _archive_path_remaps(run_dir)
@@ -92,12 +106,24 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
     source_ledger, unverified_link_access = mark_unverified_source_urls(source_ledger, link_integrity)
     link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
-    source_access = source_access_report(source_ledger)
+    public_link_access = public_link_access_report(source_ledger, link_integrity)
+    source_access = source_access_report(source_ledger, completion_guard)
+    publication_context = build_publication_context(
+        run_dir=run_dir,
+        lead_candidate=lead_candidate,
+        completion_guard=completion_guard,
+        review_decision=review_decision,
+        workflow_state=workflow_state,
+        link_integrity=link_integrity,
+        public_link_access=public_link_access,
+        source_access=source_access,
+        source_ledger=source_ledger,
+    )
 
     source_ledger_path = output_dir / "source_ledger.json"
     write_json(source_ledger_path, {"case_id": request.case_id, "evidence": source_ledger})
 
-    html_text = render_public_html(request, public_markdown, source_ledger, sentinel.decision.value)
+    html_text = render_public_html(request, public_markdown, source_ledger, sentinel.decision.value, publication_context)
     index_path = output_dir / "index.html"
     index_path.write_text(html_text, encoding="utf-8", newline="\n")
 
@@ -114,7 +140,7 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     public_dossier_path = output_dir / "case_dossier.json"
     write_json(public_dossier_path, public_dossier)
 
-    safety = validate_publication(output_dir, public_markdown, html_text, source_ledger, link_integrity)
+    safety = validate_publication(output_dir, public_markdown, html_text, source_ledger, link_integrity, completion_guard)
     manifest = {
         "publication_id": stable_id("publication", request.case_id, utc_now()),
         "case_id": request.case_id,
@@ -132,7 +158,9 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
         "link_integrity": to_jsonable(link_integrity),
         "link_repair": link_repair,
         "unverified_link_access": unverified_link_access,
+        "public_link_access": public_link_access,
         "source_access": source_access,
+        "publication_context": publication_context,
         "citation_verification": to_jsonable(citation_verification),
     }
     manifest_path = output_dir / "publication_manifest.json"
@@ -184,6 +212,8 @@ def build_source_ledger(bundle: EvidenceBundle, labels: dict[str, str], path_rem
                 "source_urls": source_urls,
                 "link_status": link_status,
                 "link_note": link_note,
+                "source_role": source_role_text(item, link_status),
+                "source_exactness": source_exactness_text(link_status),
                 "published_at": item.published_at or "not provided",
                 "checksum": item.provenance.checksum,
                 "retrieval_relevance": item.relevance_score,
@@ -234,6 +264,23 @@ def repair_public_source_urls(source_ledger: list[dict[str, Any]]) -> tuple[list
         "replacements": replacements,
         "note": "Stale or renamed public URLs are repaired to working source pages before publication. Links are not removed as a substitute for repair.",
     }
+
+
+def source_role_text(item: EvidenceItem, link_status: str) -> str:
+    label = expand_reviewer_acronyms(SOURCE_TYPE_LABELS.get(item.source_type, item.source_type))
+    if link_status == "derived_external_source_linked":
+        return f"Upstream public source for a parsed {label} evidence row."
+    if link_status == "source_access_required":
+        return f"Source-access repair target for a {label} evidence row."
+    return f"Direct public source for a {label} evidence row."
+
+
+def source_exactness_text(link_status: str) -> str:
+    if link_status == "derived_external_source_linked":
+        return "Upstream source: the link opens the official/public dataset or document family used to create the parsed row, not necessarily the exact local row file."
+    if link_status == "source_access_required":
+        return "Source access required: no verified public URL is attached yet, so a reviewer must attach a working official/source-owner URL or archived source copy."
+    return "Exact source link: the URL is the evidence item's direct public source reference."
 
 
 def repair_public_urls(urls: Iterable[str]) -> list[str]:
@@ -430,7 +477,14 @@ def public_source_reference(item: EvidenceItem) -> str:
     name = Path(str(item.source_uri)).name if item.source_uri else item.record_id
     if str(item.source_uri).startswith("local://"):
         return f"local source reference: {item.record_id}"
-    return f"derived local artifact: {name or item.record_id}"
+    return f"derived private source artifact: {friendly_source_name(name or item.record_id)}"
+
+
+def friendly_source_name(value: object) -> str:
+    text = str(value or "source artifact")
+    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "source table", text)
+    text = text.replace("_", " ").strip()
+    return text or "source artifact"
 
 
 def extract_urls(value: object) -> list[str]:
@@ -456,9 +510,160 @@ def unique_preserve_order(values: Iterable[str]) -> list[str]:
 def sanitize_public_text(value: object) -> str:
     text = str(value)
     text = ARCHIVED_COPY_RE.sub("", text)
-    text = WINDOWS_PATH_RE.sub("[internal local artifact]", text)
-    text = RELATIVE_LOCAL_PATH_RE.sub("[internal local artifact]", text)
+    text = WINDOWS_PATH_RE.sub("[private source artifact]", text)
+    text = RELATIVE_LOCAL_PATH_RE.sub("[private source artifact]", text)
+    text = re.sub(r"\bsource_table_[A-Za-z0-9_./-]+", "source table", text)
     return text
+
+
+def build_publication_context(
+    *,
+    run_dir: Path,
+    lead_candidate: dict[str, Any],
+    completion_guard: dict[str, Any],
+    review_decision: dict[str, Any],
+    workflow_state: dict[str, Any],
+    link_integrity,
+    public_link_access: dict[str, Any],
+    source_access: dict[str, Any],
+    source_ledger: list[dict[str, Any]],
+) -> dict[str, Any]:
+    score_inputs = lead_candidate.get("score_inputs") if isinstance(lead_candidate.get("score_inputs"), dict) else {}
+    review_value = review_decision.get("decision") or review_decision.get("status") or "PENDING"
+    workflow_value = workflow_state.get("status") or "AWAITING_HUMAN_REVIEW"
+    return {
+        "run_label": run_dir.name,
+        "workflow_state": workflow_value,
+        "human_decision": review_value,
+        "review_priority": lead_candidate.get("score") or score_inputs.get("final_score") or "not computed",
+        "risk_severity": score_inputs.get("risk_severity_score", "not computed"),
+        "source_completeness": score_inputs.get("source_completeness_score", "not computed"),
+        "publication_confidence": score_inputs.get("publication_confidence_score", "not computed"),
+        "completion_guard_status": completion_guard.get("status", "not computed"),
+        "completion_guard_blocker_count": int(completion_guard.get("blocker_count") or 0),
+        "completion_guard_hit_count": int(completion_guard.get("hit_count") or 0),
+        "completion_guard_total": int(completion_guard.get("total_searches") or 0),
+        "completion_guard_missing_required": list(completion_guard.get("missing_required") or []),
+        "public_link_status": getattr(link_integrity, "status", "not checked"),
+        "public_link_checked_count": getattr(link_integrity, "checked_url_count", 0),
+        "public_link_error_count": getattr(link_integrity, "error_count", 0),
+        "public_link_access": public_link_access,
+        "source_access": source_access,
+        "evidence_count": len(source_ledger),
+        "verified_linked_evidence_count": sum(1 for entry in source_ledger if entry.get("source_urls")),
+    }
+
+
+def score_display(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return f"{float(value):g} / 100"
+    text = str(value or "not computed")
+    return text if "/" in text or text == "not computed" else f"{text} / 100"
+
+
+def source_access_status_text(context: dict[str, Any]) -> str:
+    blockers = int(context.get("completion_guard_blocker_count") or 0)
+    checked = int(context.get("public_link_checked_count") or 0)
+    link_errors = int(context.get("public_link_error_count") or 0)
+    guard_status = str(context.get("completion_guard_status", "not computed"))
+    if blockers:
+        return f"{checked} verified URLs; {blockers} source blocker(s)"
+    if guard_status == "not computed":
+        return f"{checked} verified URLs; guard not computed"
+    if link_errors:
+        return f"{checked} URLs checked; {link_errors} broken"
+    return f"{checked} verified URLs"
+
+
+def render_reviewer_panel(context: dict[str, Any]) -> str:
+    missing = list(context.get("completion_guard_missing_required") or [])
+    missing_items = ""
+    if missing:
+        visible = "".join(f"<li>{html.escape(item)}</li>" for item in missing[:6])
+        if len(missing) > 6:
+            visible += f"<li>+{len(missing) - 6} additional blocker(s) in the manifest.</li>"
+        missing_items = f"<details><summary>Open source blockers</summary><ul>{visible}</ul></details>"
+    return f"""
+<section class=\"reviewer-panel\" aria-label=\"Reviewer control panel\">
+  <div>
+    <strong>How to use this case page</strong>
+    <p>Start with the briefing, click each <span class=\"mono\">E##</span> evidence label, and verify the linked source card before relying on a claim. This page is a review aid, not a formal finding.</p>
+  </div>
+  <div class=\"reviewer-panel__grid\">
+    <div><span>Workflow state</span><strong>{html.escape(str(context.get('workflow_state', 'AWAITING_HUMAN_REVIEW')))}</strong></div>
+    <div><span>Human decision</span><strong>{html.escape(str(context.get('human_decision', 'PENDING')))}</strong></div>
+    <div><span>Public links</span><strong>{html.escape(str(context.get('public_link_status', 'not checked')))} / {int(context.get('public_link_checked_count') or 0)} checked</strong></div>
+    <div><span>Completion guard</span><strong>{html.escape(str(context.get('completion_guard_status', 'not computed')))} / {int(context.get('completion_guard_blocker_count') or 0)} blocker(s)</strong></div>
+  </div>
+{missing_items}
+</section>
+"""
+
+
+def render_toc(markdown_text: str) -> str:
+    preferred = []
+    for raw in markdown_text.splitlines():
+        if not raw.startswith("##"):
+            continue
+        level = min(len(raw) - len(raw.lstrip("#")), 3)
+        if level > 3:
+            continue
+        text = raw[level:].strip()
+        if not text or text.startswith("6.") or text.startswith("7.") or text.startswith("8."):
+            continue
+        preferred.append((level, text, slugify(text)))
+        if len(preferred) >= 12:
+            break
+    links = [f'<a class=\"toc-level-{level}\" href=\"#{html.escape(slug)}\">{html.escape(text)}</a>' for level, text, slug in preferred]
+    links.extend(
+        [
+            '<a href=\"#source-ledger\">Source Ledger</a>',
+            '<a href=\"publication_manifest.json\">Publication Manifest</a>',
+            '<a href=\"case_dossier.md\">Open Markdown</a>',
+            '<a href=\"source_ledger.json\">Open Source JSON</a>',
+        ]
+    )
+    return "\n".join(links)
+
+
+def source_domain(urls: list[str]) -> str:
+    if not urls:
+        return "source access required"
+    try:
+        return urllib.parse.urlparse(urls[0]).netloc or urls[0]
+    except Exception:
+        return urls[0]
+
+
+def render_source_ledger_digest(source_ledger: list[dict[str, Any]]) -> str:
+    rows = []
+    for entry in source_ledger[:120]:
+        urls = [str(url) for url in entry.get("source_urls", [])]
+        rows.append(
+            "<tr>"
+            f"<td><a class=\"evidence-ref\" href=\"#{html.escape(str(entry.get('anchor', '')))}\">{html.escape(str(entry.get('ref', '')))}</a></td>"
+            f"<td>{html.escape(shorten(str(entry.get('title', '')), 96))}</td>"
+            f"<td>{html.escape(str(entry.get('source_type_label', entry.get('source_type', ''))))}</td>"
+            f"<td>{html.escape(source_domain(urls))}</td>"
+            f"<td>{html.escape(str(entry.get('link_status', '')).replace('_', ' '))}</td>"
+            "</tr>"
+        )
+    more = ""
+    if len(source_ledger) > 120:
+        more = f"<p class=\"ledger-note\">Showing the first 120 evidence rows; full details remain in source_ledger.json.</p>"
+    return f"""
+<div class=\"ledger-digest\" aria-label=\"Source ledger digest\">
+  <h3>Source Ledger Digest</h3>
+  <p>This scan layer shows what each evidence card opens before the full audit cards below.</p>
+  <div class=\"table-scroll\">
+    <table>
+      <thead><tr><th>Ref</th><th>Evidence</th><th>Source type</th><th>Opens to</th><th>Status</th></tr></thead>
+      <tbody>{''.join(rows)}</tbody>
+    </table>
+  </div>
+{more}
+</div>
+"""
 
 
 def public_case_css() -> str:
@@ -497,6 +702,22 @@ body {
   line-height: 1.58;
 }
 a { color: var(--civic-blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--audit-amber);
+  outline-offset: 3px;
+}
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: -60px;
+  z-index: 10;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: var(--audit-amber);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+}
+.skip-link:focus { top: 12px; }
 code, pre, .mono, .evidence-ref {
   font-family: "IBM Plex Mono", Consolas, monospace;
   letter-spacing: 0;
@@ -554,6 +775,13 @@ code {
   color: rgba(255, 249, 237, .88);
   font-size: 20px;
 }
+.case-id {
+  margin: 14px 0 0;
+  color: rgba(255, 249, 237, .72);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .status-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -580,6 +808,17 @@ code {
   margin-top: 8px;
   color: rgba(255, 249, 237, .82);
   font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.print-button {
+  border: 1px solid rgba(255, 249, 237, .35);
+  background: rgba(255, 249, 237, .12);
+  color: var(--paper-2);
+  cursor: pointer;
+  padding: 8px 11px;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  text-transform: uppercase;
 }
 .case-nav {
   display: flex;
@@ -630,6 +869,38 @@ code {
   text-transform: uppercase;
 }
 .case-main { min-width: 0; }
+.reviewer-panel {
+  margin: 0 0 24px;
+  padding: 20px;
+  background: #fffdf5;
+  border: 2px solid rgba(47, 109, 85, .35);
+  box-shadow: 8px 8px 0 rgba(47, 109, 85, .12);
+}
+.reviewer-panel p { margin: 8px 0 0; }
+.reviewer-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.reviewer-panel__grid div {
+  padding: 10px;
+  background: rgba(243, 234, 216, .72);
+  border: 1px solid var(--line);
+}
+.reviewer-panel__grid span {
+  display: block;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.reviewer-panel__grid strong { overflow-wrap: anywhere; }
+.reviewer-panel details {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
 .notice {
   display: grid;
   grid-template-columns: 10px 1fr;
@@ -653,6 +924,30 @@ code {
 #source-ledger {
   margin-top: 28px;
   padding: 28px;
+}
+.ledger-digest {
+  margin: 18px 0 26px;
+  padding: 16px;
+  background: rgba(243, 234, 216, .7);
+  border: 1px solid var(--line);
+}
+.ledger-digest h3 { margin-top: 0; }
+.table-scroll { overflow-x: auto; }
+.ledger-digest table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.ledger-digest th, .ledger-digest td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.ledger-digest th {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
 }
 h1, h2, h3, h4 {
   font-family: "Fraunces", Georgia, serif;
@@ -725,6 +1020,24 @@ h1, h2, h3, h4 {
   color: var(--muted);
   font-size: 14px;
 }
+.source-role {
+  margin: 8px 0;
+  padding: 10px;
+  background: rgba(33, 79, 114, .08);
+  border-left: 4px solid var(--civic-blue);
+}
+.repro-details {
+  margin: 12px 0;
+  padding: 10px;
+  background: rgba(25, 21, 15, .04);
+  border: 1px solid var(--line);
+}
+.repro-details summary {
+  cursor: pointer;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+}
 .source-list {
   margin: 8px 0 0;
   padding-left: 22px;
@@ -749,36 +1062,58 @@ footer {
     to { opacity: 1; transform: translateY(0); }
   }
 }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
 @media (max-width: 880px) {
   .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .case-shell { grid-template-columns: 1fr; }
   .case-rail { position: static; }
+  .reviewer-panel__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
   .case-hero__inner, .case-shell { padding-left: 16px; padding-right: 16px; }
   .status-strip { grid-template-columns: 1fr; }
+  .reviewer-panel__grid { grid-template-columns: 1fr; }
   .dossier, #source-ledger { padding: 18px; }
   .dossier p, .dossier li { font-size: 16px; }
 }
 @media print {
   body { background: #fff; color: #000; }
   .case-hero, .case-rail, .case-nav { background: #fff; color: #000; border: 0; }
+  .case-nav, .print-button, .skip-link { display: none; }
   .case-shell { display: block; max-width: none; padding: 0; }
   .dossier, #source-ledger, .notice { box-shadow: none; border-color: #999; }
+  .reviewer-panel, .evidence-card { break-inside: avoid; box-shadow: none; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; }
 }
 """
 
 
-def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: list[dict[str, Any]], sentinel_decision: str) -> str:
+def render_public_html(
+    request: CaseRequest,
+    markdown_text: str,
+    source_ledger: list[dict[str, Any]],
+    sentinel_decision: str,
+    context: dict[str, Any] | None = None,
+) -> str:
+    context = context or {}
     body = render_markdown_fragment(markdown_text)
+    reviewer_panel = render_reviewer_panel(context)
+    toc_links = render_toc(markdown_text)
+    ledger_digest = render_source_ledger_digest(source_ledger)
     cards = "\n".join(render_evidence_card(entry) for entry in source_ledger)
     title = html.escape(request.title)
     generated = html.escape(utc_now())
     css = public_case_css()
     evidence_count = len(source_ledger)
-    linked_count = sum(1 for entry in source_ledger if entry.get("source_urls"))
-    access = source_access_report(source_ledger)
-    access_status = "Complete" if access["complete"] else f"{access['source_access_required_count']} source-access gap(s)"
+    case_id = html.escape(request.case_id)
+    access_status = source_access_status_text(context)
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -790,35 +1125,36 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
   </style>
 </head>
 <body>
+<a class=\"skip-link\" href=\"#dossier\">Skip to case briefing</a>
 <header class=\"case-hero\">
   <div class=\"case-hero__inner\">
     <p class=\"eyebrow\">California Evidence Room</p>
-    <h1>CalDS Public Case Viewer</h1>
-    <p class=\"case-title\">{title}</p>
+    <h1>{title}</h1>
+    <p class=\"case-title\">Public-safe source-cited review packet. Human review required; not a formal finding.</p>
+    <p class=\"case-id\">Case ID: {case_id} | Generated: {generated} | Run: {html.escape(str(context.get('run_label', 'not provided')))}</p>
     <div class=\"status-strip\" aria-label=\"Case publication status\">
       <div class=\"status-tile\"><strong>Sentinel posture</strong><span>{html.escape(sentinel_decision)}</span></div>
-      <div class=\"status-tile\"><strong>Human posture</strong><span>Review required</span></div>
+      <div class=\"status-tile\"><strong>Review priority</strong><span>{html.escape(score_display(context.get('review_priority')))}</span></div>
       <div class=\"status-tile\"><strong>Evidence ledger</strong><span>{evidence_count} records</span></div>
-      <div class=\"status-tile\"><strong>Source access</strong><span>{html.escape(access_status)}</span></div>
+      <div class=\"status-tile\"><strong>Source status</strong><span>{html.escape(access_status)}</span></div>
     </div>
     <nav class=\"case-nav\" aria-label=\"Case links\">
       <a href=\"#dossier\">Briefing</a>
       <a href=\"#source-ledger\">Source Ledger</a>
       <a href=\"case_dossier.md\">Markdown</a>
       <a href=\"source_ledger.json\">Source JSON</a>
+      <a href=\"publication_manifest.json\">Manifest</a>
+      <button class=\"print-button\" type=\"button\" onclick=\"window.print()\">Print / Save PDF</button>
     </nav>
   </div>
 </header>
-<main class=\"case-shell\">
+<main id=\"case-main\" class=\"case-shell\">
   <aside class=\"case-rail\" aria-label=\"Case navigation\">
     <h2>Read Order</h2>
-    <a href=\"#dossier\">Start With The Brief</a>
-    <a href=\"#source-ledger\">Audit The Sources</a>
-    <a href=\"case_dossier.md\">Open Markdown</a>
-    <a href=\"case_dossier.json\">Open Metadata</a>
-    <a href=\"source_ledger.json\">Open Source JSON</a>
+    {toc_links}
   </aside>
   <div class=\"case-main\">
+{reviewer_panel}
   <section class=\"notice\">
     <div><strong>Publication safety note:</strong> This page is a public-safe review aid, not a formal finding. Local file paths are omitted. Evidence labels jump to source-ledger cards; source rows either link to verified internet sources or state that source access is still required and must be resolved before the packet is treated as complete.</div>
   </section>
@@ -826,6 +1162,7 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
   <section id=\"source-ledger\">
     <h2>Source Ledger</h2>
     <p>Every evidence label used in the dossier resolves here. Original URLs are linked when available. If a row lacks a verified internet source, it is marked as source access required rather than treated as complete.</p>
+{ledger_digest}
 {cards}
   </section>
   </div>
@@ -895,16 +1232,31 @@ def render_markdown_fragment(markdown_text: str) -> str:
 
 def format_inline(text: str) -> str:
     escaped = html.escape(text)
+    protected: list[tuple[str, str]] = []
 
     def code_or_ref(match: re.Match[str]) -> str:
         value = match.group(1)
         if re.fullmatch(r"E\d{2}", value):
-            return f'<a class="evidence-ref" href="#evidence-{value}">{value}</a>'
-        return f"<code>{html.escape(value)}</code>"
+            replacement = f'<a class="evidence-ref" href="#evidence-{value}" aria-label="Open evidence {value} in source ledger">{value}</a>'
+        else:
+            replacement = f"<code>{html.escape(value)}</code>"
+        token = f"@@CALDS_CODE_{len(protected)}@@"
+        protected.append((token, replacement))
+        return token
 
     escaped = PROTECTED_CODE_RE.sub(code_or_ref, escaped)
-    escaped = URL_RE.sub(lambda match: f'<a href="{html.escape(match.group(0))}">{html.escape(match.group(0))}</a>', escaped)
+    escaped = URL_RE.sub(linkify_public_url, escaped)
+    for token, replacement in protected:
+        escaped = escaped.replace(token, replacement)
     return escaped
+
+
+def linkify_public_url(match: re.Match[str]) -> str:
+    raw = match.group(0)
+    cleaned = raw.rstrip(".,;:")
+    suffix = raw[len(cleaned):]
+    safe_url = html.escape(cleaned)
+    return f'<a href="{safe_url}">{safe_url}</a>{html.escape(suffix)}'
 
 
 def render_evidence_card(entry: dict[str, Any]) -> str:
@@ -921,15 +1273,21 @@ def render_evidence_card(entry: dict[str, Any]) -> str:
     excerpt = html.escape(str(entry.get("excerpt", "")))
     link_status = html.escape(str(entry.get("link_status", "source_access_required")).replace("_", "-"))
     link_status_text = html.escape(str(entry.get("link_status", "source_access_required")).replace("_", " "))
+    display_record = html.escape(friendly_source_name(entry.get("record_id", "")))
     return f"""
 <article class=\"evidence-card evidence-card--{link_status}\" id=\"{html.escape(entry['anchor'])}\">
   <h3>{html.escape(entry['ref'])}: {html.escape(entry['title'])}</h3>
   <p class=\"link-status mono\">Link status: {link_status_text}</p>
-  <p class=\"meta\"><strong>Record:</strong> <code>{html.escape(entry['record_id'])}</code> | <strong>Source type:</strong> {html.escape(entry['source_type_label'])} | <strong>Published:</strong> {html.escape(entry['published_at'])}</p>
-  <p><strong>Source reference:</strong> {html.escape(entry['source_reference'])}</p>
-  <p><strong>Checksum:</strong> <code>{html.escape(entry['checksum'])}</code></p>
+  <p class=\"source-role\"><strong>What this opens:</strong> {html.escape(str(entry.get('source_role', 'Public source for this evidence row.')))} {html.escape(str(entry.get('source_exactness', '')))}</p>
+  <p class=\"meta\"><strong>Source type:</strong> {html.escape(entry['source_type_label'])} | <strong>Published:</strong> {html.escape(entry['published_at'])}</p>
   <p><strong>External source links:</strong></p>
   <ul class=\"source-list\">{source_items}</ul>
+  <details class=\"repro-details\">
+    <summary>Audit identifiers</summary>
+    <p><strong>Record:</strong> <code>{display_record}</code></p>
+    <p><strong>Source reference:</strong> {html.escape(entry['source_reference'])}</p>
+    <p><strong>Checksum:</strong> <code>{html.escape(entry['checksum'])}</code></p>
+  </details>
   <p><strong>Excerpt:</strong> {excerpt}</p>
 </article>
 """
@@ -941,6 +1299,7 @@ def validate_publication(
     html_text: str,
     source_ledger: list[dict[str, Any]],
     link_integrity=None,
+    completion_guard: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -979,11 +1338,25 @@ def validate_publication(
         "checked_files": sorted(safety_files),
         "evidence_refs_checked": len(referenced),
         "source_ledger_entries": len(source_ledger),
-        "source_access": source_access_report(source_ledger),
+        "source_access": source_access_report(source_ledger, completion_guard),
     }
 
 
-def source_access_report(source_ledger: list[dict[str, Any]]) -> dict[str, Any]:
+def public_link_access_report(source_ledger: list[dict[str, Any]], link_integrity=None) -> dict[str, Any]:
+    missing = [entry for entry in source_ledger if not entry.get("source_urls")]
+    return {
+        "complete": not missing and getattr(link_integrity, "status", "PASS") != "FAIL",
+        "status": getattr(link_integrity, "status", "not checked"),
+        "checked_url_count": getattr(link_integrity, "checked_url_count", 0),
+        "error_count": getattr(link_integrity, "error_count", 0),
+        "warning_count": getattr(link_integrity, "warning_count", 0),
+        "evidence_rows_without_verified_public_link": len(missing),
+        "note": "Public link access means every published evidence row has a verified browser-openable URL or a visible source-access note. It is not the same as raw-source or completion-guard access.",
+    }
+
+
+def source_access_report(source_ledger: list[dict[str, Any]], completion_guard: dict[str, Any] | None = None) -> dict[str, Any]:
+    completion_guard = completion_guard or {}
     required = [
         {
             "ref": entry.get("ref"),
@@ -1007,15 +1380,131 @@ def source_access_report(source_ledger: list[dict[str, Any]]) -> dict[str, Any]:
         for entry in source_ledger
         if entry.get("unverified_source_references")
     ]
+    guard_blockers = int(completion_guard.get("blocker_count") or 0)
+    guard_missing = list(completion_guard.get("missing_required") or [])
+    guard_status = completion_guard.get("status") or "not computed"
     return {
-        "complete": not required,
+        "complete": not required and guard_blockers == 0 and bool(completion_guard),
+        "public_link_access_complete": not required,
+        "completion_guard_access_complete": guard_blockers == 0 and bool(completion_guard),
+        "completion_guard_status": guard_status,
+        "completion_guard_blocker_count": guard_blockers,
+        "completion_guard_missing_required": guard_missing,
         "source_access_required_count": len(required),
         "partial_source_access_issue_count": len(partial),
         "affected_evidence_refs": [str(entry["ref"]) for entry in required if entry.get("ref")],
         "items": required,
         "partial_items": partial,
-        "note": "Every evidence row should have a verified public URL or remain visibly marked as source-access-required. Missing source access is never treated as completion.",
+        "note": "Source access combines public-link access with completion-guard access. Verified links do not clear unresolved acquisition blockers, and missing source access is never treated as completion.",
     }
+
+
+def publish_site_index(site_dir: Path) -> Path:
+    site_dir = Path(site_dir).resolve()
+    cases_dir = site_dir / "cases"
+    case_cards: list[dict[str, Any]] = []
+    for manifest_path in sorted(cases_dir.glob("*/publication_manifest.json")):
+        case_dir = manifest_path.parent
+        manifest = load_optional_json(manifest_path)
+        dossier_text = (case_dir / "case_dossier.md").read_text(encoding="utf-8", errors="ignore") if (case_dir / "case_dossier.md").exists() else ""
+        case_cards.append(
+            {
+                "case_id": manifest.get("case_id", case_dir.name),
+                "title": extract_case_title(dossier_text, str(manifest.get("case_id", case_dir.name))),
+                "bottom_line": extract_bottom_line(dossier_text),
+                "href": f"cases/{case_dir.name}/",
+                "generated_at": manifest.get("generated_at", "not provided"),
+                "sentinel": manifest.get("sentinel_decision", "not provided"),
+                "review_required": bool(manifest.get("human_review_required", True)),
+                "link_status": (manifest.get("link_integrity") or {}).get("status", "not checked"),
+                "checked_urls": (manifest.get("link_integrity") or {}).get("checked_url_count", 0),
+                "source_access": manifest.get("source_access") or {},
+                "context": manifest.get("publication_context") or {},
+            }
+        )
+    cards_html = "\n".join(render_case_index_card(card) for card in case_cards) or "<p>No published cases found.</p>"
+    generated = html.escape(utc_now())
+    css = public_case_css() + """
+.index-main { max-width: 1220px; margin: 0 auto; padding: 30px 24px 72px; }
+.case-index-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.case-index-card { background: rgba(255, 249, 237, .92); border: 1px solid var(--line); box-shadow: var(--shadow); padding: 20px; }
+.case-index-card h2 { margin-top: 0; }
+.case-index-card__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.case-index-card__meta div { padding: 8px; background: rgba(243, 234, 216, .72); border: 1px solid var(--line); }
+.case-index-card__meta span { display: block; color: var(--muted); font-family: \"IBM Plex Mono\", Consolas, monospace; font-size: 11px; text-transform: uppercase; }
+.case-index-card__links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.case-index-card__links a { border: 1px solid var(--line); padding: 7px 9px; background: #fffdf5; font-family: \"IBM Plex Mono\", Consolas, monospace; font-size: 12px; text-decoration: none; text-transform: uppercase; }
+"""
+    html_text = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <title>CalDS Public Case Index</title>
+  <style>{css}</style>
+</head>
+<body>
+<a class=\"skip-link\" href=\"#cases\">Skip to cases</a>
+<header class=\"case-hero\">
+  <div class=\"case-hero__inner\">
+    <p class=\"eyebrow\">California Evidence Room</p>
+    <h1>CalDS Public Case Index</h1>
+    <p class=\"case-title\">Source-cited public review packets for state and local government reviewers. Each case remains a review aid, not a formal finding.</p>
+    <p class=\"case-id\">Generated: {generated}</p>
+  </div>
+</header>
+<main id=\"cases\" class=\"index-main\">
+  <section class=\"notice\"><div><strong>How to read this index:</strong> open a case, read the executive snapshot, then audit the linked evidence labels in the source ledger. Link integrity and source-access status are shown per case.</div></section>
+  <section class=\"case-index-grid\">{cards_html}</section>
+</main>
+<footer>Generated {generated}. Human review remains required before outside-facing use.</footer>
+</body>
+</html>
+"""
+    output = site_dir / "index.html"
+    output.write_text(html_text, encoding="utf-8", newline="\n")
+    return output
+
+
+def extract_case_title(markdown_text: str, fallback: str) -> str:
+    for line in markdown_text.splitlines():
+        if line.startswith("# Case Dossier:"):
+            return line.split(":", 1)[1].strip()
+    return fallback
+
+
+def extract_bottom_line(markdown_text: str) -> str:
+    for line in markdown_text.splitlines():
+        if line.startswith("Bottom line:"):
+            return shorten(line.replace("Bottom line:", "").strip(), 360)
+    return "Open the case packet for the source-cited executive snapshot."
+
+
+def render_case_index_card(card: dict[str, Any]) -> str:
+    source_access = card.get("source_access") or {}
+    context = card.get("context") or {}
+    blocker_count = source_access.get("completion_guard_blocker_count", context.get("completion_guard_blocker_count", 0))
+    source_text = f"{card.get('checked_urls', 0)} verified URL(s); {blocker_count} completion blocker(s)"
+    href = str(card.get("href", "#"))
+    return f"""
+<article class=\"case-index-card\">
+  <h2><a href=\"{html.escape(href)}\">{html.escape(str(card.get('title', card.get('case_id', 'Case'))))}</a></h2>
+  <p>{html.escape(str(card.get('bottom_line', '')))}</p>
+  <div class=\"case-index-card__meta\">
+    <div><span>Case ID</span><strong>{html.escape(str(card.get('case_id', '')))}</strong></div>
+    <div><span>Generated</span><strong>{html.escape(str(card.get('generated_at', 'not provided')))}</strong></div>
+    <div><span>Sentinel</span><strong>{html.escape(str(card.get('sentinel', 'not provided')))}</strong></div>
+    <div><span>Links and source access</span><strong>{html.escape(str(card.get('link_status', 'not checked')))} / {html.escape(source_text)}</strong></div>
+  </div>
+  <p><strong>Public posture:</strong> {'Human review required; not a formal finding.' if card.get('review_required', True) else 'Review state not provided.'}</p>
+  <div class=\"case-index-card__links\">
+    <a href=\"{html.escape(href)}\">Open Viewer</a>
+    <a href=\"{html.escape(href)}case_dossier.md\">Markdown</a>
+    <a href=\"{html.escape(href)}source_ledger.json\">Source Ledger</a>
+    <a href=\"{html.escape(href)}publication_manifest.json\">Manifest</a>
+  </div>
+</article>
+"""
 
 
 def slugify(value: str) -> str:

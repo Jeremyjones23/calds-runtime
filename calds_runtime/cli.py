@@ -6,7 +6,7 @@ from pathlib import Path
 from .case_compiler import compile_dossier_from_run
 from .case_workflow import CaseWorkflow
 from .contracts import CaseRequest, HumanDecision, read_json
-from .publication import publish_case_site_from_run
+from .publication import publish_case_site_from_run, publish_site_index
 from .quality_gates import RunReadinessService
 
 
@@ -61,6 +61,12 @@ def publish_case_site(args: argparse.Namespace) -> int:
     return 0
 
 
+def publish_case_index(args: argparse.Namespace) -> int:
+    path = publish_site_index(args.site_dir)
+    print(f"site_index={path}")
+    return 0
+
+
 def compare_run_readiness(args: argparse.Namespace) -> int:
     result = RunReadinessService().compare(args.current_run_dir, args.baseline_run_dir, args.output_file)
     print(f"case_id={result.case_id}")
@@ -103,6 +109,10 @@ def build_parser() -> argparse.ArgumentParser:
     publish_parser.add_argument("--output-dir", type=Path, required=True)
     publish_parser.set_defaults(func=publish_case_site)
 
+    index_parser = subparsers.add_parser("publish-site-index", help="Build the public case index from published case manifests.")
+    index_parser.add_argument("--site-dir", type=Path, required=True)
+    index_parser.set_defaults(func=publish_case_index)
+
     readiness_parser = subparsers.add_parser("compare-run-readiness", help="Compare a rerun against a baseline run before relying on it.")
     readiness_parser.add_argument("--current-run-dir", type=Path, required=True)
     readiness_parser.add_argument("--baseline-run-dir", type=Path, required=True)
@@ -120,5 +130,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 
