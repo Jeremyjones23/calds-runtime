@@ -10,6 +10,7 @@ import urllib.parse
 from typing import Any, Iterable
 
 from .case_compiler import (
+    CaseDossierService,
     _archive_path_remaps,
     compile_dossier_from_run,
     evidence_bundle_from_dict,
@@ -187,6 +188,7 @@ def evidence_labels(bundle: EvidenceBundle) -> dict[str, str]:
 
 def build_source_ledger(bundle: EvidenceBundle, labels: dict[str, str], path_remaps: dict[str, str]) -> list[dict[str, Any]]:
     source_type_counts = Counter(item.source_type for item in bundle.items)
+    editor = CaseDossierService()
     entries: list[dict[str, Any]] = []
     for item in bundle.items:
         direct_urls = public_browsable_urls(extract_urls(item.source_uri))
@@ -219,7 +221,7 @@ def build_source_ledger(bundle: EvidenceBundle, labels: dict[str, str], path_rem
                 "retrieval_relevance": item.relevance_score,
                 "active_signal_count": len([key for key, value in item.signals.items() if value]),
                 "source_type_count_in_bundle": source_type_counts[item.source_type],
-                "excerpt": sanitize_public_text(shorten(item.excerpt, 600)),
+                "excerpt": sanitize_public_text(editor._reader_excerpt(item, 600)),
             }
         )
     return entries

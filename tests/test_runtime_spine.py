@@ -97,13 +97,12 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("Federal Audit Clearinghouse", dossier_text)
             self.assertIn("California Department of Health Care Services", dossier_text)
             self.assertIn("Internal Revenue Service", dossier_text)
-            self.assertIn("Briefing judgment", dossier_text)
-            self.assertIn("Who they are / what they say they do", dossier_text)
-            self.assertIn("What CalDS found in the records", dossier_text)
+            self.assertIn("Why this entity is in the review set", dossier_text)
+            self.assertIn("What the organization says it does", dossier_text)
+            self.assertIn("What the records show", dossier_text)
             self.assertIn("Key retrieved records", dossier_text)
             self.assertIn("Why CalDS flagged it", dossier_text)
-            self.assertIn("Reviewer readout", dossier_text)
-            self.assertIn("Recommended human next step", dossier_text)
+            self.assertIn("Next human step", dossier_text)
             self.assertIn("Specific findings that drove the flag", dossier_text)
             self.assertIn("What CalDS found", dossier_text)
             self.assertIn("When/where", dossier_text)
@@ -114,6 +113,10 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertNotIn("retrieved records produced", dossier_text)
             self.assertNotIn("row count", dossier_text)
             self.assertNotIn("WFA", dossier_text)
+            self.assertNotIn("Briefing judgment:", dossier_text)
+            self.assertNotIn("Who they are / what they say they do", dossier_text)
+            self.assertNotIn("Latest parsed Internal Revenue Service row with both fields", dossier_text)
+            self.assertNotIn("Facebook X Instagram Contact Get Help Careers Volunteer Donate Home About Our Work", dossier_text)
             self.assertFalse(find_escalated_language(dossier_text))
 
             review_decision = read_json(Path(state["artifacts"]["review_decision"]))
@@ -179,6 +182,7 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertNotIn("font-family: Arial", public_html)
             self.assertNotIn(str(PROJECT_ROOT), public_html)
             self.assertNotIn(str(PROJECT_ROOT), public_md)
+            self.assertNotIn("Facebook X Instagram Contact Get Help Careers Volunteer Donate Home About Our Work", public_html)
             if public_manifest["publication_context"]["completion_guard_blocker_count"]:
                 self.assertFalse(public_manifest["source_access"]["completion_guard_access_complete"])
             for entry in public_ledger["evidence"]:
@@ -309,7 +313,11 @@ class RuntimeSpineTests(unittest.TestCase):
             source_uri="https://www.healthright360.org/our-services/substance-use-disorder/",
             source_type="org_service_page",
             published_at="2026-04-24",
-            excerpt="HealthRIGHT 360 describes substance use disorder treatment services, chronic disease care, and residential programs.",
+            excerpt=(
+                "Service summary from official source(s): https://www.healthright360.org/our-services/substance-use-disorder/: "
+                "HealthRIGHT 360 describes substance use disorder treatment services, chronic disease care, and residential programs. "
+                "Facebook X Instagram Contact Get Help Careers Volunteer Donate Home About Our Work."
+            ),
             relevance_score=1.0,
             matched_terms=["substance", "treatment"],
             provenance=Provenance(
@@ -331,7 +339,10 @@ class RuntimeSpineTests(unittest.TestCase):
         )
         service = CaseDossierService()
 
-        self.assertIn("HealthRIGHT 360 describes", service._entity_claim_context("HealthRIGHT 360", bundle, {"healthright_service": "E01"}))
+        context = service._entity_claim_context("HealthRIGHT 360", bundle, {"healthright_service": "E01"})
+        self.assertIn("The recovered official service page", context)
+        self.assertIn("substance use disorder treatment", context)
+        self.assertNotIn("Facebook X Instagram Contact Get Help Careers Volunteer Donate Home About Our Work", context)
         self.assertIn("does not fill that gap", service._entity_claim_context("CRI-Help Inc", bundle, {"healthright_service": "E01"}))
 
     def test_live_outcome_ingestor_configures_direct_service_pages(self) -> None:

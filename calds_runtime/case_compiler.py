@@ -51,6 +51,103 @@ GENERIC_ENTITY_TOKENS = {
     "the",
 }
 
+SERVICE_PAGE_NAV_PHRASES = [
+    "skip to main content",
+    "skip to navigation",
+    "search this site",
+    "embedded files",
+    "get help",
+    "menu toggle",
+    "our work",
+    "ways to give",
+    "planned giving",
+    "monthly giving",
+    "corporate giving",
+    "donate a vehicle",
+    "donate goods & services",
+    "daf & stocks",
+    "amazon wishlist",
+    "get involved",
+    "news & events",
+    "schedule a pick-up",
+    "host a drive",
+    "board & advisors",
+    "lived experience advisory board",
+    "contact us",
+    "skip to content",
+    "skip to footer",
+    "jobs and careers",
+    "we're hiring",
+    "we are hiring",
+    "in the press",
+    "on the web",
+    "skid row cams",
+    "who we are",
+    "our leadership",
+    "what we do",
+    "our mission",
+    "our impact",
+    "capacity to scale",
+    "select page",
+    "take action",
+    "sponsor a tiny",
+    "legacy giving",
+    "news features",
+    "stories of hope",
+    "find your local affiliate",
+    "become an advocate",
+    "legislative updates",
+    "upcoming events",
+    "human resources",
+    "annual report",
+    "find a",
+    "try program",
+]
+
+SERVICE_PAGE_NAV_WORDS = {
+    "about",
+    "advocacy",
+    "applicants",
+    "blog",
+    "blogs",
+    "careers",
+    "challenge",
+    "close",
+    "contact",
+    "donate",
+    "education",
+    "events",
+    "facebook",
+    "faq",
+    "features",
+    "home",
+    "hiring",
+    "instagram",
+    "iors",
+    "linkedin",
+    "login",
+    "more",
+    "navigation",
+    "news",
+    "newsletter",
+    "newsletters",
+    "our",
+    "page",
+    "partners",
+    "partnerships",
+    "projects",
+    "resources",
+    "residents",
+    "search",
+    "select",
+    "support",
+    "twitter",
+    "us",
+    "volunteer",
+    "were",
+    "youtube",
+}
+
 
 
 class CaseDossierService:
@@ -220,7 +317,7 @@ class CaseDossierService:
                             f"#### {level}-{index}: {item.entity} - {item.risk_area}",
                             "",
                             f"- Test: {item.test_name}",
-                            f"- What CalDS found: {self._plain_language(item.observed_fact)} Evidence: {refs}.",
+                            f"- What CalDS found: {self._reader_fact(item.observed_fact)} Evidence: {refs}.",
                             f"- When/where: {self._when_where(item)} Evidence: {refs}.",
                             f"- How this triggered review: {self._trigger_text(item)} Evidence: {refs}.",
                             f"- Evidence refs: {refs}",
@@ -326,6 +423,174 @@ class CaseDossierService:
     def _plain_language(self, text: object) -> str:
         return expand_reviewer_acronyms(text)
 
+    def _reader_fact(self, text: object) -> str:
+        """Rewrite deterministic row text into a sentence a reviewer can read cold."""
+        value = self._plain_language(text)
+        value = self._rewrite_observed_fact_for_reader(value)
+        return self._tidy_sentence(value)
+
+    def _reader_excerpt(self, item: EvidenceItem, limit: int = 260) -> str:
+        excerpt = self._plain_language(item.excerpt)
+        if item.source_type in {"org_service_page", "public_statement_source"}:
+            excerpt = self._clean_service_excerpt(excerpt)
+        else:
+            excerpt = self._clean_evidence_excerpt(excerpt)
+        return self._short_excerpt(excerpt, limit)
+
+    def _rewrite_observed_fact_for_reader(self, text: str) -> str:
+        value = str(text)
+        grant_match = re.search(
+            r"Latest parsed (?:Internal Revenue Service|IRS) row with both fields is (\d{4}): government grants (\$[\d,]+) / total revenue (\$[\d,]+) = ([\d.]+%)\.",
+            value,
+        )
+        if grant_match:
+            year, grants, revenue, ratio = grant_match.groups()
+            return (
+                f"The latest parsed Internal Revenue Service return in this run is {year}. "
+                f"It reports {grants} in government grants and {revenue} in total revenue, so government grants were {ratio} of revenue."
+            )
+
+        salary_match = re.search(
+            r"Parsed salaries/compensation/benefits moved from (\$[\d,]+) in (\d{4}) to (\$[\d,]+) in (\d{4}) \(([^)]+)\)\.",
+            value,
+        )
+        if salary_match:
+            previous, previous_year, current, current_year, movement = salary_match.groups()
+            direction = "increased" if movement.strip().startswith("+") else "changed"
+            return (
+                f"Parsed salaries, compensation, and benefits {direction} from {previous} in {previous_year} "
+                f"to {current} in {current_year} ({movement})."
+            )
+
+        revenue_match = re.search(
+            r"(?:Internal Revenue Service|IRS) parsed revenue moved from (\$[\d,]+) in (\d{4}) to (\$[\d,]+) in (\d{4}) \(([^)]+)\)\.",
+            value,
+        )
+        if revenue_match:
+            previous, previous_year, current, current_year, movement = revenue_match.groups()
+            direction = "increased" if movement.strip().startswith("+") else "changed"
+            return (
+                f"Parsed Internal Revenue Service revenue {direction} from {previous} in {previous_year} "
+                f"to {current} in {current_year} ({movement})."
+            )
+
+        compensation_match = re.search(
+            r"Latest parsed return (\d{4}) reports (.+?) of (\$[\d,]+), equal to ([\d.]+%) of parsed expenses\.",
+            value,
+        )
+        if compensation_match:
+            year, subject, amount, ratio = compensation_match.groups()
+            return (
+                f"The latest parsed return in this run is {year}. It reports {subject} compensation of {amount}, "
+                f"equal to {ratio} of parsed expenses."
+            )
+
+        political_match = re.search(
+            r"Latest parsed return (\d{4}) reports PoliticalCampaignActyInd=([^ ]+) and LobbyingActivitiesInd=([^.]*)\.",
+            value,
+        )
+        if political_match:
+            year, campaign, lobbying = political_match.groups()
+            return (
+                f"The latest parsed return in this run is {year}. The parsed political-campaign activity indicator is {campaign}; "
+                f"the parsed lobbying-activity indicator is {lobbying}."
+            )
+
+        fac_match = re.search(
+            r"Federal Audit Clearinghouse summary reports material weakness years=(.*?), internal-control deficiency years=(.*?), not-low-risk years=(.*?), findings rows=([^.]+)\.",
+            value,
+        )
+        if fac_match:
+            material, deficiency, not_low, findings = fac_match.groups()
+            return (
+                "Federal Audit Clearinghouse data in this run reports "
+                f"material-weakness year(s): {material}; internal-control-deficiency year(s): {deficiency}; "
+                f"not-low-risk year(s): {not_low}; finding row count: {findings}."
+            )
+
+        value = value.replace("California Department of Housing and Community Development award lists name", "California housing-award records name")
+        value = value.replace("Homekey/Homekey+ project row(s)", "Homekey/Homekey+ project row(s)")
+        value = value.replace("Parsed entity growth context:", "Parsed entity growth context in this run:")
+        return value
+
+    def _clean_service_excerpt(self, text: object) -> str:
+        value = self._plain_language(text)
+        value = self._after(value, "Service summary from official source(s):") or value
+        value = re.sub(r"https?://\S+", " ", value)
+        value = re.sub(r"\bwww\.\S+", " ", value)
+        value = value.replace("|", " ")
+        value = value.replace(chr(8226), " ")
+        value = re.sub(r"^[\s:;\-]+", "", value)
+        for phrase in sorted(SERVICE_PAGE_NAV_PHRASES, key=len, reverse=True):
+            value = re.sub(re.escape(phrase), " ", value, flags=re.IGNORECASE)
+        words = []
+        for word in value.split():
+            normalized = re.sub(r"[^a-z0-9]+", "", word.lower())
+            if normalized in SERVICE_PAGE_NAV_WORDS:
+                continue
+            if normalized == "x":
+                continue
+            words.append(word)
+        value = " ".join(words)
+        value = re.sub(r"\s+", " ", value).strip(" :-")
+        value = re.sub(r"\b(More|Menu|Toggle|Read More|Learn More)\b", " ", value, flags=re.IGNORECASE)
+        value = re.sub(r"\s+", " ", value).strip(" :-")
+        if not value:
+            return "The official public page was recovered, but its scraped text was navigation-heavy and did not yield a clean service description."
+        return value
+
+    def _clean_evidence_excerpt(self, text: object) -> str:
+        value = self._plain_language(text)
+        replacements = {
+            "Full source document downloaded: False local path: not archived. source document SHA256: not available.": "Raw source document was not archived in this run.",
+            "Full source document downloaded: False. local path: not archived. source document SHA256: not available.": "Raw source document was not archived in this run.",
+        }
+        for old, new in replacements.items():
+            value = value.replace(old, new)
+        value = re.sub(r"\s*Full source document downloaded: False\.?", " Raw source document was not archived in this run.", value, flags=re.IGNORECASE)
+        value = re.sub(r"\s*local path: [^.]+\.?", " ", value, flags=re.IGNORECASE)
+        value = re.sub(r"\s*source document SHA256: not available\.?", " ", value, flags=re.IGNORECASE)
+        value = re.sub(r"\s*Internal Revenue Service object ID: not available\.?", " ", value, flags=re.IGNORECASE)
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
+
+    def _service_scope_phrase(self, entity: str, cleaned_excerpt: str) -> str:
+        lower = cleaned_excerpt.lower()
+        terms: list[str] = []
+        checks = [
+            ("homeless services", ("homeless services", "homeless service provider")),
+            ("interim supportive housing", ("interim supportive housing",)),
+            ("supportive housing", ("supportive housing", "supportive communities")),
+            ("affordable housing", ("affordable housing",)),
+            ("wraparound services", ("wraparound services",)),
+            ("emergency shelter", ("emergency shelter",)),
+            ("domestic violence services", ("domestic violence services", "sojourn domestic violence")),
+            ("substance use disorder treatment", ("substance use disorder", "substance use treatment")),
+            ("residential programs", ("residential programs",)),
+            ("tiny-home villages", ("tiny homes villages", "tiny home")),
+        ]
+        for label, needles in checks:
+            if any(needle in lower for needle in needles):
+                terms.append(label)
+        if terms:
+            return f"identifies {entity} with " + self._series_text(terms[:4])
+        return f"provides public service-scope text for {entity}"
+
+    def _series_text(self, values: list[str]) -> str:
+        if not values:
+            return ""
+        if len(values) == 1:
+            return values[0]
+        if len(values) == 2:
+            return f"{values[0]} and {values[1]}"
+        return ", ".join(values[:-1]) + f", and {values[-1]}"
+
+    def _tidy_sentence(self, text: object) -> str:
+        value = " ".join(str(text).split())
+        value = value.replace(" ,", ",").replace(" ;", ";").replace(" .", ".")
+        value = value.replace(",,", ",").strip()
+        return value
+
     def _source_type_label(self, source_type: str) -> str:
         return self._plain_language(SOURCE_TYPE_LABELS.get(source_type, source_type))
 
@@ -395,7 +660,7 @@ class CaseDossierService:
             lines.append("")
             for item in why_rows:
                 lines.append(
-                    f"- {item.entity or 'Case-wide'}: {self._plain_language(item.observed_fact)} Why it matters: {self._plain_language(self._why_it_matters(item))} Evidence: {self._compact_matrix_refs(item, labels)}."
+                    f"- {item.entity or 'Case-wide'}: {self._reader_fact(item.observed_fact)} Why it matters: {self._plain_language(self._why_it_matters(item))} Evidence: {self._compact_matrix_refs(item, labels)}."
                 )
         else:
             lines.append(
@@ -592,7 +857,7 @@ class CaseDossierService:
             source_label = self._source_type_label(item.source_type)
             published = item.published_at or "date not provided"
             lines.append(
-                f"- `{ref}` {self._plain_language(item.title)} ({source_label}, {published}): {self._short_excerpt(self._plain_language(item.excerpt), 260)}"
+                f"- `{ref}` {self._plain_language(item.title)} ({source_label}, {published}): {self._reader_excerpt(item, 260)}"
             )
         if len(ordered) > limit:
             lines.append(f"- {len(ordered) - limit} additional evidence item(s) are in the citation ledger.")
@@ -618,7 +883,7 @@ class CaseDossierService:
         if substantive:
             for item in substantive[:4]:
                 lines.append(
-                    f"- CalDS flags {item.entity or 'the case'} / {item.risk_area}: {self._plain_language(item.observed_fact)} Evidence: {self._compact_matrix_refs(item, labels)}. {self._plain_language(self._why_it_matters(item))}"
+                    f"- CalDS flags {item.entity or 'the case'} / {item.risk_area}: {self._reader_fact(item.observed_fact)} Evidence: {self._compact_matrix_refs(item, labels)}. {self._plain_language(self._why_it_matters(item))}"
                 )
         else:
             lines.append(
@@ -857,7 +1122,7 @@ class CaseDossierService:
                     continue
                 lines.extend(
                     [
-                        f"- {item.risk_area}: {self._plain_language(item.observed_fact)}",
+                        f"- {item.risk_area}: {self._reader_fact(item.observed_fact)}",
                         f"  Evidence: {self._matrix_refs(item, labels)}. Human action: {self._indicator_next_step(item)}",
                     ]
                 )
@@ -889,25 +1154,29 @@ class CaseDossierService:
         return [
             f"{heading_prefix} {entity}",
             "",
-            f"Briefing judgment: {self._entity_judgment_sentence(entity, review_rows, posture)} Evidence: {refs}.",
+            "Why this entity is in the review set:",
             "",
-            f"Who they are / what they say they do: {self._plain_language(claim)}",
+            f"{self._entity_judgment_sentence(entity, review_rows, posture)} Evidence: {refs}.",
             "",
-            "What CalDS found in the records:",
+            "What the organization says it does:",
+            "",
+            self._plain_language(claim),
             "",
             "Key retrieved records:",
             "",
             *source_facts,
             "",
-            "Why CalDS flagged it:",
+            "What the records show:",
             "",
             *facts,
             "",
-            f"Reviewer readout: {why} Evidence: {refs}.",
+            "Why CalDS flagged it:",
+            "",
+            f"{why} Evidence: {refs}.",
             "",
             f"What this does not prove: {limits}",
             "",
-            f"Recommended human next step: {next_step} Source: risk matrix rows for this entity.",
+            f"Next human step: {next_step} Source: risk matrix rows for this entity.",
             "",
         ]
 
@@ -927,8 +1196,8 @@ class CaseDossierService:
         strongest = substantive[0]
         pattern = self._signal_summary(substantive)
         return (
-            f"CalDS treats {entity} as a {posture} because the records show {pattern}; "
-            f"the strongest current trigger is {self._plain_language(strongest.observed_fact)}"
+            f"CalDS selected {entity} as a {posture} because the cited records show {pattern}. "
+            f"The strongest current cited trigger is: {self._reader_fact(strongest.observed_fact)}"
         )
 
     def _briefing_fact_bullets(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> list[str]:
@@ -942,7 +1211,7 @@ class CaseDossierService:
         if selected:
             for item in selected[:5]:
                 bullets.append(
-                    f"- {item.risk_area}: {self._plain_language(item.observed_fact)} ({self._when_where(item)}; evidence {self._compact_matrix_refs(item, labels)}.)"
+                    f"- {item.risk_area}: {self._reader_fact(item.observed_fact)} ({self._when_where(item)}; evidence {self._compact_matrix_refs(item, labels)}.)"
                 )
         else:
             bullets.append("- No implemented high or medium possible waste, fraud, abuse, or mismanagement screen fired for this entity from the current matrix.")
@@ -991,7 +1260,7 @@ class CaseDossierService:
             source_label = self._source_type_label(item.source_type)
             published = item.published_at or "date not provided"
             bullets.append(
-                f"- `{ref}` {self._plain_language(item.title)} ({source_label}, {published}): {self._short_excerpt(self._plain_language(item.excerpt), 260)}"
+                f"- `{ref}` {self._plain_language(item.title)} ({source_label}, {published}): {self._reader_excerpt(item, 260)}"
             )
         if len(items) > limit:
             bullets.append(f"- {len(items) - limit} additional matched source item(s) appear in the citation ledger.")
@@ -1021,10 +1290,14 @@ class CaseDossierService:
             for item in candidates:
                 if item.source_type == source_type and item.excerpt:
                     ref = f"`{labels.get(item.item_id, item.item_id)}`"
-                    excerpt = item.excerpt
-                    if item.source_type == "org_service_page":
-                        excerpt = self._after(item.excerpt, "Service summary from official source(s):") or item.excerpt
-                    return f"retrieved source `{item.title}` says or summarizes: {self._short_excerpt(excerpt)} Evidence: {ref}."
+                    excerpt = self._clean_service_excerpt(item.excerpt)
+                    source_kind = "official service page" if item.source_type == "org_service_page" else "public statement source"
+                    scope = self._service_scope_phrase(entity, excerpt)
+                    return (
+                        f"The recovered {source_kind}, `{self._plain_language(item.title)}`, {scope}. "
+                        f"Evidence: {ref}. "
+                        "This source is used for public service-scope context only; it does not verify outcomes, spending, or compliance."
+                    )
         return "this run did not recover a direct service-page or public-statement description for this entity, so CalDS does not fill that gap with an assumed mission statement."
 
     def _entity_evidence_items(self, entity: str, bundle: EvidenceBundle) -> list[EvidenceItem]:
@@ -1159,7 +1432,7 @@ class CaseDossierService:
                 [
                     f"### {entity}",
                     "",
-                    f"CalDS treats {entity} as a {posture}. The entity is in this dossier because the current source bundle contains the specific source facts below. Evidence: {refs}.",
+                    f"CalDS keeps {entity} in the dossier as a {posture}. The source-backed reasons are listed below. Evidence: {refs}.",
                     "",
                     "Specific findings that drove the flag:",
                     "",
@@ -1188,8 +1461,9 @@ class CaseDossierService:
     ) -> list[str]:
         refs = self._matrix_refs(item, labels)
         source_text = self._format_source_uris(item.source_uris)
+        fact = self._reader_fact(item.observed_fact)
         return [
-            f"{index}. {item.risk_level} - {item.risk_area}: {self._plain_language(item.observed_fact)} Evidence: {refs}.",
+            f"{index}. {item.risk_level} - {item.risk_area}: {fact} Evidence: {refs}.",
             f"   - When/where: {self._when_where(item)} Evidence: {refs}.",
             f"   - How it triggered: {self._trigger_text(item)} Evidence: {refs}.",
             f"   - Evidence: {refs}; source: {source_text}",
@@ -1253,9 +1527,10 @@ class CaseDossierService:
         return f"{item.risk_level} {item.risk_area} screen via test '{item.test_name}'.{status}"
 
     def _system_opinion(self, item: OversightRiskIndicator) -> str:
+        fact = self._reader_fact(item.observed_fact)
         if item.risk_level == "Data gap":
-            return f"CalDS flags this as a data blocker because {item.observed_fact} Without the missing source, the system cannot responsibly downgrade or clear the issue."
-        return f"CalDS flags this as a {item.risk_level.lower()} possible waste, fraud, abuse, or mismanagement review priority because {item.observed_fact} This source fact matches the implemented {item.risk_area.lower()} screen and should stay in the active review queue."
+            return f"CalDS flags this as a data blocker because {fact} Without the missing source, the system cannot responsibly downgrade or clear the issue."
+        return f"CalDS flags this as a {item.risk_level.lower()} possible waste, fraud, abuse, or mismanagement review priority because {fact} This source fact matches the implemented {item.risk_area.lower()} screen and should stay in the active review queue."
 
     def _why_it_matters(self, item: OversightRiskIndicator) -> str:
         area = item.risk_area.lower()
