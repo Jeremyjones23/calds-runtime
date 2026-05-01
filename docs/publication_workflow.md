@@ -36,7 +36,7 @@ The publisher fails closed if:
 
 Evidence labels such as `E13` become clickable anchors in `index.html`. Each anchor resolves to a source-ledger card with source type, record ID, checksum, excerpt, and source links.
 
-If the evidence item points directly to an internet URL, the ledger links that URL. If the item is a local parsed artifact, the publisher attempts to extract official upstream URLs from the artifact or infer them from related evidence in the bundle. If no internet source can be recovered, the row is marked `not_externally_linkable` and preserves the internal evidence ID, record ID, source type, checksum, and title for follow-up.
+If the evidence item points directly to an internet URL, the ledger links that URL only after link-integrity verification. If the item is a local parsed artifact, the publisher attempts to extract official upstream URLs from the artifact or infer them from related evidence in the bundle. If no verified internet source can be recovered, the row is marked `source_access_required` and preserves the internal evidence ID, record ID, source type, checksum, title, and repair note for follow-up.
 
 ## Hosting Recommendation
 

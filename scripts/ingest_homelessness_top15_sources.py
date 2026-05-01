@@ -1917,7 +1917,7 @@ def enforcement_docket_discovery_artifacts(enforcement_table: dict[str, Any]) ->
     table = {
         "created_at": now(),
         "case_id": CASE_ID,
-        "methodology": "Every top-15 entity receives official public enforcement search attempts plus manual-source instructions. Recovered official adverse rows remain hits; completed public official searches with no public adverse result are preserved as coverage, not clearance.",
+        "methodology": "Every top-15 entity receives official public enforcement search attempts plus manual-source instructions. Recovered official adverse rows remain hits; completed public official searches with no public adverse result remain source-access blockers, not clearance.",
         "rows": rows,
         "public_search_rows": public_search_rows,
         "row_count": len(rows),
@@ -2599,7 +2599,7 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
             "\n".join(
                 [
                     "Systematic official-source enforcement and docket search table for all top-15 entities.",
-                    "Recovered official rows count as evidence hits; completed public official no-record searches count as source coverage, not legal clearance. Search target rows preserve remaining manual gaps and next actions.",
+            "Recovered official rows count as evidence hits; completed public official no-record searches remain source-access blockers, not legal clearance. Search target rows preserve remaining manual gaps and next actions.",
                     markdown_table(enforcement_discovery_rows, ["entity", "official_enforcement_row_recovered", "status", "public_official_search_completed_count", "public_official_search_possible_hit_count", "source_gap"], limit=30),
                 ]
             ),

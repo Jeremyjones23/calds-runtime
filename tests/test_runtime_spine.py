@@ -9,9 +9,9 @@ from uuid import uuid4
 from calds_runtime.agents import LeadScorerAgent
 from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
-from calds_runtime.contracts import CanonicalRecord, CaseRequest, CompletionGuardResult, EvidenceBundle, EvidenceItem, Provenance, WorkflowStatus, read_json, write_json
+from calds_runtime.contracts import CanonicalRecord, CaseRequest, CompletionGuardResult, EvidenceBundle, EvidenceItem, LinkIntegrityReport, Provenance, SourceLinkCheck, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
-from calds_runtime.publication import extract_urls, publish_case_site_from_run, repair_public_source_urls
+from calds_runtime.publication import extract_urls, mark_unverified_source_urls, publish_case_site_from_run, repair_public_source_urls
 from calds_runtime.quality_gates import CitationVerifierService, CompletionGuardService, RunReadinessService
 from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
@@ -56,7 +56,7 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertGreaterEqual(len(acquisition["searches"]), len(forensic_plan["selected_entities"]))
             self.assertIn(completion_guard["status"], {"PASS", "PASS_WITH_BLOCKERS"})
             self.assertGreaterEqual(completion_guard["total_searches"], len(acquisition["searches"]))
-            self.assertIn("misses are blockers", " ".join(completion_guard["notes"]))
+            self.assertIn("anything short of a citation-ready hit remains a source-access blocker", " ".join(completion_guard["notes"]))
             self.assertIn("triaged", state["completed_steps"])
 
             dossier_path = Path(state["artifacts"]["case_dossier_markdown"])
@@ -162,6 +162,8 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertEqual(public_manifest["citation_verification"]["status"], "PASS")
             self.assertIn("link_integrity", public_manifest)
             self.assertIn(public_manifest["link_integrity"]["status"], {"PASS", "PASS_WITH_WARNINGS"})
+            self.assertIn("source_access", public_manifest)
+            self.assertIn("source_access_required_count", public_manifest["source_access"])
             self.assertIn("CalDS Public Case Viewer", public_html)
             self.assertIn("California Evidence Room", public_html)
             self.assertIn("class=\"case-hero\"", public_html)
@@ -173,6 +175,8 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertNotIn(str(PROJECT_ROOT), public_md)
             for entry in public_ledger["evidence"]:
                 self.assertTrue(entry["source_urls"] or entry["link_note"])
+                if not entry["source_urls"]:
+                    self.assertEqual(entry["link_status"], "source_access_required")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -219,6 +223,53 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("Links are not removed as a substitute for repair", repair["note"])
         self.assertEqual(repair["replacements"][0]["old_unlinked_reference"], "www.tarzanatc.org/news-events/")
         self.assertNotIn("old_url", repair["replacements"][0])
+
+    def test_publication_repairs_or_marks_unverified_public_source_links(self) -> None:
+        ledger = [
+            {
+                "ref": "E01",
+                "title": "IRS loose XML",
+                "source_urls": ["https://apps.irs.gov/pub/epostcard/990/xml/2024/2024120622935468_public.xml"],
+                "link_status": "external_source_linked",
+                "source_reference": "https://apps.irs.gov/pub/epostcard/990/xml/2024/2024120622935468_public.xml",
+                "link_note": "",
+            },
+            {
+                "ref": "E02",
+                "title": "Blocked source",
+                "source_urls": ["https://example.test/blocked-source.pdf", "https://example.test/good-source"],
+                "link_status": "external_source_linked",
+                "source_reference": "https://example.test/blocked-source.pdf; https://example.test/good-source",
+                "link_note": "",
+            },
+        ]
+        repaired, _ = repair_public_source_urls(ledger)
+        self.assertEqual(repaired[0]["source_urls"], ["https://apps.irs.gov/pub/epostcard/990/xml/2024/index_2024.csv"])
+
+        report = LinkIntegrityReport(
+            report_id="links",
+            status="FAIL",
+            checked_url_count=2,
+            error_count=1,
+            warning_count=0,
+            checks=[
+                SourceLinkCheck(
+                    check_id="bad",
+                    url="https://example.test/blocked-source.pdf",
+                    status="ERROR",
+                    http_status=None,
+                    final_url="",
+                    content_type="",
+                    error="HTTP Error 403: Forbidden",
+                )
+            ],
+        )
+        updated, unresolved = mark_unverified_source_urls(repaired, report)
+        self.assertEqual(updated[1]["source_urls"], ["https://example.test/good-source"])
+        self.assertEqual(updated[1]["link_status"], "external_source_linked")
+        self.assertIn("unverified_source_references", updated[1])
+        self.assertIn("Source access required", updated[1]["link_note"])
+        self.assertEqual(unresolved["unverified_public_links"], 1)
 
     def test_sentinel_escalated_language_catches_legal_and_causal_overclaims(self) -> None:
         self.assertTrue(find_escalated_language("The records prove misconduct occurred."))
@@ -272,6 +323,18 @@ class RuntimeSpineTests(unittest.TestCase):
         for target in module.TARGETS:
             for url in target["service_urls"]:
                 self.assertTrue(url.startswith("https://"), f"{target['name']} has non-HTTPS service URL: {url}")
+
+        source_text = script_path.read_text(encoding="utf-8")
+        self.assertNotIn("SERVICE_TEXT_FALLBACKS", source_text)
+        self.assertNotIn("official_search_fallback", source_text)
+        self.assertIn("do not substitute hand-entered fallback text", source_text)
+
+    def test_live_pipeline_has_no_skip_flags_for_required_source_families(self) -> None:
+        for script_name in ["run_live_case_pipeline.py", "ingest_live_recovery_sources.py"]:
+            text = (PROJECT_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+            self.assertNotIn("--skip-federal-awards", text)
+            self.assertNotIn("skip_federal_awards", text)
+
     def test_search_diversifies_required_source_types_before_relevance_fill(self) -> None:
         records = []
         for record_id, source_type, body in [
@@ -375,7 +438,7 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(ledger[0].matched_record_ids, [])
         self.assertIn("Only discovery/source-gap", ledger[0].blocker_reason)
 
-    def test_completion_guard_counts_official_no_record_search_as_coverage_not_hit(self) -> None:
+    def test_completion_guard_counts_official_no_record_search_as_blocker_not_clearance(self) -> None:
         record = CanonicalRecord(
             record_id="enforcement_docket_no_record_shelter_group",
             title="Official enforcement search: Shelter Group",
@@ -395,14 +458,15 @@ class RuntimeSpineTests(unittest.TestCase):
                 chunk_id="official-no-record#body",
             ),
         )
-        case = CaseRequest(case_id="guard_no_record_test", title="Guard no-record regression", objective="Count official no-record searches as source coverage.", entities=["Shelter Group"])
+        case = CaseRequest(case_id="guard_no_record_test", title="Guard no-record regression", objective="Count official no-record searches as blockers, not clearance.", entities=["Shelter Group"])
         service = CompletionGuardService()
         ledger = service.build_acquisition_ledger(case, [record], ["Shelter Group"], ["enforcement_or_docket"])
         guard = service.guard(case, ledger, ["Shelter Group"], ["enforcement_or_docket"])
         self.assertEqual(ledger[0].status, "searched_no_public_official_record")
         self.assertEqual(ledger[0].matched_record_ids, ["enforcement_docket_no_record_shelter_group"])
-        self.assertEqual(guard.status, "PASS")
-        self.assertEqual(guard.blocker_count, 0)
+        self.assertEqual(guard.status, "PASS_WITH_BLOCKERS")
+        self.assertEqual(guard.blocker_count, 1)
+        self.assertEqual(guard.missing_required, ["Shelter Group: enforcement_or_docket"])
         self.assertIn("not legal clearance", " ".join(guard.notes))
 
     def test_triage_missing_source_families_ignore_discovery_gap_records(self) -> None:
@@ -784,7 +848,7 @@ class RuntimeSpineTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_risk_matrix_reports_public_enforcement_no_record_coverage(self) -> None:
+    def test_risk_matrix_reports_public_enforcement_no_record_blocker(self) -> None:
         temp_dir = PROJECT_ROOT / "runs" / "tests" / f"calds-enforcement-search-test-{uuid4().hex}"
         try:
             table_path = temp_dir / "enforcement_docket_discovery_summary.json"
@@ -813,7 +877,7 @@ class RuntimeSpineTests(unittest.TestCase):
                 attributes={"table_path": str(table_path), "signals": {"official_source_search_completed_no_hit": True}},
                 provenance=provenance,
             )
-            case = CaseRequest(case_id="enforcement_search_case", title="Enforcement search case", objective="Distinguish no-record coverage.", entities=["Shelter Group"])
+            case = CaseRequest(case_id="enforcement_search_case", title="Enforcement search case", objective="Distinguish no-record blockers.", entities=["Shelter Group"])
             matrix = OversightRiskMatrixService().build(case, [record], EvidenceBundle(bundle_id="bundle", case_id="enforcement_search_case", query_terms=[], items=[], entity_links=[]))
             rows = [item for item in matrix.indicators if item.risk_area == "Enforcement and docket history" and item.entity == "Shelter Group"]
             self.assertEqual(rows[0].risk_level, "Low")

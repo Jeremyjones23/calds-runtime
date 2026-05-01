@@ -16,7 +16,7 @@ This repository is not an autonomous accusation engine. It produces reviewer-saf
 
 Generated live artifacts, run outputs, PDFs, and downloaded corpora are intentionally excluded from Git by `.gitignore`.
 
-For the canonical folder map and cleanup rules, see `docs/repo_layout.md`.
+For the canonical folder map and cleanup rules, see `docs/repo_layout.md`. For the current no-shortcut methodology audit, see `docs/methodology_integrity_audit.md`.
 
 ## Safety Boundaries
 
@@ -34,9 +34,9 @@ The homelessness workflow now includes a first-pass top-15 triage gate before de
 
 The workflow also includes four anti-drift quality gates:
 
-- `CompletionGuardService` records source-family acquisition hits and misses before synthesis, so missing searches become explicit blockers rather than silent omissions.
+- `CompletionGuardService` records source-family acquisition hits, no-record public searches, and misses before synthesis. Anything short of a citation-ready hit remains a source-access blocker, not clearance.
 - `CitationVerifierService` checks the compiled dossier for unresolved evidence labels, missing traceability, named-party legal-status drift, and provider-attribution overclaim.
-- `LinkIntegrityService` checks public source links during static-site publication and blocks publication when external citation links are broken.
+- `LinkIntegrityService` checks public source links during static-site publication and blocks publication when external citation links are broken. The public publisher repairs known stale URLs to working source pages and reports remaining source-access gaps instead of hiding them.
 - `RunReadinessService` compares a rerun against a baseline and reports whether the new run is materially deeper before treating it as an improved result.
 
 ## Quick Start

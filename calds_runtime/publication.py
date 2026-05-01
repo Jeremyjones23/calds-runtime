@@ -6,6 +6,7 @@ from pathlib import Path
 import html
 import json
 import re
+import urllib.parse
 from typing import Any, Iterable
 
 from .case_compiler import (
@@ -36,10 +37,13 @@ PUBLIC_URL_REPAIRS = {
     "https://data.ca.gov/api/3/action": "https://lab.data.ca.gov/",
     "https://data.chhs.ca.gov/dataset/medication-assisted-treatment-in-medi-cal-for-opioid-use-disorders-by-county": "https://lab.data.ca.gov/dataset/medication-assisted-treatment-in-medi-cal-for-opioid-use-disorders-by-county",
     "https://www.tarzanatc.org/news-events/": "https://www.tarzanatc.org/treatment-news/",
-    "https://socialmodelrecovery.org/annual-report/": "https://socialmodelrecovery.org/annual-report/?amp",
+    "https://socialmodelrecovery.org/annual-report/": "https://socialmodelrecovery.org/",
+    "https://socialmodelrecovery.org/annual-report/?amp": "https://socialmodelrecovery.org/",
     "https://www.socialmodelrecovery.org/about-us/": "https://socialmodelrecovery.org/services/",
     "https://www.socialmodelrecovery.org/programs/": "https://socialmodelrecovery.org/services/",
 }
+IRS_LOOSE_XML_RE = re.compile(r"^(https://apps\.irs\.gov/pub/epostcard/990/xml/(\d{4})/).+_public\.xml$", re.IGNORECASE)
+PROPUBLICA_DOWNLOAD_EIN_RE = re.compile(r"projects\.propublica\.org/nonprofits/download-filing\?path=.*?([0-9]{2})-?([0-9]{7})_", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -86,6 +90,9 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
 
     source_ledger, link_repair = repair_public_source_urls(source_ledger)
     link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
+    source_ledger, unverified_link_access = mark_unverified_source_urls(source_ledger, link_integrity)
+    link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
+    source_access = source_access_report(source_ledger)
 
     source_ledger_path = output_dir / "source_ledger.json"
     write_json(source_ledger_path, {"case_id": request.case_id, "evidence": source_ledger})
@@ -107,7 +114,6 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     public_dossier_path = output_dir / "case_dossier.json"
     write_json(public_dossier_path, public_dossier)
 
-    link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
     safety = validate_publication(output_dir, public_markdown, html_text, source_ledger, link_integrity)
     manifest = {
         "publication_id": stable_id("publication", request.case_id, utc_now()),
@@ -125,6 +131,8 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
         "safety": safety,
         "link_integrity": to_jsonable(link_integrity),
         "link_repair": link_repair,
+        "unverified_link_access": unverified_link_access,
+        "source_access": source_access,
         "citation_verification": to_jsonable(citation_verification),
     }
     manifest_path = output_dir / "publication_manifest.json"
@@ -156,12 +164,12 @@ def build_source_ledger(bundle: EvidenceBundle, labels: dict[str, str], path_rem
         direct_urls = public_browsable_urls(extract_urls(item.source_uri))
         derived_urls = [] if direct_urls else public_browsable_urls(infer_external_urls(item, bundle, path_remaps))
         source_urls = unique_preserve_order([*direct_urls, *derived_urls])
-        link_status = "external_source_linked" if direct_urls else "derived_external_source_linked" if derived_urls else "not_externally_linkable"
+        link_status = "external_source_linked" if direct_urls else "derived_external_source_linked" if derived_urls else "source_access_required"
         link_note = ""
         if link_status == "derived_external_source_linked":
             link_note = "This evidence item is a parsed local artifact; external links point to upstream official or public sources used by the run."
-        elif link_status == "not_externally_linkable":
-            link_note = "Not externally linkable in this run; the public packet preserves the internal evidence ID, record ID, source type, checksum, and title for audit follow-up."
+        elif link_status == "source_access_required":
+            link_note = "Source access required: this evidence item did not expose a working public URL during publication. The public packet preserves the internal evidence ID, record ID, source type, checksum, and title so a reviewer can request or attach the raw source artifact."
 
         entries.append(
             {
@@ -217,7 +225,7 @@ def repair_public_source_urls(source_ledger: list[dict[str, Any]]) -> tuple[list
             row["link_note"] = " ".join(part for part in [existing_note, repair_note] if part)
             row["source_urls"] = unique_preserve_order(repaired_urls)
             row["source_reference"] = repair_public_source_reference(str(row.get("source_reference", "")))
-            row["link_status"] = "external_source_linked" if row["source_urls"] else "not_externally_linkable"
+            row["link_status"] = "external_source_linked" if row["source_urls"] else "source_access_required"
         updated.append(row)
 
     return updated, {
@@ -233,7 +241,79 @@ def repair_public_urls(urls: Iterable[str]) -> list[str]:
 
 
 def repair_public_url(url: str) -> str:
-    return PUBLIC_URL_REPAIRS.get(str(url).strip(), str(url).strip())
+    candidate = str(url).strip()
+    if candidate in PUBLIC_URL_REPAIRS:
+        return PUBLIC_URL_REPAIRS[candidate]
+    irs_match = IRS_LOOSE_XML_RE.match(candidate)
+    if irs_match:
+        year = irs_match.group(2)
+        return f"https://apps.irs.gov/pub/epostcard/990/xml/{year}/index_{year}.csv"
+    propublica_match = PROPUBLICA_DOWNLOAD_EIN_RE.search(urllib.parse.unquote(candidate))
+    if propublica_match:
+        ein = f"{propublica_match.group(1)}{propublica_match.group(2)}"
+        return f"https://projects.propublica.org/nonprofits/organizations/{ein}"
+    return candidate
+
+
+def mark_unverified_source_urls(source_ledger: list[dict[str, Any]], link_integrity) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    failed = {
+        str(check.url)
+        for check in getattr(link_integrity, "checks", [])
+        if getattr(check, "status", "") == "ERROR"
+    }
+    if not failed:
+        return source_ledger, {
+            "unverified_public_links": 0,
+            "affected_evidence_refs": [],
+            "note": "All public source URLs passed link verification after deterministic repairs.",
+            "items": [],
+        }
+
+    updated: list[dict[str, Any]] = []
+    affected_refs: list[str] = []
+    items: list[dict[str, Any]] = []
+    for entry in source_ledger:
+        row = dict(entry)
+        urls = [str(url) for url in row.get("source_urls", [])]
+        unverified = [url for url in urls if url in failed]
+        if not unverified:
+            updated.append(row)
+            continue
+        verified = [url for url in urls if url not in failed]
+        affected_refs.append(str(row.get("ref", "")))
+        unlinked_refs = [unlinked_url_reference(url) for url in unverified]
+        existing_note = str(row.get("link_note", "")).strip()
+        access_note = (
+            "Source access required for unverified public URL reference(s): "
+            f"{'; '.join(unlinked_refs[:6])}. These references are preserved without live hyperlinks until a working official/source-owner URL or archived copy is attached."
+        )
+        row["source_urls"] = verified
+        row["source_reference"] = remove_unverified_urls_from_reference(str(row.get("source_reference", "")), unverified)
+        row["unverified_source_references"] = unlinked_refs
+        row["link_note"] = " ".join(part for part in [existing_note, access_note] if part)
+        row["link_status"] = "external_source_linked" if verified else "source_access_required"
+        items.append(
+            {
+                "ref": row.get("ref"),
+                "title": row.get("title"),
+                "unverified_source_references": unlinked_refs,
+                "remaining_verified_url_count": len(verified),
+            }
+        )
+        updated.append(row)
+    return updated, {
+        "unverified_public_links": sum(len(item["unverified_source_references"]) for item in items),
+        "affected_evidence_refs": [ref for ref in affected_refs if ref],
+        "items": items,
+        "note": "Broken or blocked public URLs are not published as live links. They are preserved as unlinked source-access references, and the evidence row remains visible for reviewer repair.",
+    }
+
+
+def remove_unverified_urls_from_reference(value: str, urls: Iterable[str]) -> str:
+    updated = value
+    for url in urls:
+        updated = updated.replace(url, unlinked_url_reference(url))
+    return updated
 
 
 def repair_public_source_reference(value: str) -> str:
@@ -252,6 +332,10 @@ def infer_external_urls(item: EvidenceItem, bundle: EvidenceBundle, path_remaps:
     if urls:
         return urls[:30]
 
+    table_urls = infer_table_upstream_urls(item, bundle)
+    if table_urls:
+        return table_urls[:30]
+
     family = source_family(item.source_type, item.record_id)
     if not family:
         return []
@@ -262,6 +346,27 @@ def infer_external_urls(item: EvidenceItem, bundle: EvidenceBundle, path_remaps:
         if source_family(other.source_type, other.record_id) == family:
             candidates.extend(extract_urls(other.source_uri))
     return unique_preserve_order(candidates)[:30]
+
+
+def infer_table_upstream_urls(item: EvidenceItem, bundle: EvidenceBundle) -> list[str]:
+    value = f"{item.source_type} {item.record_id} {item.title}".lower()
+    if "source_extraction" not in value and "source_table" not in value:
+        return []
+    if "spend_vs_results" in value or "outcome_join" in value:
+        wanted = {"state_homelessness_award", "outcome", "irs", "dhcs", "facility", "county"}
+    elif "pdf_text_index" in value:
+        wanted = {"fac", "audit", "county", "contract", "monitoring", "pdf"}
+    else:
+        wanted = {"fac", "audit", "irs", "state_homelessness_award", "outcome", "county", "contract", "dhcs"}
+    urls: list[str] = []
+    for other in bundle.items:
+        if other.item_id == item.item_id:
+            continue
+        haystack = f"{other.source_type} {other.record_id} {other.title}".lower()
+        if any(token in haystack for token in wanted):
+            urls.extend(extract_urls(other.source_uri))
+            urls.extend(extract_urls(other.excerpt))
+    return unique_preserve_order(public_browsable_urls(urls))
 
 
 def source_family(source_type: str, record_id: str) -> str:
@@ -329,7 +434,7 @@ def public_source_reference(item: EvidenceItem) -> str:
 
 
 def extract_urls(value: object) -> list[str]:
-    return unique_preserve_order(match.group(0).rstrip(".,;") for match in URL_RE.finditer(str(value)))
+    return unique_preserve_order(match.group(0).rstrip(".,;:") for match in URL_RE.finditer(str(value)))
 
 
 def public_browsable_urls(urls: Iterable[str]) -> list[str]:
@@ -609,7 +714,7 @@ h1, h2, h3, h4 {
   width: 8px;
   background: var(--ledger-green);
 }
-.evidence-card--not-externally-linkable::before { background: var(--audit-amber); }
+.evidence-card--source-access-required::before { background: var(--audit-amber); }
 .evidence-card--external-source-linked::before { background: var(--ledger-green); }
 .evidence-card--derived-external-source-linked::before { background: var(--civic-blue-2); }
 .evidence-card h3 {
@@ -672,7 +777,8 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
     css = public_case_css()
     evidence_count = len(source_ledger)
     linked_count = sum(1 for entry in source_ledger if entry.get("source_urls"))
-    not_linked_count = evidence_count - linked_count
+    access = source_access_report(source_ledger)
+    access_status = "Complete" if access["complete"] else f"{access['source_access_required_count']} source-access gap(s)"
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -693,7 +799,7 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
       <div class=\"status-tile\"><strong>Sentinel posture</strong><span>{html.escape(sentinel_decision)}</span></div>
       <div class=\"status-tile\"><strong>Human posture</strong><span>Review required</span></div>
       <div class=\"status-tile\"><strong>Evidence ledger</strong><span>{evidence_count} records</span></div>
-      <div class=\"status-tile\"><strong>Internet links</strong><span>{linked_count} linked / {not_linked_count} marked</span></div>
+      <div class=\"status-tile\"><strong>Source access</strong><span>{html.escape(access_status)}</span></div>
     </div>
     <nav class=\"case-nav\" aria-label=\"Case links\">
       <a href=\"#dossier\">Briefing</a>
@@ -714,12 +820,12 @@ def render_public_html(request: CaseRequest, markdown_text: str, source_ledger: 
   </aside>
   <div class=\"case-main\">
   <section class=\"notice\">
-    <div><strong>Publication safety note:</strong> This page is a public-safe review aid, not a formal finding. Local file paths are omitted. Evidence labels jump to source-ledger cards; source rows either link to recovered internet sources or state why the record is not externally linkable in this run.</div>
+    <div><strong>Publication safety note:</strong> This page is a public-safe review aid, not a formal finding. Local file paths are omitted. Evidence labels jump to source-ledger cards; source rows either link to verified internet sources or state that source access is still required and must be resolved before the packet is treated as complete.</div>
   </section>
   <section id=\"dossier\" class=\"dossier\">{body}</section>
   <section id=\"source-ledger\">
     <h2>Source Ledger</h2>
-    <p>Every evidence label used in the dossier resolves here. Original URLs are linked when available; otherwise the row states why the source is not externally linkable in this run.</p>
+    <p>Every evidence label used in the dossier resolves here. Original URLs are linked when available. If a row lacks a verified internet source, it is marked as source access required rather than treated as complete.</p>
 {cards}
   </section>
   </div>
@@ -803,15 +909,18 @@ def format_inline(text: str) -> str:
 
 def render_evidence_card(entry: dict[str, Any]) -> str:
     urls = entry.get("source_urls", [])
+    link_note = str(entry.get("link_note", "")).strip()
     if urls:
         source_items = "".join(f'<li><a href="{html.escape(url)}">{html.escape(url)}</a></li>' for url in urls[:20])
         if len(urls) > 20:
             source_items += f"<li>+{len(urls) - 20} additional source URL(s) in source_ledger.json</li>"
+        if link_note:
+            source_items += f"<li>{html.escape(link_note)}</li>"
     else:
-        source_items = f"<li>{html.escape(entry.get('link_note', 'No external source URL recovered.'))}</li>"
+        source_items = f"<li>{html.escape(link_note or 'No external source URL recovered.')}</li>"
     excerpt = html.escape(str(entry.get("excerpt", "")))
-    link_status = html.escape(str(entry.get("link_status", "not_externally_linkable")).replace("_", "-"))
-    link_status_text = html.escape(str(entry.get("link_status", "not_externally_linkable")).replace("_", " "))
+    link_status = html.escape(str(entry.get("link_status", "source_access_required")).replace("_", "-"))
+    link_status_text = html.escape(str(entry.get("link_status", "source_access_required")).replace("_", " "))
     return f"""
 <article class=\"evidence-card evidence-card--{link_status}\" id=\"{html.escape(entry['anchor'])}\">
   <h3>{html.escape(entry['ref'])}: {html.escape(entry['title'])}</h3>
@@ -842,7 +951,7 @@ def validate_publication(
         errors.append("missing source-ledger targets for evidence refs: " + ", ".join(missing_refs))
     for entry in source_ledger:
         if not entry.get("source_urls") and not entry.get("link_note"):
-            errors.append(f"{entry['ref']} lacks external source URL or explicit not-linkable note")
+            errors.append(f"{entry['ref']} lacks external source URL or explicit source-access note")
     safety_files = {
         "case_dossier.md": markdown_text,
         "index.html": html_text,
@@ -870,6 +979,42 @@ def validate_publication(
         "checked_files": sorted(safety_files),
         "evidence_refs_checked": len(referenced),
         "source_ledger_entries": len(source_ledger),
+        "source_access": source_access_report(source_ledger),
+    }
+
+
+def source_access_report(source_ledger: list[dict[str, Any]]) -> dict[str, Any]:
+    required = [
+        {
+            "ref": entry.get("ref"),
+            "record_id": entry.get("record_id"),
+            "source_type": entry.get("source_type"),
+            "title": entry.get("title"),
+            "reason": entry.get("link_note") or "No verified public source URL is attached.",
+        }
+        for entry in source_ledger
+        if not entry.get("source_urls")
+    ]
+    partial = [
+        {
+            "ref": entry.get("ref"),
+            "record_id": entry.get("record_id"),
+            "source_type": entry.get("source_type"),
+            "title": entry.get("title"),
+            "unverified_source_references": entry.get("unverified_source_references", []),
+            "remaining_verified_url_count": len(entry.get("source_urls", [])),
+        }
+        for entry in source_ledger
+        if entry.get("unverified_source_references")
+    ]
+    return {
+        "complete": not required,
+        "source_access_required_count": len(required),
+        "partial_source_access_issue_count": len(partial),
+        "affected_evidence_refs": [str(entry["ref"]) for entry in required if entry.get("ref")],
+        "items": required,
+        "partial_items": partial,
+        "note": "Every evidence row should have a verified public URL or remain visibly marked as source-access-required. Missing source access is never treated as completion.",
     }
 
 

@@ -33,7 +33,7 @@ INPUT TYPE: ITERATE
     <constraint>Official indictment, charge, prosecution, settlement, violation, conviction, or adverse action tied to a connected person, project, transaction, counterparty, or operator triggers deep review only when the source record preserves a material nexus to public funds, project operations, controls, payment flow, or named-party relationship; exact named-party caveats remain mandatory.</constraint>
     <constraint>Voter registration, get-out-the-vote, voter engagement, citizenship, naturalization, immigration legal services, ICE enforcement, deportation defense, power building, political action, lobbying, or advocacy language is a homelessness scope-mismatch screen only when attributable to the entity and plausibly connected to homelessness-funded work, staffing, cost allocation, grant scope, or public-funds exposure; otherwise it remains contextual public speech.</constraint>
     <constraint>Public output may say possible waste, fraud, abuse, mismanagement, or off-scope use only as a screening lead, not as a conclusion.</constraint>
-    <constraint>Do not hide source gaps. Completion guard misses are blockers or caveats, not silent omissions.</constraint>
+  <constraint>Do not hide source gaps. Completion guard misses, public no-record searches, and source-access-required rows are blockers or caveats, not silent omissions or clearance.</constraint>
     <constraint>Every substantive dossier statement must resolve to evidence IDs, record IDs, source URIs, checksums, or artifact references.</constraint>
   </constraints>
   <reasoning>Use high reasoning depth. Prefer source-family coverage, causality caveats, context preservation, named-party precision, and falsifiability over narrative force.</reasoning>
@@ -49,7 +49,7 @@ INPUT TYPE: ITERATE
     <rule>Tax and Audit Analyst must use public Form 990 access layers when available and preserve IRS/Federal Audit Clearinghouse control-source caveats.</rule>
     <rule>Web and Social Statements Analyst must preserve attribution, timestamp, URL, matched term, scope caveat, and the specific funding-source or cost-allocation nexus question for every statement or social signal.</rule>
     <rule>Forensic Synthesis Analyst may state internal hypotheses, but every hypothesis must include basis, caveat, and human-only next steps.</rule>
-    <rule>Completion Guard must mark missing required source families as blockers or explicit caveats before synthesis.</rule>
+  <rule>Completion Guard must mark missing required source families, public no-record searches, and source-access-required rows as blockers or explicit caveats before synthesis.</rule>
     <rule>Citation Verifier must block hallucinated or unresolvable claims.</rule>
     <rule>Link Integrity Checker must verify public citation links before publication.</rule>
     <rule>Sentinel blocks unsupported legal escalation and public/private boundary violations.</rule>

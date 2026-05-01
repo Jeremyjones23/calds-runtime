@@ -67,7 +67,7 @@ OPINION_CLAIM_PREFIXES = (
 )
 SAFETY_CAVEAT_RE = re.compile(
     r"\b(does not prove|does not mean|not a formal finding|not a formal conclusion|not a finding|"
-    r"not charged or liable|not legal clearance|not provider attribution|not externally linkable|"
+    r"not charged or liable|not legal clearance|not provider attribution|source access required|"
     r"human review required|pending explicit human review)\b",
     re.IGNORECASE,
 )
@@ -104,7 +104,7 @@ class CompletionGuardService:
                 elif no_public_record:
                     blocker = (
                         f"Configured public official {family} searches completed for {entity} with no public adverse record recovered; "
-                        "this is source coverage, not legal clearance. Manual PACER, local court, and records-request work may still be required."
+                        "this remains unresolved source access, not legal clearance. Manual PACER, local court, and records-request work may still be required."
                     )
                 elif candidates:
                     blocker = (
@@ -144,16 +144,16 @@ class CompletionGuardService:
         for entity in entities:
             for family in families:
                 run = by_key.get((entity, family))
-                if run is None or run.status not in {"hit", "searched_no_public_official_record"}:
+                if run is None or run.status != "hit":
                     missing_required.append(f"{entity}: {family}")
         counts = Counter(run.status for run in ledger)
         status = "PASS" if not missing_required else "PASS_WITH_BLOCKERS"
         if not ledger or not entities:
             status = "FAIL"
         notes = [
-            "Completion guard records hits, public official no-record searches, and misses; misses are blockers, not clearance.",
-            "A searched_no_public_official_record status means configured public official sources were searched without recovering a public adverse record; it is not legal clearance.",
-            "Dossier compilation may proceed only because unresolved source gaps are preserved for human review.",
+            "Completion guard records hits, public official no-record searches, and misses; anything short of a citation-ready hit remains a source-access blocker, not clearance.",
+            "A searched_no_public_official_record status means configured public official sources were searched without recovering a public adverse record; it is not legal clearance and still leaves manual PACER, local court, records-request, or credentialed-source work unresolved.",
+            "Dossier compilation may proceed as a review packet only because unresolved source-access blockers are preserved for human review.",
         ]
         if status == "FAIL":
             notes.append("No selected entities or acquisition rows were available; the workflow should not be treated as complete.")
@@ -367,6 +367,8 @@ class RunReadinessService:
             blockers.append(f"Citation verifier is not clean: {current.get('citation_status')}.")
         if current.get("publication_manifest_present") and current.get("publication_safety_passed") is False:
             blockers.append("Publication safety manifest did not pass.")
+        if int(current.get("completion_guard_blocker_count") or 0) > 0:
+            blockers.append(f"Completion guard still has {current.get('completion_guard_blocker_count')} source-access blocker(s).")
         if int(current.get("evidence_count") or 0) == 0:
             blockers.append("No evidence bundle items were produced.")
         return blockers

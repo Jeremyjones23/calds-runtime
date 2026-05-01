@@ -22,7 +22,8 @@ SOURCE_TYPE_LABELS = {
     "irs_990_summary": "Internal Revenue Service Form 990 summary",
     "irs_990_xml": "Downloaded Internal Revenue Service Form 990 machine-readable filing data",
     "irs_990_download_manifest": "Internal Revenue Service machine-readable filing-data availability manifest",
-    "irs_990_full_text_fallback": "Rendered Form 990 fallback",
+    "irs_990_rendered_secondary_source": "Rendered Form 990 secondary source",
+    "irs_990_full_text_fallback": "Rendered Form 990 secondary source",
     "fac_audit_summary": "Federal Audit Clearinghouse audit summary",
     "fac_audit_pdf": "Federal Audit Clearinghouse audit source document",
     "fac_findings": "Federal Audit Clearinghouse findings table",
@@ -150,8 +151,8 @@ class ReviewArtifactService:
                 f"| Average relevance | {score_inputs.average_relevance} | Keyword relevance across retrieved evidence |",
                 f"| Source diversity | {score_inputs.source_diversity} source type(s) | Variety of independent source classes |",
                 f"| Hard entity links | {score_inputs.hard_link_count} | Deterministic entity joins at strength >= 0.7 |",
-                f"| Completion guard resolved checks | {score_inputs.completion_guard_resolved} of {score_inputs.completion_guard_total} | Required acquisition checks resolved; searched-no-public-record rows count as coverage, not clearance |",
-                f"| Completion guard unresolved blockers | {score_inputs.completion_guard_blocker_count} blocker(s); {score_inputs.completion_guard_miss_count} miss(es) | Acquisition work still blocking source coverage |",
+            f"| Completion guard resolved checks | {score_inputs.completion_guard_resolved} of {score_inputs.completion_guard_total} | Required acquisition checks resolved with citation-ready source hits; searched-no-public-record rows remain unresolved source-access blockers |",
+            f"| Completion guard unresolved blockers | {score_inputs.completion_guard_blocker_count} blocker(s); {score_inputs.completion_guard_miss_count} miss(es) | Acquisition work still blocking citation-ready source access |",
                 f"| Open gap burden | {score_inputs.gap_burden_count} caveat signal(s) | Unresolved review questions inside the evidence bundle, not proof that acquisition failed |",
                 f"| Gap signal buckets | {self._source_type_counts_text(score_inputs.missing_data_source_types)} | Source families carrying gap caveats |",
                 f"| Contradiction burden | {score_inputs.contradiction_count} caution signal(s) | Contradictions are never positive evidence; they lower confidence or require correction |",
@@ -445,10 +446,10 @@ class ReviewArtifactService:
             bullets.append(
                 f"- Internal Revenue Service source gaps: at least one return is represented by a missing-index or missing-object manifest. Review use: treat as a coverage gap and follow-up target, not as an adverse finding. Cited refs: {refs}."
             )
-        if signals.get("irs_990_full_text_fallback"):
-            refs = self._refs_for(bundle, labels, "irs_990_full_text_fallback")
+        if signals.get("irs_990_rendered_secondary_source") or signals.get("irs_990_full_text_fallback"):
+            refs = self._refs_for(bundle, labels, "irs_990_rendered_secondary_source", "irs_990_full_text_fallback")
             bullets.append(
-                f"- Fallback return source: HealthRIGHT 360 has rendered full-text fallback fields because official Internal Revenue Service machine-readable filing data remains unresolved in this run. Review use: compare against later recovered official Internal Revenue Service machine-readable filing data or source document before relying on it. Cited refs: {refs}."
+                f"- Secondary return source: HealthRIGHT 360 has rendered full-text return fields because official Internal Revenue Service machine-readable filing data remains unresolved in this run. Review use: compare against later recovered official Internal Revenue Service machine-readable filing data or source document before relying on it. Cited refs: {refs}."
             )
         if signals.get("fac_audit_pdf_downloaded") or signals.get("fac_prior_findings") or signals.get("fac_current_year_findings"):
             refs = self._refs_for(bundle, labels, "fac_audit_pdf_downloaded", "fac_prior_findings", "fac_current_year_findings")
@@ -545,8 +546,8 @@ class ReviewArtifactService:
             return f"{label}: summary context; verify against return before ranking"
         if item.source_type == "irs_990_download_manifest":
             return f"{label}: source availability gap, not a substantive finding"
-        if item.source_type == "irs_990_full_text_fallback":
-            return f"{label}: fallback only until official Internal Revenue Service machine-readable filing data or source document is recovered"
+        if item.source_type in {"irs_990_rendered_secondary_source", "irs_990_full_text_fallback"}:
+            return f"{label}: secondary source only until official Internal Revenue Service machine-readable filing data or source document is recovered"
         if item.source_type.startswith("source_extraction_"):
             return f"{label}: deterministic parser output; raw source controls"
         if item.source_type == "state_homelessness_award":
@@ -569,8 +570,8 @@ class ReviewArtifactService:
             return "Financial baseline and audit-link context from a public Form 990 summary."
         if item.source_type == "irs_990_download_manifest":
             return "Missing Internal Revenue Service machine-readable filing data coverage for the specified tax period; this flags a data gap only."
-        if item.source_type == "irs_990_full_text_fallback":
-            return "Fallback return fields available because official XML remains unresolved for this object."
+        if item.source_type in {"irs_990_rendered_secondary_source", "irs_990_full_text_fallback"}:
+            return "Secondary rendered return fields are available because official XML remains unresolved for this object."
         if item.source_type == "fac_audit_pdf":
             parts = ["Federal Audit Clearinghouse audit record for year-specific review"]
             if signals.get("fac_prior_findings"):
@@ -633,8 +634,8 @@ class ReviewArtifactService:
             return "Use as orientation only; compare against downloaded XML or original return."
         if item.source_type == "irs_990_download_manifest":
             return "Treat as a source-coverage gap and recheck Internal Revenue Service indexes before escalation."
-        if item.source_type == "irs_990_full_text_fallback":
-            return "Use only as fallback; replace with official Internal Revenue Service machine-readable filing data or source document when recovered."
+        if item.source_type in {"irs_990_rendered_secondary_source", "irs_990_full_text_fallback"}:
+            return "Use only as secondary orientation; replace with official Internal Revenue Service machine-readable filing data or source document when recovered."
         if item.source_type in {"fac_audit_pdf", "fac_findings", "fac_audit_summary"}:
             return "Open the audit source document or row-level Federal Audit Clearinghouse data and verify finding status, year, agency, and response."
         if item.source_type == "fac_federal_awards":

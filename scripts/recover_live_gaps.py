@@ -163,7 +163,7 @@ def recover_healthright_full_text(recovery_dir: Path) -> dict[str, Any]:
         "ein": "946129071",
         "object_id": "202541349349300309",
         "tax_period": "202406",
-        "source_posture": "ProPublica rendered full-text fallback because direct IRS XML object was not present in the listed IRS ZIP and ProPublica XML download was Cloudflare-blocked in local fetch.",
+        "source_posture": "ProPublica rendered full-text secondary source because direct IRS XML object was not present in the listed IRS ZIP and ProPublica XML download was Cloudflare-blocked in local fetch.",
         "gross_receipts": number_after(r"Gross receipts \$\s*-?\d[\d,]*", irs990_text),
         "current_year_total_revenue": line_value(r"12\s+Total revenue", r"13\s+Grants", irs990_text),
         "current_year_total_expenses": line_value(r"18\s+Total expenses", r"19\s+Revenue less expenses", irs990_text),
@@ -308,20 +308,20 @@ def main() -> int:
     parsed = healthright["parsed_fields"]
     healthright_body = "\n".join(
         [
-            "HealthRIGHT 360 Form 990 fallback recovered from ProPublica rendered full-text schedules.",
-            "This does not replace the missing official IRS XML object; it is a fallback source for reviewer comparison.",
-            "Parsed fallback fields:",
+            "HealthRIGHT 360 Form 990 secondary source recovered from ProPublica rendered full-text schedules.",
+            "This does not replace the missing official IRS XML object; it is a source-access blocker and secondary source for reviewer comparison.",
+            "Parsed secondary-source fields:",
             json.dumps(parsed, indent=2, sort_keys=True),
         ]
     )
     records = [
         corpus_record(
-            "healthright_2024_irs_990_full_text_fallback",
-            "HealthRIGHT 360 2024 Form 990 rendered full-text fallback",
+            "healthright_2024_irs_990_rendered_secondary_source",
+            "HealthRIGHT 360 2024 Form 990 rendered secondary source",
             str(args.recovery_dir / "healthright_2024_full_text_combined.txt"),
-            "irs_990_full_text_fallback",
+            "irs_990_rendered_secondary_source",
             healthright_body,
-            {"irs_990_full_text_fallback": True, "full_990_xml_missing": True, "missing_data": True},
+            {"irs_990_rendered_secondary_source": True, "full_990_xml_missing": True, "missing_data": True, "source_access_required": True},
             {"manifest_path": str(args.recovery_dir / "healthright_2024_propublica_full_text_manifest.json"), "parsed_fields": parsed},
             entities=["HealthRIGHT 360"],
         ),

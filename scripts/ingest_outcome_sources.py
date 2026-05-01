@@ -93,15 +93,6 @@ TARGETS = [
 ]
 STATEMENT_TERMS = ["voter registration","power building","political action","campaign contribution","ballot measure","electioneering","lobbying","advocacy","policy and public affairs","public affairs","homelessness","housing","criminal justice","reentry","outcomes","evidence-based","equity"]
 SERVICE_EXCERPT_TERMS = ["provides a full continuum", "full continuum", "program is designed", "we take a holistic approach", "take a holistic approach", "services include", "we offer a continuum", "offers flexible outpatient", "has been a pioneer in providing", "adult treatment services", "provides high quality", "provides a wide spectrum", "residential treatment program", "substance use disorder treatment", "residential treatment", "outpatient treatment", " we offer ", " offers ", " provides ", " provide ", "substance use", "treatment", "services"]
-SERVICE_TEXT_FALLBACKS = {
-    "https://socialmodelrecovery.org/services/": {
-        "final_url": "https://socialmodelrecovery.org/services/",
-        "content_type": "text/html; official-search-fallback",
-        "text": "Official Social Model Recovery Systems Programs/Services page: Social Model Recovery Systems, Inc. says it has provided adult treatment services since 1986. The page describes a continuum of care from residential treatment at River Community to the Wellness Center; day treatment, partial day treatment, and outpatient services for co-occurring disorders at River Community Covina; outpatient services for substance abuse or mental health issues at Pasadena Council on Alcoholism and Drug Dependence; outpatient substance abuse services at Mid Valley Outpatient; residential substance abuse treatment for women and women with children at Mariposa and Stepping Stones; residential services for men at Omni Center; residential treatment at Bimini; and Royal Palms residential substance abuse treatment for men and women including those in the LGBTQ+ community. The same official page describes adolescent treatment and prevention services.",
-        "fallback_note": "Automated fetch for the official services URL returned HTTP 403 in this environment; text is a bounded fallback from the official page recovered through web search/open on 2026-04-26.",
-    }
-}
-
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -461,27 +452,15 @@ def harvest_service_pages(service_dir: Path) -> dict[str, Any]:
                     }
                 )
             except Exception as exc:
-                fallback = SERVICE_TEXT_FALLBACKS.get(url)
-                if fallback:
-                    page_name = f"{target['slug']}_{index}_fallback"
-                    text = fallback["text"]
-                    (service_dir / f"{page_name}.txt").write_text(text, encoding="utf-8")
-                    record.update(
-                        {
-                            "fetched": True,
-                            "fetch_method": "official_search_fallback",
-                            "final_url": fallback["final_url"],
-                            "content_type": fallback["content_type"],
-                            "sha256": sha256_bytes(text.encode("utf-8")),
-                            "text_chars": len(text),
-                            "excerpt": service_excerpt(text, preferred_terms=target.get("service_anchor_terms", [])),
-                            "local_text_path": str(service_dir / f"{page_name}.txt"),
-                            "fallback_note": fallback["fallback_note"],
-                            "fetch_error": repr(exc),
-                        }
-                    )
-                else:
-                    record.update({"fetched": False, "error": repr(exc), "excerpt": ""})
+                record.update(
+                    {
+                        "fetched": False,
+                        "error": repr(exc),
+                        "excerpt": "",
+                        "source_access_required": True,
+                        "reviewer_action": "Recover the official page through a browser, archived copy, or records request; do not substitute hand-entered fallback text.",
+                    }
+                )
             manifest.append(record)
     write_json(service_dir / "org_service_page_manifest.json", manifest)
     return {"pages": manifest}

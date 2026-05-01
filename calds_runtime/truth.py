@@ -109,7 +109,7 @@ class JsonCorpusTruthStore:
                     hit.matched_terms,
                     radius=900
                     if record.source_type.startswith("source_extraction_")
-                    or record.source_type in {"irs_990_full_text_fallback", "irs_990_raw_artifact", "irs_990_raw_artifact_discovery", "contract_payment_discovery", "enforcement_docket_discovery", "dhcs_adverse_status_discovery", "org_service_page", "public_statement_source", "enforcement_or_docket_source", "social_media_source"}
+            or record.source_type in {"irs_990_rendered_secondary_source", "irs_990_full_text_fallback", "irs_990_raw_artifact", "irs_990_raw_artifact_discovery", "contract_payment_discovery", "enforcement_docket_discovery", "dhcs_adverse_status_discovery", "org_service_page", "public_statement_source", "enforcement_or_docket_source", "social_media_source"}
                     else 190,
                     prefer_start=record.source_type.startswith("source_extraction_")
                     or record.source_type in {"irs_990_raw_artifact", "irs_990_raw_artifact_discovery", "contract_payment_discovery", "enforcement_docket_discovery", "org_service_page", "public_statement_source", "enforcement_or_docket_source", "social_media_source"},

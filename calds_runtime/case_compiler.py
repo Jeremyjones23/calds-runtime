@@ -445,7 +445,7 @@ class CaseDossierService:
             "- What these scores apply to: the whole compiled case/run and its evidence bundle, not one nonprofit organization by itself.",
             f"- Review priority {inputs.final_score} / 100: how urgently this case should stay in the review queue after combining risk severity, source-acquisition coverage, and publication confidence.",
             f"- Risk severity {inputs.risk_severity_score} / 100: how strong the implemented source-backed risk indicators are. This is the flag-strength score; it is not a misconduct conclusion.",
-            f"- Source completeness {inputs.source_completeness_score} / 100: whether the required source-family acquisition checks were resolved. This run resolved {resolved_text} required check(s), with {inputs.completion_guard_blocker_count} unresolved blocker(s) and {inputs.completion_guard_miss_count} miss(es). A completed search with no public official adverse record counts as coverage, not as clearance.",
+            f"- Source completeness {inputs.source_completeness_score} / 100: whether the required source-family acquisition checks were resolved with citation-ready evidence. This run resolved {resolved_text} required check(s), with {inputs.completion_guard_blocker_count} unresolved blocker(s) and {inputs.completion_guard_miss_count} miss(es). A completed public search with no adverse record remains an unresolved source-access blocker unless a citation-ready source hit exists; it is not clearance.",
             f"- Open gap burden: {inputs.gap_burden_count} caveat signal(s). These are unresolved review questions inside the evidence bundle, not proof that source acquisition failed. Current gap buckets: {gap_buckets}.",
             f"- Contradiction burden: {inputs.contradiction_count} caution signal(s). Contradictions are never positive evidence and are not rewarded; they lower publication confidence and stay in front of the reviewer. Current contradiction buckets: {contradiction_buckets}.",
             f"- Publication confidence {inputs.publication_confidence_score} / 100: whether the record is sturdy enough for outside-facing use. The implemented model starts from source completeness (55%), source diversity (25%; this run's diversity component is {diversity_confidence:g} / 100), and citation traceability (20%; this run's traceability component is {traceability_confidence:g} / 100), then subtracts a bounded caveat penalty for open gaps and contradictions. This run's caveat penalty is {gap_penalty:g} point(s).",
@@ -677,16 +677,16 @@ class CaseDossierService:
         searches = list(ledger.get("searches", [])) if isinstance(ledger, dict) else []
         hits = [item for item in searches if item.get("status") == "hit"]
         no_public_record = [item for item in searches if item.get("status") == "searched_no_public_official_record"]
-        misses = [item for item in searches if item.get("status") not in {"hit", "searched_no_public_official_record"}]
+        misses = [item for item in searches if item.get("status") != "hit"]
         lines = [
             f"- Completion guard status: {guard.get('status')}.",
             f"- Required source-family checks: {guard.get('total_searches', len(searches))}; hits: {guard.get('hit_count', len(hits))}; public official no-record searches: {len(no_public_record)}; unresolved blockers: {guard.get('blocker_count', len(misses))}.",
         ]
         if no_public_record:
-            lines.append("- Public official no-record coverage:")
+            lines.append("- Public official no-record source-access blockers:")
             for item in no_public_record[:8]:
                 lines.append(
-                    f"  - {item.get('entity')}: {item.get('source_family')} - configured public official searches found no citation-ready adverse record; this is not legal clearance."
+                    f"  - {item.get('entity')}: {item.get('source_family')} - configured public official searches found no citation-ready adverse record. Treat this as unresolved source access, not legal clearance."
                 )
         if misses:
             lines.append("- Top unresolved acquisition blockers:")
@@ -697,7 +697,7 @@ class CaseDossierService:
             if len(misses) > 8:
                 lines.append(f"  - +{len(misses) - 8} additional blocker(s) in `acquisition_ledger.json`.")
         else:
-            lines.append("- Every required source family has a recovered citation-ready hit or a public official no-record search result for the selected entities.")
+            lines.append("- Every required source family has a recovered citation-ready hit for the selected entities.")
         notes = list(guard.get("notes", []))
         for note in notes[:3]:
             lines.append(f"- Guard note: {self._plain_language(note)}")
@@ -1311,16 +1311,16 @@ class CaseDossierService:
                 refs.append(token)
         if refs:
             return ", ".join(refs)
-        fallback = []
+        source_ref_candidates = []
         for value in [*indicator.record_ids, *indicator.source_uris]:
             token = f"`{value}`" if value else ""
-            if token and token not in fallback:
-                fallback.append(token)
-        return ", ".join(fallback[:3]) if fallback else "no direct evidence ref in this row"
+            if token and token not in source_ref_candidates:
+                source_ref_candidates.append(token)
+        return ", ".join(source_ref_candidates[:3]) if source_ref_candidates else "no direct evidence ref in this row"
 
     def _compact_matrix_refs_for_many(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> str:
         refs: list[str] = []
-        fallback: list[str] = []
+        source_ref_candidates: list[str] = []
         for item in rows:
             for evidence_id in item.evidence_ids:
                 token = f"`{labels.get(evidence_id, evidence_id)}`"
@@ -1328,11 +1328,11 @@ class CaseDossierService:
                     refs.append(token)
             for value in [*item.record_ids, *item.source_uris]:
                 token = f"`{value}`" if value else ""
-                if token and token not in fallback:
-                    fallback.append(token)
+                if token and token not in source_ref_candidates:
+                    source_ref_candidates.append(token)
         if refs:
             return ", ".join(refs)
-        return ", ".join(fallback[:6]) if fallback else "no direct evidence ref in these rows"
+        return ", ".join(source_ref_candidates[:6]) if source_ref_candidates else "no direct evidence ref in these rows"
 
     def _format_source_uris(self, uris: Iterable[str]) -> str:
         values = [uri for uri in uris if uri]

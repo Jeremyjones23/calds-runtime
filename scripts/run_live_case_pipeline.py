@@ -42,7 +42,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifacts-dir", type=Path, default=DEFAULT_ARTIFACTS)
     parser.add_argument("--case-file", type=Path, default=DEFAULT_CASE_FILE)
     parser.add_argument("--runs-dir", type=Path, default=None)
-    parser.add_argument("--skip-federal-awards", action="store_true")
     parser.add_argument("--resume-from", choices=["ingest", "tables", "recovery", "outcomes", "workflow"], default="ingest", help="Resume from a named stage using existing prior-stage artifacts.")
     return parser
 
@@ -67,9 +66,6 @@ def main() -> int:
         "--tax-period-years",
         *[str(year) for year in tax_years],
     ]
-    if args.skip_federal_awards:
-        ingest.append("--skip-federal-awards")
-
     if resume_index <= 0:
         run_step("ingest live source corpus", ingest)
     if resume_index <= 1:

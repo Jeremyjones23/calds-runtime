@@ -50,14 +50,14 @@ class BoundedCase:
 
 
 class LocalProviderAdapter:
-    """Provider SDK placeholder; no model output is system of record."""
+    """Deterministic provider-boundary adapter; no model output is system of record."""
 
     name = "local-rule-adapter"
 
     def describe_role_call(self, role: str) -> dict[str, str]:
         return {
             "adapter": self.name,
-            "mode": "deterministic-local-stub",
+            "mode": "deterministic-local-adapter",
             "role": role,
         }
 
@@ -197,8 +197,8 @@ class LeadScorerAgent:
             uncertainty.append("The IRS XML is now locally preserved; summary fields should be checked against the raw XML before ranking.")
         if signal_counts.get("irs_990_pdf_unavailable"):
             uncertainty.append("The IRS bulk source exposed XML for the target returns; an official bulk return PDF was not available in this run.")
-        if signal_counts.get("irs_990_full_text_fallback"):
-            uncertainty.append("A rendered Form 990 full-text fallback is present for HealthRIGHT 360 because the official IRS XML object remains unresolved.")
+        if signal_counts.get("irs_990_rendered_secondary_source") or signal_counts.get("irs_990_full_text_fallback"):
+            uncertainty.append("A rendered Form 990 secondary source is present for HealthRIGHT 360 because the official IRS XML object remains unresolved.")
         if signal_counts.get("fac_material_weakness") or signal_counts.get("fac_significant_deficiency"):
             uncertainty.append("At least one FAC record carries an audit-control review signal; use the downloaded audit PDF for context.")
         if signal_counts.get("fac_low_risk_no"):
@@ -243,8 +243,8 @@ class LeadScorerAgent:
             review_questions.append("Open the downloaded FAC audit PDF and compare it with the filtered FAC rows.")
         if signal_counts.get("full_990_xml_downloaded"):
             review_questions.append("Open the downloaded IRS XML and verify financial fields before using any revenue-based ranking.")
-        if signal_counts.get("irs_990_full_text_fallback"):
-            review_questions.append("Compare the HealthRIGHT 360 rendered full-text fallback against any later recovered official IRS XML or PDF before relying on it.")
+        if signal_counts.get("irs_990_rendered_secondary_source") or signal_counts.get("irs_990_full_text_fallback"):
+            review_questions.append("Compare the HealthRIGHT 360 rendered full-text secondary source against any later recovered official IRS XML or PDF before relying on it.")
         if signal_counts.get("reported_conflict_transactions"):
             review_questions.append("Review the relevant Schedule L disclosures before treating related-party transaction language as meaningful.")
         if signal_counts.get("dhcs_facility_status_crosscheck"):

@@ -255,7 +255,7 @@ class OversightRiskMatrixService:
                         ),
                         "Low",
                         "searched_no_public_official_record",
-                        "Treat this as public-source coverage, not legal clearance; run PACER, local trial-court, charity-registry, and clerk/records-request searches before final clearance.",
+                    "Treat this as an unresolved source-access blocker, not legal clearance; run PACER, local trial-court, charity-registry, and clerk/records-request searches before final clearance.",
                         record_ids,
                         [
                             "A no-public-record search is not a legal clearance.",

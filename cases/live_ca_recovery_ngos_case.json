@@ -8,7 +8,7 @@
         "irs_990_summary",
         "irs_990_xml",
         "irs_990_download_manifest",
-        "irs_990_full_text_fallback",
+        "irs_990_rendered_secondary_source",
         "fac_audit_summary",
         "fac_audit_pdf",
         "fac_findings",

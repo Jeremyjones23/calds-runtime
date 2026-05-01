@@ -1083,7 +1083,6 @@ def main() -> int:
     parser.add_argument("--stage1-corpus", type=Path, default=DEFAULT_STAGE1_CORPUS)
     parser.add_argument("--stage2-corpus", type=Path, default=DEFAULT_STAGE2_CORPUS)
     parser.add_argument("--artifacts-dir", type=Path, default=DEFAULT_ARTIFACTS)
-    parser.add_argument("--skip-federal-awards", action="store_true")
     parser.add_argument("--tax-period-years", type=int, nargs="+", default=DEFAULT_TAX_PERIOD_YEARS)
     args = parser.parse_args()
 
@@ -1100,7 +1099,7 @@ def main() -> int:
     }
     summary["tax_period_years"] = sorted(set(args.tax_period_years))
     summary["irs"] = ingest_irs_xml(args.artifacts_dir, args.stage2_corpus, summary["tax_period_years"])
-    summary["fac"] = ingest_fac(args.artifacts_dir, args.stage2_corpus, include_federal_awards=not args.skip_federal_awards)
+    summary["fac"] = ingest_fac(args.artifacts_dir, args.stage2_corpus, include_federal_awards=True)
     summary["dhcs"] = ingest_dhcs(args.artifacts_dir, args.stage2_corpus)
     summary["county_contracts"] = ingest_county_and_contract_docs(args.artifacts_dir, args.stage2_corpus)
     summary["litigation"] = ingest_litigation_manifest(args.artifacts_dir, args.stage2_corpus)
