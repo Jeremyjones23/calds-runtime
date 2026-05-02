@@ -33,6 +33,10 @@ class Plane(str, Enum):
 class AgentRole(str, Enum):
     CASE_DIRECTOR = "Case Director"
     RETRIEVAL_STRATEGIST = "Retrieval Strategist"
+    PROFILE_GUARD = "Profile Guard"
+    ENTITY_RESOLVER = "Entity Resolver"
+    TARGET_DISCOVERY = "Target Discovery"
+    SOURCE_ACQUISITION_PLANNER = "Source Acquisition Planner"
     CONTEXT_STEWARD = "Context Steward"
     TRIAGE_SCREENER = "Triage Screener"
     ENFORCEMENT_DOCKET_ANALYST = "Enforcement and Docket Analyst"
@@ -45,6 +49,9 @@ class AgentRole(str, Enum):
     SENTINEL = "Sentinel"
     REVIEW_PACKAGER = "Review Packager"
     CASE_COMPILER = "Case Compiler"
+    HUMAN_ACTION_COMPILER = "Human Action Compiler"
+    FORENSIC_TESTER = "Forensic Tester"
+    EVIDENCE_CUSTODIAN = "Evidence Custodian"
     COMPLETION_GUARD = "Completion Guard"
     CITATION_VERIFIER = "Citation Verifier"
     COMPLETENESS_CONTROLLER = "Completeness Controller"
@@ -127,6 +134,13 @@ class InvestigationProfile:
     language_rules: list[str] = field(default_factory=list)
     publication_policy: str = "public_safe_after_human_review_gate"
     completion_gates: list[str] = field(default_factory=list)
+    deep_source_families: list[str] = field(default_factory=list)
+    source_connectors: list[dict[str, Any]] = field(default_factory=list)
+    entity_aliases: dict[str, list[str]] = field(default_factory=dict)
+    target_discovery_rules: list[str] = field(default_factory=list)
+    forensic_tests: list[dict[str, Any]] = field(default_factory=list)
+    evidence_store_policy: dict[str, Any] = field(default_factory=dict)
+    human_action_rules: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -140,6 +154,175 @@ class ReviewValueScore:
     rationale: str
     source_record_ids: list[str] = field(default_factory=list)
     source_uris: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class SourceConnectorSpec:
+    connector_id: str
+    source_family: str
+    name: str
+    access_mode: str
+    required_artifacts: list[str]
+    source_uris: list[str] = field(default_factory=list)
+    credentials_required: bool = False
+    manual_access_reason: str = ""
+    parser_version: str = "local-deterministic-v1"
+
+
+@dataclass(frozen=True)
+class SourceAcquisitionRequirement:
+    requirement_id: str
+    case_id: str
+    entity: str
+    source_family: str
+    connector_ids: list[str]
+    required_artifacts: list[str]
+    status: str
+    matched_record_ids: list[str] = field(default_factory=list)
+    source_uris: list[str] = field(default_factory=list)
+    blocker_reason: str = ""
+    retryable: bool = True
+
+
+@dataclass(frozen=True)
+class SourceAcquisitionPlan:
+    plan_id: str
+    case_id: str
+    profile_id: str
+    requirements: list[SourceAcquisitionRequirement]
+    connector_specs: list[SourceConnectorSpec]
+    satisfied_count: int
+    blocked_count: int
+    needs_ingestor_count: int
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class EntityResolutionAlias:
+    alias: str
+    canonical_entity: str
+    basis: str
+    confidence: str
+    source_record_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EntityResolutionResult:
+    result_id: str
+    case_id: str
+    canonical_entities: list[str]
+    aliases: list[EntityResolutionAlias]
+    unresolved_entities: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class TargetCandidate:
+    candidate_id: str
+    case_id: str
+    entity: str
+    review_value_score: ReviewValueScore
+    selection_sources: list[str]
+    rationale: str
+    source_record_ids: list[str] = field(default_factory=list)
+    source_uris: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TargetUniverse:
+    universe_id: str
+    case_id: str
+    profile_id: str
+    candidates: list[TargetCandidate]
+    selected_entities: list[str]
+    discovery_notes: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class ForensicTestDefinition:
+    test_id: str
+    category: str
+    question: str
+    required_source_families: list[str]
+    failure_mode: str
+    human_next_step: str
+
+
+@dataclass(frozen=True)
+class ForensicTestResult:
+    result_id: str
+    case_id: str
+    entity: str
+    test_id: str
+    category: str
+    status: str
+    finding: str
+    evidence_record_ids: list[str] = field(default_factory=list)
+    source_uris: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    human_next_steps: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EvidenceStoreEntry:
+    entry_id: str
+    record_id: str
+    source_uri: str
+    source_type: str
+    checksum: str
+    snapshot_path: str
+    parser_version: str
+    immutable_reference: str
+    collected_at: str
+
+
+@dataclass(frozen=True)
+class EvidenceStoreManifest:
+    manifest_id: str
+    case_id: str
+    entry_count: int
+    entries: list[EvidenceStoreEntry]
+    missing_snapshot_count: int
+    notes: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class ProfileGateAuditResult:
+    audit_id: str
+    profile_id: str
+    status: str
+    checked_gates: list[str]
+    missing_gates: list[str]
+    required_source_families: list[str]
+    deep_source_families: list[str]
+    notes: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class HumanActionItem:
+    action_id: str
+    case_id: str
+    entity: str
+    priority: str
+    action_type: str
+    action: str
+    rationale: str
+    source_refs: list[str] = field(default_factory=list)
+    required_authority: str = "authorized human reviewer"
+    status: str = "PENDING_HUMAN"
+
+
+@dataclass(frozen=True)
+class HumanActionPlan:
+    plan_id: str
+    case_id: str
+    actions: list[HumanActionItem]
+    highest_leverage_action: str
     created_at: str = field(default_factory=utc_now)
 
 

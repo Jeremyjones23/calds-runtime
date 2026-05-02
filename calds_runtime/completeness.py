@@ -16,6 +16,7 @@ from .contracts import (
     InvestigationProfile,
     SentinelResult,
     WorkflowStatus,
+    read_json,
     stable_id,
 )
 
@@ -43,6 +44,8 @@ class CompletenessControllerService:
         acquisition_list = list(acquisition_ledger)
 
         checks.extend(self._handoff_checks(request, handoff_list, artifact_refs, actions))
+        checks.extend(self._artifact_gate_checks(request, profile, artifact_refs, actions))
+        checks.extend(self._source_plan_checks(request, artifact_refs, actions))
         if completion_guard is not None:
             checks.extend(
                 self._source_checks(
@@ -156,6 +159,143 @@ class CompletenessControllerService:
                 )
             )
         return checks
+
+    def _artifact_gate_checks(
+        self,
+        request: CaseRequest,
+        profile: InvestigationProfile,
+        artifact_refs: dict[str, str],
+        actions: list[CompletenessRepairAction],
+    ) -> list[CompletenessCheck]:
+        required_by_gate = {
+            "profile": ["investigation_profile", "profile_gate_audit"],
+            "entity_resolution": ["entity_resolution"],
+            "target_discovery": ["target_universe"],
+            "source": ["source_acquisition_plan", "acquisition_ledger", "completion_guard"],
+            "forensic_tests": ["forensic_test_results"],
+            "evidence_store": ["evidence_store_manifest"],
+            "human_action": ["human_action_plan"],
+        }
+        checks: list[CompletenessCheck] = []
+        for gate, keys in required_by_gate.items():
+            if gate not in profile.completion_gates:
+                continue
+            missing = [key for key in keys if key not in artifact_refs or not artifact_refs.get(key)]
+            if not missing:
+                checks.append(
+                    self._check(
+                        request,
+                        gate,
+                        "PASS",
+                        f"{gate.replace('_', ' ').title()} artifacts are present.",
+                        artifact_refs,
+                    )
+                )
+                continue
+            action = self._action(
+                request,
+                gate,
+                f"Missing required {gate} artifact(s): {', '.join(missing)}.",
+                "Repair workflow wiring so the required deterministic artifact is produced and rerun the affected step.",
+                f"rerun {gate}",
+                "retry_required",
+            )
+            actions.append(action)
+            checks.append(
+                self._check(
+                    request,
+                    gate,
+                    "REPAIR_REQUIRED",
+                    action.issue,
+                    artifact_refs,
+                    missing,
+                    [action.action_id],
+                )
+            )
+        return checks
+
+    def _source_plan_checks(
+        self,
+        request: CaseRequest,
+        artifact_refs: dict[str, str],
+        actions: list[CompletenessRepairAction],
+    ) -> list[CompletenessCheck]:
+        path_value = artifact_refs.get("source_acquisition_plan")
+        if not path_value:
+            return []
+        path = Path(path_value)
+        if not path.exists():
+            action = self._action(
+                request,
+                "source_acquisition",
+                f"Source acquisition plan path is recorded but missing on disk: {path_value}.",
+                "Repair artifact persistence and rerun source acquisition planning.",
+                "rerun source acquisition",
+                "retry_required",
+            )
+            actions.append(action)
+            return [
+                self._check(
+                    request,
+                    "source",
+                    "REPAIR_REQUIRED",
+                    action.issue,
+                    artifact_refs,
+                    ["source_acquisition_plan"],
+                    [action.action_id],
+                )
+            ]
+        plan = read_json(path)
+        requirements = list(plan.get("requirements") or [])
+        unresolved = [item for item in requirements if str(item.get("status") or "") != "satisfied"]
+        if not unresolved:
+            return [
+                self._check(
+                    request,
+                    "source",
+                    "PASS",
+                    "All deep source-acquisition requirements are satisfied in the source plan.",
+                    artifact_refs,
+                )
+            ]
+        repair_ids: list[str] = []
+        retry_required = False
+        missing = []
+        for item in unresolved[:80]:
+            entity = str(item.get("entity") or "case")
+            family = str(item.get("source_family") or "unknown_source_family")
+            reason = str(item.get("blocker_reason") or "").strip()
+            status = "blocked_with_documented_reason" if reason else "retry_required"
+            if status == "retry_required":
+                retry_required = True
+                reason = "No blocker reason was recorded for this unresolved deep source requirement."
+            action = self._action(
+                request,
+                "source_acquisition",
+                f"Deep source requirement remains unresolved: {entity} / {family}.",
+                "Add or repair the connector, parser, credentialed source path, or records-request plan, then rerun source acquisition.",
+                "rerun source acquisition",
+                status,
+                reason,
+            )
+            actions.append(action)
+            repair_ids.append(action.action_id)
+            missing.append(f"{entity}: {family}")
+        check_status = "REPAIR_REQUIRED" if retry_required else "PASS_WITH_BLOCKERS"
+        return [
+            self._check(
+                request,
+                "source",
+                check_status,
+                (
+                    f"{len(unresolved)} deep source-acquisition requirement(s) remain unresolved; "
+                    "each is preserved as a repair/rerun action or documented blocker."
+                ),
+                artifact_refs,
+                missing[:40],
+                repair_ids,
+            )
+        ]
 
     def _source_checks(
         self,

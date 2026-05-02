@@ -381,7 +381,7 @@ class CaseDossierService:
                 "",
             ]
         )
-        for index, step in enumerate(self._human_next_steps(bundle, risk_matrix, sentinel), start=1):
+        for index, step in enumerate(self._human_next_steps(bundle, risk_matrix, sentinel, source_artifact_refs), start=1):
             lines.append(f"{index}. {step}")
 
         lines.extend(
@@ -1947,7 +1947,11 @@ class CaseDossierService:
         bundle: EvidenceBundle,
         risk_matrix: OversightRiskMatrix,
         sentinel: SentinelResult,
+        source_artifact_refs: list[str] | None = None,
     ) -> list[str]:
+        compiled_actions = self._compiled_human_actions(source_artifact_refs or [])
+        if compiled_actions:
+            return compiled_actions
         source_types = {item.source_type for item in bundle.items}
         risk_areas = " ".join(item.risk_area.lower() for item in risk_matrix.indicators)
         steps = [
@@ -1972,6 +1976,37 @@ class CaseDossierService:
         if "connected-party" in risk_areas:
             steps.append("For connected-party enforcement rows, verify the official charging record, docket status, named parties, nonprofit relationship, transaction documents, and public-dollar flow before any entity-level statement.")
         return self._dedupe(steps)
+
+    def _compiled_human_actions(self, source_artifact_refs: list[str]) -> list[str]:
+        plan = self._load_artifact_json(source_artifact_refs, "human_action_plan.json")
+        if not plan:
+            return []
+        actions = list(plan.get("actions", []))
+        output: list[str] = []
+        highest = str(plan.get("highest_leverage_action") or "").strip()
+        if highest:
+            output.append(f"Highest-leverage next step: {self._plain_language(highest)} Source: human_action_plan.json.")
+        for action in actions[:12]:
+            if not isinstance(action, dict):
+                continue
+            entity = self._plain_language(action.get("entity") or "Case-wide")
+            priority = self._plain_language(action.get("priority") or "Review")
+            action_type = self._plain_language(action.get("action_type") or "source review")
+            text = self._plain_language(action.get("action") or "")
+            rationale = self._short_excerpt(self._reader_fact(action.get("rationale") or ""), 220)
+            authority = self._plain_language(action.get("required_authority") or "authorized human reviewer")
+            if not text:
+                continue
+            refs = [str(ref).strip() for ref in action.get("source_refs", []) if str(ref).strip()]
+            if refs:
+                source_pointer = "; ".join(refs[:4])
+            else:
+                source_pointer = "human_action_plan.json; no direct source ref is present because this action represents a missing-source blocker."
+            output.append(
+                f"{priority} - {entity} - {action_type}: {text} "
+                f"Authority required: {authority}. Why: {rationale} Source: {source_pointer}"
+            )
+        return self._dedupe(output)
 
     def _dedupe(self, values: Iterable[str]) -> list[str]:
         seen = set()

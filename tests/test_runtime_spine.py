@@ -12,6 +12,15 @@ from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.completeness import CompletenessControllerService
 from calds_runtime.contracts import AcquisitionSearchRun, CanonicalRecord, CaseRequest, CompletionGuardResult, ContextHandoffLedger, EvidenceBundle, EvidenceItem, InvestigationProfile, LinkIntegrityReport, Provenance, SourceLinkCheck, TriageFinding, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
+from calds_runtime.generic_spine import (
+    EntityResolutionService,
+    EvidenceStoreManifestService,
+    ForensicTestService,
+    HumanActionCompilerService,
+    ProfileGateService,
+    SourceAcquisitionPlannerService,
+    TargetDiscoveryService,
+)
 from calds_runtime.investigation_profiles import InvestigationProfileService, ReviewValueScoringService
 from calds_runtime.publication import extract_urls, mark_unverified_source_urls, publish_case_site_from_run, repair_public_source_urls, source_access_report
 from calds_runtime.quality_gates import CitationVerifierService, CompletionGuardService, RunReadinessService
@@ -52,6 +61,13 @@ class RuntimeSpineTests(unittest.TestCase):
             acquisition = read_json(Path(state["artifacts"]["acquisition_ledger"]))
             completion_guard = read_json(Path(state["artifacts"]["completion_guard"]))
             completeness_report = read_json(Path(state["artifacts"]["completeness_controller_report"]))
+            profile_gate = read_json(Path(state["artifacts"]["profile_gate_audit"]))
+            entity_resolution = read_json(Path(state["artifacts"]["entity_resolution"]))
+            target_universe = read_json(Path(state["artifacts"]["target_universe"]))
+            source_plan = read_json(Path(state["artifacts"]["source_acquisition_plan"]))
+            evidence_manifest = read_json(Path(state["artifacts"]["evidence_store_manifest"]))
+            forensic_tests = read_json(Path(state["artifacts"]["forensic_test_results"]))
+            human_actions = read_json(Path(state["artifacts"]["human_action_plan"]))
             self.assertIn("results", triage)
             self.assertIn("selected_entities", forensic_plan)
             self.assertEqual(handoff["status"], "PASS")
@@ -61,6 +77,25 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn(completeness_report["status"], {"PASS", "PASS_WITH_BLOCKERS"})
             self.assertGreaterEqual(completeness_report["handoff_count"], 1)
             self.assertEqual(completeness_report["retry_required_count"], 0)
+            self.assertEqual(profile_gate["status"], "PASS")
+            self.assertIn("entity_resolution", profile_gate["checked_gates"])
+            self.assertIn(case.entities[0], entity_resolution["canonical_entities"])
+            self.assertIn("aliases", entity_resolution)
+            self.assertGreaterEqual(len(target_universe["candidates"]), 1)
+            self.assertIn("review_value_score", target_universe["candidates"][0])
+            self.assertIn("selected_entities", target_universe)
+            self.assertGreaterEqual(len(source_plan["requirements"]), len(forensic_plan["selected_entities"]))
+            self.assertIn("connector_specs", source_plan)
+            self.assertGreaterEqual(evidence_manifest["entry_count"], len(bundle["items"]))
+            self.assertTrue(all(entry["checksum"] for entry in evidence_manifest["entries"]))
+            self.assertGreaterEqual(len(forensic_tests["results"]), len(forensic_plan["selected_entities"]))
+            self.assertGreaterEqual(len(human_actions["actions"]), 1)
+            self.assertTrue(human_actions["highest_leverage_action"])
+            checked_gates = {check["gate"] for check in completeness_report["checks"]}
+            for gate in {"profile", "entity_resolution", "target_discovery", "forensic_tests", "evidence_store", "human_action"}:
+                self.assertIn(gate, checked_gates)
+            self.assertIn("entity_resolved", state["completed_steps"])
+            self.assertIn("target_universe_discovered", state["completed_steps"])
             self.assertIn("completeness_checked", state["completed_steps"])
             self.assertGreaterEqual(completion_guard["total_searches"], len(acquisition["searches"]))
             self.assertIn("anything short of a citation-ready hit remains a source-access blocker", " ".join(completion_guard["notes"]))
@@ -81,6 +116,7 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn("## 8. Evidence Citation Ledger", dossier_text)
             self.assertIn("## 9. Human-Only Next Steps", dossier_text)
             self.assertIn("## 11. Human Review Required", dossier_text)
+            self.assertIn("Source: human_action_plan.json", dossier_text)
             self.assertLess(dossier_text.index("## 1. Executive Snapshot"), dossier_text.index("## 3. Entity Briefs"))
             self.assertLess(dossier_text.index("## 3. Entity Briefs"), dossier_text.index("### Acquisition and Completion Guard"))
             self.assertIn("Source URI", dossier_text)
@@ -186,8 +222,12 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertIn(public_manifest["link_integrity"]["status"], {"PASS", "PASS_WITH_WARNINGS"})
             self.assertIn("source_access", public_manifest)
             self.assertIn("source_access_required_count", public_manifest["source_access"])
+            self.assertIn("deep_source_blocker_count", public_manifest["source_access"])
+            self.assertIn("total_source_blocker_count", public_manifest["source_access"])
             self.assertIn("public_link_access", public_manifest)
             self.assertIn("publication_context", public_manifest)
+            self.assertIn("completeness_status", public_manifest["publication_context"])
+            self.assertIn("deep_source_blocker_count", public_manifest["publication_context"])
             self.assertIn("CalDS Public Case Viewer", public_html)
             self.assertIn("California Evidence Room", public_html)
             self.assertIn("class=\"case-hero\"", public_html)
@@ -204,6 +244,8 @@ class RuntimeSpineTests(unittest.TestCase):
             self.assertNotIn("Facebook X Instagram Contact Get Help Careers Volunteer Donate Home About Our Work", public_html)
             if public_manifest["publication_context"]["completion_guard_blocker_count"]:
                 self.assertFalse(public_manifest["source_access"]["completion_guard_access_complete"])
+            if public_manifest["publication_context"]["deep_source_blocker_count"]:
+                self.assertFalse(public_manifest["source_access"]["complete"])
             for entry in public_ledger["evidence"]:
                 self.assertTrue(entry["source_urls"] or entry["link_note"])
                 self.assertIn("source_role", entry)
@@ -240,8 +282,85 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(profile.profile_id, "sf_homelessness_review_value_v1")
         self.assertEqual(profile.selection_metric, "Review Value Score")
         self.assertIn("enforcement_or_docket", profile.required_source_families)
+        self.assertIn("raw_irs_990", profile.deep_source_families)
+        self.assertIn("source_connectors", profile.__dataclass_fields__)
         self.assertGreater(profile.scoring_weights["official_adverse_record"], profile.scoring_weights["source_opacity"])
+        self.assertIn("entity_resolution", profile.completion_gates)
+        self.assertIn("target_discovery", profile.completion_gates)
+        self.assertIn("human_action", profile.completion_gates)
         self.assertIn("human_review", profile.completion_gates)
+
+    def test_profile_gate_rejects_missing_generic_spine_gates(self) -> None:
+        profile = InvestigationProfile(
+            profile_id="thin_profile",
+            title="Thin profile",
+            topic="test",
+            jurisdiction="California",
+            target_universe="configured targets",
+            selection_metric="Review Value Score",
+            required_source_families=["state_awards"],
+            scoring_weights={"public_money_exposure": 1.0},
+            completion_gates=["source", "human_review"],
+            deep_source_families=["raw_irs_990"],
+        )
+
+        result = ProfileGateService().audit(profile)
+
+        self.assertEqual(result.status, "REPAIR_REQUIRED")
+        self.assertIn("entity_resolution", result.missing_gates)
+        self.assertIn("target_discovery", result.missing_gates)
+        self.assertIn("human_action", result.missing_gates)
+
+    def test_generic_spine_services_emit_depth_layer_artifacts(self) -> None:
+        case = CaseRequest(case_id="generic_spine_test", title="Generic spine", objective="Exercise depth layer.", entities=["Example Shelter"])
+        profile = InvestigationProfileService().load_for_case(case)
+        provenance = Provenance(
+            record_id="payment_row",
+            source_uri="https://example.org/payment",
+            source_type="sf_hsh_payment_exposure",
+            collected_at="2026-05-02T00:00:00+00:00",
+            checksum="abc",
+            corpus_name="test",
+            chunk_id="payment_row#body",
+        )
+        records = [
+            CanonicalRecord(
+                record_id="payment_row",
+                title="Payment ledger row",
+                body="Example Shelter received public payment exposure.",
+                source_uri="https://example.org/payment",
+                source_type="sf_hsh_payment_exposure",
+                published_at="2026-05-02",
+                entities=["Example Shelter"],
+                attributes={
+                    "total_award_exposure": 2500000,
+                    "signals": {"sf_hsh_completed_payment_exposure": True},
+                    "aliases": ["Example Shelter Services"],
+                },
+                provenance=provenance,
+            )
+        ]
+
+        audit = ProfileGateService().audit(profile)
+        resolution = EntityResolutionService().resolve(case, profile, records)
+        universe = TargetDiscoveryService().discover(case, profile, records)
+        source_plan = SourceAcquisitionPlannerService().build_plan(case, profile, records, universe.selected_entities)
+        forensic_results = ForensicTestService().run_tests(case, profile, records, universe.selected_entities, source_plan)
+        manifest = EvidenceStoreManifestService().build_manifest(case, profile, records)
+        matrix = OversightRiskMatrixService().build(case, records, EvidenceBundle(bundle_id="bundle", case_id=case.case_id, query_terms=[], items=[], entity_links=[]))
+        actions = HumanActionCompilerService().compile(case, matrix, source_plan, forensic_results)
+
+        self.assertEqual(audit.status, "PASS")
+        self.assertEqual(resolution.canonical_entities, ["Example Shelter"])
+        self.assertTrue(any(alias.alias == "Example Shelter Services" for alias in resolution.aliases))
+        self.assertEqual(universe.selected_entities[0], "Example Shelter")
+        self.assertGreater(universe.candidates[0].review_value_score.final_score, 0)
+        self.assertGreater(source_plan.needs_ingestor_count + source_plan.blocked_count, 0)
+        self.assertTrue(any(result.status == "BLOCKED_BY_SOURCE_GAP" for result in forensic_results))
+        self.assertEqual(manifest.entry_count, 1)
+        self.assertEqual(manifest.entries[0].immutable_reference, "sha256:abc")
+        self.assertGreaterEqual(len(actions.actions), 1)
+        self.assertTrue(actions.highest_leverage_action)
 
     def test_review_value_score_elevates_public_money_and_official_adverse_records(self) -> None:
         case = CaseRequest(case_id="review_value_test", title="Review value", objective="Rank target.", entities=["Example Shelter"])
@@ -405,6 +524,127 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertTrue(any(check.gate == "handoff" and check.status == "REPAIR_REQUIRED" for check in report.checks))
         self.assertIn("source_uris", report.checks[0].missing_context)
 
+    def test_completeness_controller_surfaces_deep_source_plan_blockers(self) -> None:
+        case = CaseRequest(case_id="source_plan_blocker", title="Source plan blocker", objective="Surface blockers.", entities=["Example Shelter"])
+        profile = InvestigationProfileService().load_for_case(case)
+        temp_dir = PROJECT_ROOT / "runs" / "tests" / f"calds-source-plan-test-{uuid4().hex}"
+        try:
+            plan_path = temp_dir / "source_acquisition_plan.json"
+            write_json(
+                plan_path,
+                {
+                    "requirements": [
+                        {
+                            "entity": "Example Shelter",
+                            "source_family": "board_files",
+                            "status": "needs_ingestor_or_records_request",
+                            "blocker_reason": "No board-file ingestor is configured for this source family.",
+                        }
+                    ]
+                },
+            )
+            artifact_refs = {
+                "investigation_profile": "investigation_profile.json",
+                "profile_gate_audit": "profile_gate_audit.json",
+                "entity_resolution": "entity_resolution.json",
+                "target_universe": "target_universe.json",
+                "source_acquisition_plan": str(plan_path),
+                "acquisition_ledger": "acquisition_ledger.json",
+                "completion_guard": "completion_guard.json",
+                "forensic_test_results": "forensic_test_results.json",
+                "evidence_store_manifest": "evidence_store_manifest.json",
+                "human_action_plan": "human_action_plan.json",
+            }
+            handoff = ContextHandoffLedger(
+                ledger_id="handoff",
+                case_id=case.case_id,
+                from_step="triage",
+                to_step="forensic",
+                required_fields=["case_scope", "entities", "evidence_ids", "source_uris", "caveats", "unresolved_gaps", "next_task"],
+                present_fields=["case_scope", "entities", "evidence_ids", "source_uris", "caveats", "unresolved_gaps", "next_task"],
+                missing_fields=[],
+                artifact_refs=[],
+                status="PASS",
+            )
+            ledger = [
+                AcquisitionSearchRun(
+                    search_id="search",
+                    case_id=case.case_id,
+                    entity="Example Shelter",
+                    source_family="state_awards",
+                    query="Example Shelter funding",
+                    attempted_sources=["official source"],
+                    matched_record_ids=["record"],
+                    source_uris=["https://example.org/record"],
+                    status="hit",
+                    confidence="High",
+                )
+            ]
+            guard = CompletionGuardResult(
+                guard_id="guard",
+                case_id=case.case_id,
+                status="PASS",
+                required_source_families=["state_awards"],
+                selected_entities=["Example Shelter"],
+                total_searches=1,
+                hit_count=1,
+                miss_count=0,
+                blocker_count=0,
+                missing_required=[],
+            )
+
+            report = CompletenessControllerService().build_report(
+                request=case,
+                profile=profile,
+                artifact_refs=artifact_refs,
+                handoffs=[handoff],
+                acquisition_ledger=ledger,
+                completion_guard=guard,
+                workflow_status=WorkflowStatus.AWAITING_HUMAN_REVIEW,
+            )
+
+            self.assertEqual(report.status, "PASS_WITH_BLOCKERS")
+            self.assertEqual(report.retry_required_count, 0)
+            self.assertEqual(report.blocked_count, 1)
+            self.assertTrue(any(check.gate == "source" and check.status == "PASS_WITH_BLOCKERS" for check in report.checks))
+            self.assertEqual(report.repair_actions[0].status, "blocked_with_documented_reason")
+            self.assertIn("board-file ingestor", report.repair_actions[0].blocker_reason)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_case_compiler_rewrites_human_action_audit_shorthand(self) -> None:
+        temp_dir = PROJECT_ROOT / "runs" / "tests" / f"calds-human-action-test-{uuid4().hex}"
+        try:
+            plan_path = temp_dir / "human_action_plan.json"
+            write_json(
+                plan_path,
+                {
+                    "highest_leverage_action": "Open audit source documents.",
+                    "actions": [
+                        {
+                            "entity": "Example Shelter",
+                            "priority": "High",
+                            "action_type": "audit verification",
+                            "action": "Open the audit source documents.",
+                            "rationale": "FAC summary reports material weakness years=2023, internal-control deficiency years=2024, not-low-risk years=2022, 2023, findings rows=3.",
+                            "required_authority": "authorized human reviewer",
+                            "source_refs": ["source_table_fac_audit"],
+                        }
+                    ],
+                },
+            )
+
+            actions = CaseDossierService()._compiled_human_actions([str(plan_path)])
+            text = "\n".join(actions)
+
+            self.assertIn("Source: human_action_plan.json", text)
+            self.assertIn("Federal Audit Clearinghouse data in this run shows", text)
+            self.assertNotIn("material weakness years=", text)
+            self.assertNotIn("internal-control deficiency years=", text)
+            self.assertNotIn("findings rows=", text)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_publication_repairs_stale_public_source_links_before_publish(self) -> None:
         ledger = [
             {
@@ -495,6 +735,37 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertTrue(report["public_link_access_complete"])
         self.assertFalse(report["completion_guard_access_complete"])
         self.assertFalse(report["complete"])
+
+    def test_source_access_includes_deep_source_plan_blockers(self) -> None:
+        ledger = [{"ref": "E01", "source_urls": ["https://example.test"], "link_note": ""}]
+        report = source_access_report(
+            ledger,
+            {
+                "status": "PASS",
+                "blocker_count": 0,
+                "missing_required": [],
+            },
+            {
+                "status": "PASS_WITH_BLOCKERS",
+                "blocked_count": 1,
+                "retry_required_count": 0,
+                "repair_actions": [
+                    {
+                        "step": "source_acquisition",
+                        "issue": "Deep source requirement remains unresolved: Example Shelter / board_files.",
+                        "status": "blocked_with_documented_reason",
+                    }
+                ],
+            },
+        )
+
+        self.assertTrue(report["public_link_access_complete"])
+        self.assertTrue(report["completion_guard_access_complete"])
+        self.assertFalse(report["deep_source_access_complete"])
+        self.assertFalse(report["complete"])
+        self.assertEqual(report["deep_source_blocker_count"], 1)
+        self.assertEqual(report["total_source_blocker_count"], 1)
+        self.assertIn("Example Shelter / board_files", report["deep_source_missing_required"])
 
     def test_sentinel_escalated_language_catches_legal_and_causal_overclaims(self) -> None:
         self.assertTrue(find_escalated_language("The records prove misconduct occurred."))

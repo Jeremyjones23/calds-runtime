@@ -34,15 +34,87 @@
   ],
   "publication_policy": "sanitized_public_case_after_completeness_and_sentinel_gates",
   "completion_gates": [
+    "profile",
+    "entity_resolution",
+    "target_discovery",
     "source",
     "retry",
     "handoff",
+    "forensic_tests",
+    "evidence_store",
     "citation",
     "link",
     "hallucination",
     "sentinel",
     "presentation",
+    "human_action",
     "human_review",
     "github"
+  ],
+  "deep_source_families": [
+    "raw_irs_990",
+    "audit_pdf",
+    "county_contracts",
+    "payment_ledger",
+    "litigation_docket",
+    "board_files",
+    "enforcement_adverse",
+    "web_social_archive",
+    "provider_outcomes"
+  ],
+  "source_connectors": [
+    {
+      "connector_id": "sf_open_data_payments",
+      "source_family": "payment_ledger",
+      "name": "San Francisco Open Data nonprofit spending payment rows",
+      "access_mode": "public_http",
+      "required_artifacts": ["supplier payment aggregation", "row-level payment export"],
+      "source_uris": ["https://data.sfgov.org/resource/qkex-vh98.json"]
+    },
+    {
+      "connector_id": "sf_board_files",
+      "source_family": "board_files",
+      "name": "San Francisco board, committee, and contract approval files",
+      "access_mode": "public_http",
+      "required_artifacts": ["board file", "resolution", "staff report"]
+    },
+    {
+      "connector_id": "sf_hsh_contract_monitoring",
+      "source_family": "county_contracts",
+      "name": "San Francisco HSH contract, monitoring, and corrective-action files",
+      "access_mode": "public_or_records_request",
+      "required_artifacts": ["contract", "amendment", "invoice", "monitoring letter", "corrective action"]
+    }
+  ],
+  "entity_aliases": {
+    "Community Housing Partnership": ["HomeRise", "Community Housing Partnership / HomeRise"],
+    "Episcopal Community Svcs of SF Inc": ["Episcopal Community Services of San Francisco", "ECS"],
+    "Tenderloin Neighborhood Development Corp": ["TNDC", "Tenderloin Neighborhood Development Corporation"],
+    "St Vincent De Paul Society of SF": ["St. Vincent de Paul Society of San Francisco", "SVDP SF"]
+  },
+  "target_discovery_rules": [
+    "Seed from official San Francisco payment exposure.",
+    "Add mandatory official adverse-record seeds even when payment exposure is lower.",
+    "Rank by Review Value Score, not by dollars alone."
+  ],
+  "forensic_tests": [
+    {
+      "test_id": "sf_hsh_allowability",
+      "category": "contract allowability",
+      "question": "Do SF HSH payments map to contract purpose, invoices, and deliverables for the same period?",
+      "required_source_families": ["payment_ledger", "county_contracts", "provider_outcomes"],
+      "failure_mode": "payment exposure without contract allowability",
+      "human_next_step": "Pull SF HSH contracts, invoices, deliverables, monitoring letters, and corrective actions for the entity."
+    }
+  ],
+  "evidence_store_policy": {
+    "snapshot_required_for_public_links": true,
+    "hash_algorithm": "sha256",
+    "parser_version_required": true
+  },
+  "human_action_rules": [
+    "Prioritize official adverse records, audit findings, and payment-to-deliverable gaps.",
+    "Every next step must name the document family a human should obtain.",
+    "Do not call a no-record public search clearance."
   ]
 }

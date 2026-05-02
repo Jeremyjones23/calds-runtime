@@ -25,6 +25,35 @@ DEFAULT_SOURCE_FAMILIES = [
     "outcomes",
 ]
 
+DEFAULT_DEEP_SOURCE_FAMILIES = [
+    "raw_irs_990",
+    "audit_pdf",
+    "county_contracts",
+    "payment_ledger",
+    "litigation_docket",
+    "board_files",
+    "enforcement_adverse",
+    "web_social_archive",
+    "provider_outcomes",
+]
+
+DEFAULT_COMPLETION_GATES = [
+    "profile",
+    "entity_resolution",
+    "target_discovery",
+    "source",
+    "handoff",
+    "forensic_tests",
+    "evidence_store",
+    "citation",
+    "link",
+    "hallucination",
+    "sentinel",
+    "presentation",
+    "human_action",
+    "human_review",
+]
+
 DEFAULT_REVIEW_VALUE_WEIGHTS = {
     "public_money_exposure": 0.22,
     "official_adverse_record": 0.20,
@@ -69,15 +98,23 @@ class InvestigationProfileService:
                 "Preserve named-party legal distinctions and open source blockers.",
             ]),
             publication_policy=str(request.metadata.get("publication_policy") or "public_safe_after_human_review_gate"),
-            completion_gates=list(request.metadata.get("completion_gates") or [
-                "source",
-                "handoff",
-                "citation",
-                "link",
-                "hallucination",
-                "sentinel",
-                "presentation",
-                "human_review",
+            completion_gates=list(request.metadata.get("completion_gates") or DEFAULT_COMPLETION_GATES),
+            deep_source_families=list(request.metadata.get("deep_source_families") or DEFAULT_DEEP_SOURCE_FAMILIES),
+            source_connectors=list(request.metadata.get("source_connectors") or []),
+            entity_aliases=dict(request.metadata.get("entity_aliases") or {}),
+            target_discovery_rules=list(request.metadata.get("target_discovery_rules") or [
+                "Rank named and source-discovered entities by Review Value Score.",
+                "Do not rely on public-dollar exposure alone when official adverse records or source opacity create higher review value.",
+            ]),
+            forensic_tests=list(request.metadata.get("forensic_tests") or []),
+            evidence_store_policy=dict(request.metadata.get("evidence_store_policy") or {
+                "snapshot_required_for_public_links": True,
+                "hash_algorithm": "sha256",
+                "parser_version_required": True,
+            }),
+            human_action_rules=list(request.metadata.get("human_action_rules") or [
+                "Every recommended action must identify the document or authority a human must use.",
+                "Do not represent a missing public source as clearance.",
             ]),
         )
 
@@ -95,7 +132,14 @@ class InvestigationProfileService:
             max_targets=int(value.get("max_targets") or 15),
             language_rules=list(value.get("language_rules") or []),
             publication_policy=str(value.get("publication_policy") or "public_safe_after_human_review_gate"),
-            completion_gates=list(value.get("completion_gates") or []),
+            completion_gates=list(value.get("completion_gates") or DEFAULT_COMPLETION_GATES),
+            deep_source_families=list(value.get("deep_source_families") or DEFAULT_DEEP_SOURCE_FAMILIES),
+            source_connectors=list(value.get("source_connectors") or []),
+            entity_aliases=dict(value.get("entity_aliases") or {}),
+            target_discovery_rules=list(value.get("target_discovery_rules") or []),
+            forensic_tests=list(value.get("forensic_tests") or []),
+            evidence_store_policy=dict(value.get("evidence_store_policy") or {}),
+            human_action_rules=list(value.get("human_action_rules") or []),
         )
 
 

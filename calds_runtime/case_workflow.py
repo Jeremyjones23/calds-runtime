@@ -28,6 +28,15 @@ from .contracts import (
     utc_now,
 )
 from .forensic_triage import HomelessnessTriageService
+from .generic_spine import (
+    EntityResolutionService,
+    EvidenceStoreManifestService,
+    ForensicTestService,
+    HumanActionCompilerService,
+    ProfileGateService,
+    SourceAcquisitionPlannerService,
+    TargetDiscoveryService,
+)
 from .investigation_profiles import InvestigationProfileService
 from .quality_gates import CitationVerifierService, CompletionGuardService
 from .review import ReviewArtifactService
@@ -39,7 +48,7 @@ from .truth import JsonCorpusTruthStore, tokenize
 from .workflow import FileWorkflowStore, WorkflowRunResult
 
 
-RUNTIME_LOGIC_VERSION = "2026-05-02-generic-spine-completeness-controller-v6"
+RUNTIME_LOGIC_VERSION = "2026-05-02-generic-spine-depth-layer-v1"
 
 
 class CaseWorkflow:
@@ -56,6 +65,13 @@ class CaseWorkflow:
         self.completion_guard = CompletionGuardService()
         self.completeness_controller = CompletenessControllerService()
         self.profile_service = InvestigationProfileService()
+        self.profile_gate_service = ProfileGateService()
+        self.entity_resolution_service = EntityResolutionService()
+        self.target_discovery_service = TargetDiscoveryService()
+        self.source_acquisition_planner = SourceAcquisitionPlannerService()
+        self.forensic_test_service = ForensicTestService()
+        self.evidence_store_manifest = EvidenceStoreManifestService()
+        self.human_action_compiler = HumanActionCompilerService()
         self.citation_verifier = CitationVerifierService()
         self.sentinel_policy = SentinelPolicy()
         self.provider = LocalProviderAdapter()
@@ -88,6 +104,18 @@ class CaseWorkflow:
         profile = self.profile_service.load_for_case(request)
         profile_path = store.write_artifact("investigation_profile.json", profile)
         artifacts["investigation_profile"] = str(profile_path)
+        profile_gate_audit = self.profile_gate_service.audit(profile)
+        profile_gate_path = store.write_artifact("profile_gate_audit.json", profile_gate_audit)
+        artifacts["profile_gate_audit"] = str(profile_gate_path)
+        self._write_task(
+            store,
+            request,
+            AgentRole.PROFILE_GUARD,
+            "Audit investigation profile gates before runtime execution.",
+            [str(profile_gate_path)],
+        )
+        if profile_gate_audit.status != "PASS":
+            raise ValueError("profile gate audit requires repair before case execution")
         store.trace(
             request.case_id,
             Plane.WORKFLOW,
@@ -99,7 +127,56 @@ class CaseWorkflow:
                 "selection_metric": profile.selection_metric,
                 "required_source_families": profile.required_source_families,
             },
-            artifacts=[str(profile_path)],
+            artifacts=[str(profile_path), str(profile_gate_path)],
+        )
+
+        entity_resolution = self.entity_resolution_service.resolve(request, profile, self.truth_store.records)
+        entity_resolution_path = store.write_artifact("entity_resolution.json", entity_resolution)
+        artifacts["entity_resolution"] = str(entity_resolution_path)
+        self._write_task(
+            store,
+            request,
+            AgentRole.ENTITY_RESOLVER,
+            "Resolve aliases, former names, and unresolved targets without merging canonical records.",
+            [str(entity_resolution_path)],
+        )
+        completed_steps.append("entity_resolved")
+        store.trace(
+            request.case_id,
+            Plane.TRUTH,
+            "EntityResolutionService",
+            "entities_resolved",
+            "Truth plane resolved aliases and unresolved names before target discovery.",
+            outputs={
+                "canonical_entity_count": len(entity_resolution.canonical_entities),
+                "alias_count": len(entity_resolution.aliases),
+                "unresolved_entities": entity_resolution.unresolved_entities,
+            },
+            artifacts=[str(entity_resolution_path)],
+        )
+
+        target_universe = self.target_discovery_service.discover(request, profile, self.truth_store.records)
+        target_universe_path = store.write_artifact("target_universe.json", target_universe)
+        artifacts["target_universe"] = str(target_universe_path)
+        self._write_task(
+            store,
+            request,
+            AgentRole.TARGET_DISCOVERY,
+            "Discover and rank the repeatable target universe using Review Value Score.",
+            [str(target_universe_path)],
+        )
+        completed_steps.append("target_universe_discovered")
+        store.trace(
+            request.case_id,
+            Plane.TRUTH,
+            "TargetDiscoveryService",
+            "target_universe_discovered",
+            "Truth plane ranked targets by Review Value Score before deep-dive pruning.",
+            outputs={
+                "candidate_count": len(target_universe.candidates),
+                "selected_entities": target_universe.selected_entities,
+            },
+            artifacts=[str(target_universe_path)],
         )
 
         case_director = CaseDirector()
@@ -138,6 +215,13 @@ class CaseWorkflow:
         triage_path = store.write_artifact("entity_triage_results.json", {"results": triage_results})
         forensic_plan = self.triage_service.build_plan(request, triage_results)
         forensic_plan_path = store.write_artifact("forensic_investigation_plan.json", forensic_plan)
+        source_acquisition_plan = self.source_acquisition_planner.build_plan(
+            request,
+            profile,
+            self.truth_store.records,
+            forensic_plan.selected_entities,
+        )
+        source_acquisition_plan_path = store.write_artifact("source_acquisition_plan.json", source_acquisition_plan)
         forensic_findings = self.triage_service.build_forensic_findings(request, triage_results, forensic_plan)
         forensic_findings_path = store.write_artifact("forensic_findings.json", {"findings": forensic_findings})
         handoff = self.triage_service.build_handoff(
@@ -172,8 +256,16 @@ class CaseWorkflow:
         )
         artifacts["entity_triage_results"] = str(triage_path)
         artifacts["forensic_investigation_plan"] = str(forensic_plan_path)
+        artifacts["source_acquisition_plan"] = str(source_acquisition_plan_path)
         artifacts["forensic_findings"] = str(forensic_findings_path)
         artifacts["context_handoff_ledger"] = str(handoff_path)
+        self._write_task(
+            store,
+            request,
+            AgentRole.SOURCE_ACQUISITION_PLANNER,
+            "Plan deep source acquisition and record source blockers before synthesis.",
+            [str(source_acquisition_plan_path)],
+        )
 
         acquisition_ledger = self.completion_guard.build_acquisition_ledger(
             request,
@@ -211,8 +303,11 @@ class CaseWorkflow:
                 "entity_count": len(triage_results),
                 "deep_dive_entities": forensic_plan.selected_entities,
                 "handoff_status": handoff.status,
+                "deep_source_requirements": len(source_acquisition_plan.requirements),
+                "deep_source_blocked": source_acquisition_plan.blocked_count,
+                "deep_source_needs_ingestor": source_acquisition_plan.needs_ingestor_count,
             },
-            artifacts=[str(triage_path), str(forensic_plan_path), str(forensic_findings_path), str(handoff_path)],
+            artifacts=[str(triage_path), str(forensic_plan_path), str(source_acquisition_plan_path), str(forensic_findings_path), str(handoff_path)],
         )
         store.trace(
             request.case_id,
@@ -251,6 +346,16 @@ class CaseWorkflow:
         bundle = self.truth_store.build_evidence_bundle(request, search_plan.terms, hits)
         bundle_path = store.write_artifact("evidence_bundle.json", bundle)
         artifacts["evidence_bundle"] = str(bundle_path)
+        evidence_store_manifest = self.evidence_store_manifest.build_manifest(request, profile, self.truth_store.records, bundle)
+        evidence_store_manifest_path = store.write_artifact("evidence_store_manifest.json", evidence_store_manifest)
+        artifacts["evidence_store_manifest"] = str(evidence_store_manifest_path)
+        self._write_task(
+            store,
+            request,
+            AgentRole.EVIDENCE_CUSTODIAN,
+            "Write immutable evidence-store manifest for retrieved canonical records.",
+            [str(evidence_store_manifest_path)],
+        )
         evidence_summary = EvidenceAnalyst().summarize_bundle(bundle)
         evidence_summary_path = store.write_artifact("evidence_analysis.json", evidence_summary)
         self._write_task(
@@ -267,14 +372,50 @@ class CaseWorkflow:
             "JsonCorpusTruthStore",
             "evidence_bundle_created",
             "Truth plane assembled evidence items with provenance and entity links.",
-            outputs={"evidence_count": len(bundle.items), "entity_link_count": len(bundle.entity_links)},
-            artifacts=[str(bundle_path), str(evidence_summary_path)],
+            outputs={
+                "evidence_count": len(bundle.items),
+                "entity_link_count": len(bundle.entity_links),
+                "evidence_store_entries": evidence_store_manifest.entry_count,
+                "missing_snapshots": evidence_store_manifest.missing_snapshot_count,
+            },
+            artifacts=[str(bundle_path), str(evidence_summary_path), str(evidence_store_manifest_path)],
         )
         store.write_state(request, WorkflowStatus.EVIDENCE_BUNDLED, completed_steps, artifacts)
 
         risk_matrix = self.risk_matrix_service.build(request, self.truth_store.records, bundle)
         risk_matrix_path = store.write_artifact("oversight_risk_matrix.json", risk_matrix)
         artifacts["oversight_risk_matrix"] = str(risk_matrix_path)
+        forensic_test_results = self.forensic_test_service.run_tests(
+            request,
+            profile,
+            self.truth_store.records,
+            forensic_plan.selected_entities,
+            source_acquisition_plan,
+        )
+        forensic_tests_path = store.write_artifact("forensic_test_results.json", {"results": forensic_test_results})
+        artifacts["forensic_test_results"] = str(forensic_tests_path)
+        self._write_task(
+            store,
+            request,
+            AgentRole.FORENSIC_TESTER,
+            "Run deterministic forensic test readiness checks for selected entities.",
+            [str(forensic_tests_path)],
+        )
+        human_action_plan = self.human_action_compiler.compile(
+            request,
+            risk_matrix,
+            source_acquisition_plan,
+            forensic_test_results,
+        )
+        human_action_path = store.write_artifact("human_action_plan.json", human_action_plan)
+        artifacts["human_action_plan"] = str(human_action_path)
+        self._write_task(
+            store,
+            request,
+            AgentRole.HUMAN_ACTION_COMPILER,
+            "Compile human-only actions, records requests, and highest-leverage next step.",
+            [str(human_action_path)],
+        )
         store.trace(
             request.case_id,
             Plane.TRUTH,
@@ -285,8 +426,10 @@ class CaseWorkflow:
                 "indicator_count": len(risk_matrix.indicators),
                 "high_count": sum(1 for item in risk_matrix.indicators if item.risk_level == "High"),
                 "data_gap_count": sum(1 for item in risk_matrix.indicators if item.risk_level == "Data gap"),
+                "forensic_test_count": len(forensic_test_results),
+                "human_action_count": len(human_action_plan.actions),
             },
-            artifacts=[str(risk_matrix_path)],
+            artifacts=[str(risk_matrix_path), str(forensic_tests_path), str(human_action_path)],
         )
 
         network_summary = EntityNetworkAnalyst().summarize_links(bundle)

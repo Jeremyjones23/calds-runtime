@@ -34,6 +34,16 @@ The investigation workflow now starts from an `InvestigationProfile`: topic, jur
 
 The homelessness workflow includes a first-pass triage gate before deep investigation. The gate records entity-level source-family findings, Review Value Score, deep-dive selection, and context handoff status before the normal evidence bundle, sentinel, dossier, public-site, and human-review pause steps.
 
+The generic spine now emits first-class artifacts for the reusable investigation depth layer:
+
+- `profile_gate_audit.json` verifies that a profile declares the required gates before execution.
+- `entity_resolution.json` records canonical entities, aliases, unresolved names, and basis without merging truth records.
+- `target_universe.json` ranks named and source-discovered entities by Review Value Score.
+- `source_acquisition_plan.json` records deep source requirements, connectors, required artifacts, status, retryability, and blockers.
+- `evidence_store_manifest.json` records checksums, immutable references, parser versions, and snapshot availability for retrieved records.
+- `forensic_test_results.json` records which forensic checks are ready and which are blocked by source gaps.
+- `human_action_plan.json` turns risk rows, source blockers, and forensic-test blockers into cited human-only next actions.
+
 The workflow also includes four anti-drift quality gates:
 
 - `CompletionGuardService` records source-family acquisition hits, no-record public searches, and misses before synthesis. Anything short of a citation-ready hit remains a source-access blocker, not clearance.
@@ -59,6 +69,13 @@ Run a sample bounded case:
 
 ```powershell
 python -m calds_runtime run-case --case-file evals\cases\easy_case.json --corpus-dir data\sample_corpus --runs-dir runs\local-smoke
+```
+
+Audit a case profile and preview the deep source plan before a full run:
+
+```powershell
+python -m calds_runtime audit-profile --profile-file data\investigation_profiles\sf_homelessness.json --output-file runs\profile-audits\sf_homelessness_profile_gate.json
+python -m calds_runtime plan-source-acquisition --case-file evals\cases\easy_case.json --corpus-dir data\sample_corpus --output-file runs\local-smoke\source_acquisition_preview.json
 ```
 
 Run the live recovery NGO pipeline from an existing recovered corpus through the newest outcome stage and human-review pause. If `data\live_corpus` is not present, regenerate it with a full live replay or restore it from the local archive described in `docs/repo_layout.md`.

@@ -101,6 +101,7 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     risk_matrix = risk_matrix_from_dict(read_json(artifacts_dir / "oversight_risk_matrix.json"))
     lead_candidate = load_optional_json(artifacts_dir / "lead_candidate.json")
     completion_guard = load_optional_json(artifacts_dir / "completion_guard.json")
+    completeness_report = load_optional_json(artifacts_dir / "completeness_controller_report.json")
     review_decision = load_optional_json(artifacts_dir / "review_decision.json")
     workflow_state = load_optional_json(run_dir / "workflow_state.json")
 
@@ -125,11 +126,12 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     source_ledger, unverified_link_access = mark_unverified_source_urls(source_ledger, link_integrity)
     link_integrity = LinkIntegrityService().check_source_ledger(source_ledger)
     public_link_access = public_link_access_report(source_ledger, link_integrity)
-    source_access = source_access_report(source_ledger, completion_guard)
+    source_access = source_access_report(source_ledger, completion_guard, completeness_report)
     publication_context = build_publication_context(
         run_dir=run_dir,
         lead_candidate=lead_candidate,
         completion_guard=completion_guard,
+        completeness_report=completeness_report,
         review_decision=review_decision,
         workflow_state=workflow_state,
         link_integrity=link_integrity,
@@ -158,7 +160,7 @@ def publish_case_site_from_run(run_dir: Path, output_dir: Path) -> PublicCaseSit
     public_dossier_path = output_dir / "case_dossier.json"
     write_json(public_dossier_path, public_dossier)
 
-    safety = validate_publication(output_dir, public_markdown, html_text, source_ledger, link_integrity, completion_guard)
+    safety = validate_publication(output_dir, public_markdown, html_text, source_ledger, link_integrity, completion_guard, completeness_report)
     manifest = {
         "publication_id": stable_id("publication", request.case_id, utc_now()),
         "case_id": request.case_id,
@@ -542,6 +544,7 @@ def build_publication_context(
     run_dir: Path,
     lead_candidate: dict[str, Any],
     completion_guard: dict[str, Any],
+    completeness_report: dict[str, Any],
     review_decision: dict[str, Any],
     workflow_state: dict[str, Any],
     link_integrity,
@@ -552,6 +555,7 @@ def build_publication_context(
     score_inputs = lead_candidate.get("score_inputs") if isinstance(lead_candidate.get("score_inputs"), dict) else {}
     review_value = review_decision.get("decision") or review_decision.get("status") or "PENDING"
     workflow_value = workflow_state.get("status") or "AWAITING_HUMAN_REVIEW"
+    deep_source_missing = list(source_access.get("deep_source_missing_required") or [])
     return {
         "run_label": run_dir.name,
         "workflow_state": workflow_value,
@@ -565,6 +569,11 @@ def build_publication_context(
         "completion_guard_hit_count": int(completion_guard.get("hit_count") or 0),
         "completion_guard_total": int(completion_guard.get("total_searches") or 0),
         "completion_guard_missing_required": list(completion_guard.get("missing_required") or []),
+        "completeness_status": completeness_report.get("status", "not computed"),
+        "completeness_blocker_count": int(completeness_report.get("blocked_count") or 0),
+        "completeness_retry_required_count": int(completeness_report.get("retry_required_count") or 0),
+        "deep_source_blocker_count": int(source_access.get("deep_source_blocker_count") or 0),
+        "deep_source_missing_required": deep_source_missing,
         "public_link_status": getattr(link_integrity, "status", "not checked"),
         "public_link_checked_count": getattr(link_integrity, "checked_url_count", 0),
         "public_link_error_count": getattr(link_integrity, "error_count", 0),
@@ -583,7 +592,7 @@ def score_display(value: object) -> str:
 
 
 def source_access_status_text(context: dict[str, Any]) -> str:
-    blockers = int(context.get("completion_guard_blocker_count") or 0)
+    blockers = int(context.get("completion_guard_blocker_count") or 0) + int(context.get("deep_source_blocker_count") or 0)
     checked = int(context.get("public_link_checked_count") or 0)
     link_errors = int(context.get("public_link_error_count") or 0)
     guard_status = str(context.get("completion_guard_status", "not computed"))
@@ -597,7 +606,7 @@ def source_access_status_text(context: dict[str, Any]) -> str:
 
 
 def render_reviewer_panel(context: dict[str, Any]) -> str:
-    missing = list(context.get("completion_guard_missing_required") or [])
+    missing = [*list(context.get("completion_guard_missing_required") or []), *list(context.get("deep_source_missing_required") or [])]
     missing_items = ""
     if missing:
         visible = "".join(f"<li>{html.escape(item)}</li>" for item in missing[:6])
@@ -614,7 +623,7 @@ def render_reviewer_panel(context: dict[str, Any]) -> str:
     <div><span>Workflow state</span><strong>{html.escape(str(context.get('workflow_state', 'AWAITING_HUMAN_REVIEW')))}</strong></div>
     <div><span>Human decision</span><strong>{html.escape(str(context.get('human_decision', 'PENDING')))}</strong></div>
     <div><span>Public links</span><strong>{html.escape(str(context.get('public_link_status', 'not checked')))} / {int(context.get('public_link_checked_count') or 0)} checked</strong></div>
-    <div><span>Completion guard</span><strong>{html.escape(str(context.get('completion_guard_status', 'not computed')))} / {int(context.get('completion_guard_blocker_count') or 0)} blocker(s)</strong></div>
+    <div><span>Source gates</span><strong>{html.escape(str(context.get('completeness_status', context.get('completion_guard_status', 'not computed'))))} / {int(context.get('completion_guard_blocker_count') or 0) + int(context.get('deep_source_blocker_count') or 0)} blocker(s)</strong></div>
   </div>
 {missing_items}
 </section>
@@ -1321,6 +1330,7 @@ def validate_publication(
     source_ledger: list[dict[str, Any]],
     link_integrity=None,
     completion_guard: dict[str, Any] | None = None,
+    completeness_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -1363,7 +1373,7 @@ def validate_publication(
         "checked_files": sorted(safety_files),
         "evidence_refs_checked": len(referenced),
         "source_ledger_entries": len(source_ledger),
-        "source_access": source_access_report(source_ledger, completion_guard),
+        "source_access": source_access_report(source_ledger, completion_guard, completeness_report),
     }
 
 
@@ -1380,8 +1390,13 @@ def public_link_access_report(source_ledger: list[dict[str, Any]], link_integrit
     }
 
 
-def source_access_report(source_ledger: list[dict[str, Any]], completion_guard: dict[str, Any] | None = None) -> dict[str, Any]:
+def source_access_report(
+    source_ledger: list[dict[str, Any]],
+    completion_guard: dict[str, Any] | None = None,
+    completeness_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     completion_guard = completion_guard or {}
+    completeness_report = completeness_report or {}
     required = [
         {
             "ref": entry.get("ref"),
@@ -1408,19 +1423,46 @@ def source_access_report(source_ledger: list[dict[str, Any]], completion_guard: 
     guard_blockers = int(completion_guard.get("blocker_count") or 0)
     guard_missing = list(completion_guard.get("missing_required") or [])
     guard_status = completion_guard.get("status") or "not computed"
+    completeness_blockers = int(completeness_report.get("blocked_count") or 0)
+    completeness_retry_required = int(completeness_report.get("retry_required_count") or 0)
+    completeness_status = completeness_report.get("status") or "not computed"
+    repair_actions = list(completeness_report.get("repair_actions") or [])
+    deep_source_actions = [
+        action
+        for action in repair_actions
+        if str(action.get("step") or "") == "source_acquisition"
+        and "Deep source requirement remains unresolved" in str(action.get("issue") or "")
+    ]
+    deep_source_missing = [
+        str(action.get("issue") or "")
+        .replace("Deep source requirement remains unresolved: ", "")
+        .rstrip(".")
+        for action in deep_source_actions
+    ]
+    deep_source_blockers = len(deep_source_actions)
+    has_completeness = bool(completeness_report)
+    deep_source_access_complete = not has_completeness or (completeness_retry_required == 0 and deep_source_blockers == 0 and completeness_blockers == 0)
+    total_blockers = guard_blockers + deep_source_blockers + completeness_retry_required
     return {
-        "complete": not required and guard_blockers == 0 and bool(completion_guard),
+        "complete": not required and guard_blockers == 0 and bool(completion_guard) and deep_source_access_complete,
         "public_link_access_complete": not required,
         "completion_guard_access_complete": guard_blockers == 0 and bool(completion_guard),
         "completion_guard_status": guard_status,
         "completion_guard_blocker_count": guard_blockers,
         "completion_guard_missing_required": guard_missing,
+        "completeness_status": completeness_status,
+        "completeness_blocker_count": completeness_blockers,
+        "completeness_retry_required_count": completeness_retry_required,
+        "deep_source_access_complete": deep_source_access_complete,
+        "deep_source_blocker_count": deep_source_blockers,
+        "deep_source_missing_required": deep_source_missing,
+        "total_source_blocker_count": total_blockers,
         "source_access_required_count": len(required),
         "partial_source_access_issue_count": len(partial),
         "affected_evidence_refs": [str(entry["ref"]) for entry in required if entry.get("ref")],
         "items": required,
         "partial_items": partial,
-        "note": "Source access combines public-link access with completion-guard access. Verified links do not clear unresolved acquisition blockers, and missing source access is never treated as completion.",
+        "note": "Source access combines public-link access, completion-guard access, and deep source-acquisition blockers. Verified links do not clear unresolved acquisition blockers, and missing source access is never treated as completion.",
     }
 
 
@@ -1508,8 +1550,8 @@ def extract_bottom_line(markdown_text: str) -> str:
 def render_case_index_card(card: dict[str, Any]) -> str:
     source_access = card.get("source_access") or {}
     context = card.get("context") or {}
-    blocker_count = source_access.get("completion_guard_blocker_count", context.get("completion_guard_blocker_count", 0))
-    source_text = f"{card.get('checked_urls', 0)} verified URL(s); {blocker_count} completion blocker(s)"
+    blocker_count = source_access.get("total_source_blocker_count", context.get("completion_guard_blocker_count", 0))
+    source_text = f"{card.get('checked_urls', 0)} verified URL(s); {blocker_count} source blocker(s)"
     href = str(card.get("href", "#"))
     return f"""
 <article class=\"case-index-card\">

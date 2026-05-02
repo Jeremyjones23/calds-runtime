@@ -5,9 +5,12 @@ from pathlib import Path
 
 from .case_compiler import compile_dossier_from_run
 from .case_workflow import CaseWorkflow
-from .contracts import CaseRequest, HumanDecision, read_json
+from .contracts import CaseRequest, HumanDecision, read_json, write_json
+from .generic_spine import EntityResolutionService, ProfileGateService, SourceAcquisitionPlannerService, TargetDiscoveryService
+from .investigation_profiles import InvestigationProfileService
 from .publication import publish_case_site_from_run, publish_site_index
 from .quality_gates import RunReadinessService
+from .truth import JsonCorpusTruthStore
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -77,6 +80,53 @@ def compare_run_readiness(args: argparse.Namespace) -> int:
         print(f"run_readiness={args.output_file}")
     return 0
 
+
+def audit_profile(args: argparse.Namespace) -> int:
+    request = CaseRequest(
+        case_id=args.case_id,
+        title="Profile audit",
+        objective="Audit investigation profile gates.",
+        metadata={"investigation_profile_path": str(args.profile_file)},
+    )
+    profile = InvestigationProfileService().load_for_case(request)
+    result = ProfileGateService().audit(profile)
+    if args.output_file:
+        write_json(args.output_file, result)
+    print(f"profile_id={profile.profile_id}")
+    print(f"status={result.status}")
+    print(f"missing_gates={','.join(result.missing_gates)}")
+    if args.output_file:
+        print(f"profile_gate_audit={args.output_file}")
+    return 0
+
+
+def plan_source_acquisition(args: argparse.Namespace) -> int:
+    request = load_case(args.case_file)
+    profile = InvestigationProfileService().load_for_case(request)
+    truth = JsonCorpusTruthStore(args.corpus_dir)
+    entity_resolution = EntityResolutionService().resolve(request, profile, truth.records)
+    target_universe = TargetDiscoveryService().discover(request, profile, truth.records)
+    source_plan = SourceAcquisitionPlannerService().build_plan(request, profile, truth.records, target_universe.selected_entities)
+    output_file = args.output_file or (args.runs_dir / request.case_id / "source_acquisition_preview.json")
+    write_json(
+        output_file,
+        {
+            "profile_gate_audit": ProfileGateService().audit(profile),
+            "entity_resolution": entity_resolution,
+            "target_universe": target_universe,
+            "source_acquisition_plan": source_plan,
+        },
+    )
+    print(f"case_id={request.case_id}")
+    print(f"profile_id={profile.profile_id}")
+    print(f"selected_entities={','.join(target_universe.selected_entities)}")
+    print(f"requirements={len(source_plan.requirements)}")
+    print(f"satisfied={source_plan.satisfied_count}")
+    print(f"blocked={source_plan.blocked_count}")
+    print(f"needs_ingestor={source_plan.needs_ingestor_count}")
+    print(f"source_acquisition_preview={output_file}")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CalDS local workflow spine")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -119,6 +169,19 @@ def build_parser() -> argparse.ArgumentParser:
     readiness_parser.add_argument("--output-file", type=Path, default=None)
     readiness_parser.set_defaults(func=compare_run_readiness)
 
+    audit_parser = subparsers.add_parser("audit-profile", help="Audit an investigation profile for required generic-spine gates.")
+    audit_parser.add_argument("--profile-file", type=Path, required=True)
+    audit_parser.add_argument("--case-id", default="profile_audit")
+    audit_parser.add_argument("--output-file", type=Path, default=None)
+    audit_parser.set_defaults(func=audit_profile)
+
+    plan_parser = subparsers.add_parser("plan-source-acquisition", help="Preview entity resolution, target discovery, and deep source requirements for a case.")
+    plan_parser.add_argument("--case-file", type=Path, required=True)
+    plan_parser.add_argument("--corpus-dir", type=Path, default=DEFAULT_CORPUS_DIR)
+    plan_parser.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_DIR)
+    plan_parser.add_argument("--output-file", type=Path, default=None)
+    plan_parser.set_defaults(func=plan_source_acquisition)
+
     return parser
 
 
@@ -130,4 +193,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
