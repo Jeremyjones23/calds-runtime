@@ -16,6 +16,7 @@ from .contracts import (
     TriageFinding,
     stable_id,
 )
+from .investigation_profiles import InvestigationProfileService, ReviewValueScoringService
 from .truth import tokenize
 
 
@@ -33,18 +34,24 @@ SOURCE_FAMILIES = [
 class HomelessnessTriageService:
     """Deterministic first-pass triage over all named homelessness entities."""
 
+    def __init__(self) -> None:
+        self.profile_service = InvestigationProfileService()
+        self.review_value = ReviewValueScoringService()
+
     def build(
         self,
         request: CaseRequest,
         records: Iterable[CanonicalRecord],
     ) -> list[EntityTriageResult]:
         self.records = list(records)
+        profile = self.profile_service.load_for_case(request)
         results = []
         for entity in request.entities:
             entity_records = self._records_for_entity(entity)
             findings = self._findings_for_entity(request, entity, entity_records)
-            missing = self._missing_source_families(entity_records)
-            priority, deep_dive, rationale = self._priority(findings, missing)
+            missing = self._missing_source_families(entity_records, profile.required_source_families)
+            review_value = self.review_value.score_entity(request, profile, entity, entity_records, findings, missing)
+            priority, deep_dive, rationale = self._priority(findings, missing, review_value.final_score, profile.deep_dive_threshold)
             results.append(
                 EntityTriageResult(
                     result_id=stable_id("triage", request.case_id, entity, priority),
@@ -55,6 +62,7 @@ class HomelessnessTriageService:
                     rationale=rationale,
                     findings=findings,
                     missing_source_families=missing,
+                    review_value_score=review_value,
                 )
             )
         return results
@@ -69,6 +77,14 @@ class HomelessnessTriageService:
             for result in results
             if result.deep_dive_recommended
         ]
+        profile = self.profile_service.load_for_case(request)
+        if len(selected) > profile.max_targets:
+            selected_set = set(selected)
+            selected = [
+                result.entity
+                for result in sorted(results, key=lambda item: item.review_value_score.final_score if item.review_value_score else 0.0, reverse=True)
+                if result.entity in selected_set
+            ][: profile.max_targets]
         rationales = {result.entity: result.rationale for result in results if result.entity in selected}
         return ForensicInvestigationPlan(
             plan_id=stable_id("forensic_plan", request.case_id, *selected),
@@ -76,10 +92,11 @@ class HomelessnessTriageService:
             selected_entities=selected,
             selection_rule=(
                 "Deep dive when an entity has at least one High triage finding, "
-                "or two or more Medium findings from independent source families. "
-                "Data gaps alone do not upgrade an entity."
+                "two or more Medium findings from independent source families, "
+                f"or a Review Value Score at or above {profile.deep_dive_threshold:g}/100. "
+                "Data gaps alone do not upgrade an entity unless they are part of the weighted Review Value Score and supported by other signals."
             ),
-            source_families=SOURCE_FAMILIES,
+            source_families=profile.required_source_families,
             entity_rationales=rationales,
         )
 
@@ -352,23 +369,28 @@ class HomelessnessTriageService:
         self,
         findings: list[TriageFinding],
         missing: list[str],
+        review_value_score: float,
+        deep_dive_threshold: float,
     ) -> tuple[str, bool, str]:
         levels = Counter(item.risk_level for item in findings)
         medium_families = {item.source_family for item in findings if item.risk_level == "Medium"}
         if levels.get("High"):
-            return "High", True, "At least one official or high-materiality source trigger fired."
+            return "High", True, f"At least one official or high-materiality source trigger fired; Review Value Score is {review_value_score:g}/100."
         if len(medium_families) >= 2:
-            return "Medium", True, "Two or more independent medium triage source families fired."
+            return "Medium", True, f"Two or more independent medium triage source families fired; Review Value Score is {review_value_score:g}/100."
+        if review_value_score >= deep_dive_threshold:
+            return "Review-value", True, f"Review Value Score {review_value_score:g}/100 meets the configured deep-dive threshold of {deep_dive_threshold:g}/100."
         if levels.get("Medium"):
-            return "Medium-watch", False, "One medium signal fired; hold for broader source collection before deep dive."
+            return "Medium-watch", False, f"One medium signal fired; Review Value Score is {review_value_score:g}/100, below threshold."
         if missing:
-            return "Source-gap", False, "No substantive triage trigger fired, but required source families remain missing."
-        return "Low", False, "No configured triage trigger fired from the current corpus."
+            return "Source-gap", False, f"No substantive triage trigger fired, but required source families remain missing; Review Value Score is {review_value_score:g}/100."
+        return "Low", False, f"No configured triage trigger fired from the current corpus; Review Value Score is {review_value_score:g}/100."
 
-    def _missing_source_families(self, records: list[CanonicalRecord]) -> list[str]:
+    def _missing_source_families(self, records: list[CanonicalRecord], required_source_families: list[str] | None = None) -> list[str]:
+        families = required_source_families or SOURCE_FAMILIES
         present = {self._source_family(record) for record in records if not self._is_source_gap_only(record)}
         present.discard("")
-        return [family for family in SOURCE_FAMILIES if family not in present]
+        return [family for family in families if family not in present]
 
     def _is_source_gap_only(self, record: CanonicalRecord) -> bool:
         signals = dict(record.attributes.get("signals", {}))
@@ -399,7 +421,12 @@ class HomelessnessTriageService:
     def _source_family(self, record: CanonicalRecord) -> str:
         source_type = record.source_type
         value = f"{record.source_type} {record.record_id} {record.title}".lower()
-        if source_type in {"state_homelessness_award", "source_extraction_state_homeless_award_table"} or "homekey" in value:
+        if source_type in {
+            "state_homelessness_award",
+            "source_extraction_state_homeless_award_table",
+            "sf_hsh_payment_exposure",
+            "source_extraction_sf_hsh_payment_table",
+        } or "homekey" in value or "sf_hsh_payment" in value:
             return "state_awards"
         if "irs_990" in value or source_type.startswith("irs_990") or source_type == "source_extraction_irs_990_table":
             return "irs_990"

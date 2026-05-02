@@ -47,6 +47,7 @@ class AgentRole(str, Enum):
     CASE_COMPILER = "Case Compiler"
     COMPLETION_GUARD = "Completion Guard"
     CITATION_VERIFIER = "Citation Verifier"
+    COMPLETENESS_CONTROLLER = "Completeness Controller"
 
 
 class WorkflowStatus(str, Enum):
@@ -109,6 +110,37 @@ class CaseRequest:
             evaluation_case_id=value.get("evaluation_case_id"),
             metadata=dict(value.get("metadata", {})),
         )
+
+
+@dataclass(frozen=True)
+class InvestigationProfile:
+    profile_id: str
+    title: str
+    topic: str
+    jurisdiction: str
+    target_universe: str
+    selection_metric: str
+    required_source_families: list[str]
+    scoring_weights: dict[str, float]
+    deep_dive_threshold: float = 60.0
+    max_targets: int = 15
+    language_rules: list[str] = field(default_factory=list)
+    publication_policy: str = "public_safe_after_human_review_gate"
+    completion_gates: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ReviewValueScore:
+    score_id: str
+    case_id: str
+    entity: str
+    final_score: float
+    component_scores: dict[str, float]
+    weights: dict[str, float]
+    rationale: str
+    source_record_ids: list[str] = field(default_factory=list)
+    source_uris: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
 
 
 @dataclass(frozen=True)
@@ -295,6 +327,7 @@ class EntityTriageResult:
     rationale: str
     findings: list[TriageFinding]
     missing_source_families: list[str] = field(default_factory=list)
+    review_value_score: ReviewValueScore | None = None
     created_at: str = field(default_factory=utc_now)
 
 
@@ -334,6 +367,50 @@ class ContextHandoffLedger:
     missing_fields: list[str]
     artifact_refs: list[str]
     status: str
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class CompletenessRepairAction:
+    action_id: str
+    case_id: str
+    step: str
+    issue: str
+    required_change: str
+    rerun_step: str
+    status: str
+    blocker_reason: str = ""
+    attempt: int = 1
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class CompletenessCheck:
+    check_id: str
+    case_id: str
+    gate: str
+    status: str
+    summary: str
+    artifact_refs: list[str] = field(default_factory=list)
+    missing_context: list[str] = field(default_factory=list)
+    repair_action_ids: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now)
+
+
+@dataclass(frozen=True)
+class CompletenessControllerReport:
+    report_id: str
+    case_id: str
+    status: str
+    profile_id: str
+    run_attempt: int
+    checks: list[CompletenessCheck]
+    repair_actions: list[CompletenessRepairAction]
+    handoff_count: int
+    critical_anomaly_count: int
+    retry_required_count: int
+    blocked_count: int
+    notes: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now)
 
 

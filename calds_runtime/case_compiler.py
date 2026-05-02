@@ -219,7 +219,7 @@ class CaseDossierService:
             "",
             "### Plain-Language Source Glossary",
             "",
-            *self._glossary_lines(),
+            *self._glossary_lines(bundle, source_artifact_refs),
             "",
             "### Score Components and Sentinel",
             "",
@@ -264,7 +264,7 @@ class CaseDossierService:
             f"- Jurisdiction: {request.jurisdiction}",
             f"- Objective: {request.objective}",
             f"- Named entities: {', '.join(request.entities) or 'none specified'}",
-            f"- Allowed source types: {self._allowed_source_types_phrase(request.allowed_sources)}",
+            f"- Allowed source types: {self._allowed_source_types_phrase(request.allowed_sources)}. Source: case request.",
             f"- Review packet: `{review_packet.markdown_path}`",
             "",
             "## 5. Case Dossier Orientation",
@@ -596,12 +596,16 @@ class CaseDossierService:
             return f"{title}. This source collection contains federal audit fields used to check material weaknesses, internal-control findings, low-risk status, and audit finding counts."
         if source_type == "source_extraction_fac_award_table":
             return f"{title}. This source collection contains federal audit award totals used to understand public-funding exposure."
+        if source_type == "source_extraction_sf_hsh_payment_table":
+            return f"{title}. This source collection contains San Francisco homelessness-service completed-payment rows used to identify public-dollar exposure for triage."
         if source_type == "source_extraction_state_homeless_award_table":
+            if "san francisco" in title.lower() or "sf hsh" in title.lower():
+                return f"{title}. This source collection contains San Francisco homelessness-service completed-payment rows used to identify public-dollar exposure for triage."
             return f"{title}. This source collection contains California Homekey and Homekey+ award entries used to identify project-award exposure and project geography."
         if source_type == "source_extraction_official_outcome_table":
             return f"{title}. This source collection contains official homelessness outcome measures used for county or Continuum of Care context."
         if source_type == "source_extraction_spend_vs_results_table":
-            return f"{title}. This source collection joins state-award geography with official outcome movement so reviewers can decide whether provider-specific outcome records are needed."
+            return f"{title}. This source collection joins public-funding geography with official outcome movement so reviewers can decide whether provider-specific outcome records are needed."
         if source_type.startswith("source_extraction_"):
             return f"{title}. This source collection supports the cited review checks and remains tied to the source ledger for audit traceability."
         return ""
@@ -723,6 +727,8 @@ class CaseDossierService:
             "fac_award": "Federal Audit Clearinghouse award records",
             "dhcs_status": "California Department of Health Care Services facility-status records",
             "state_homelessness_award": "California homelessness award records",
+            "sf_hsh_payment_exposure": "San Francisco homelessness payment exposure records",
+            "source_extraction_sf_hsh_payment_table": "San Francisco homelessness payment exposure records",
             "public_statement": "public statements",
             "social_media_source": "social media sources",
             "county_contract_or_monitoring": "county contract or monitoring records",
@@ -748,7 +754,11 @@ class CaseDossierService:
             return "Federal Audit Clearinghouse audit summary source collection"
         if item.source_type == "source_extraction_fac_award_table":
             return "Federal Audit Clearinghouse award source collection"
+        if item.source_type == "source_extraction_sf_hsh_payment_table":
+            return "San Francisco homelessness payment exposure source collection"
         if item.source_type == "source_extraction_state_homeless_award_table":
+            if "san francisco" in title.lower() or "sf hsh" in title.lower():
+                return "San Francisco homelessness payment exposure source collection"
             return "California housing-award exposure source collection"
         if item.source_type == "source_extraction_official_outcome_table":
             return "Official homelessness outcome source collection"
@@ -776,6 +786,22 @@ class CaseDossierService:
 
     def _reader_record_id(self, record_id: str) -> str:
         value = str(record_id or "source record")
+        record_labels = {
+            "source_table_enforcement_docket": "official enforcement and docket source collection",
+            "source_table_enforcement_docket_discovery": "official enforcement and docket search source collection",
+            "source_table_fac_audit": "Federal Audit Clearinghouse audit source collection",
+            "source_table_fac_awards": "Federal Audit Clearinghouse award source collection",
+            "source_table_irs_990_propublica": "Internal Revenue Service Form 990 source collection",
+            "source_table_irs_990_raw_artifacts": "Internal Revenue Service raw filing acquisition source collection",
+            "source_table_state_homeless_awards": "public homelessness funding source collection",
+            "source_table_official_homelessness_outcomes": "official homelessness outcome source collection",
+            "source_table_spend_vs_results_join": "spend-versus-results source collection",
+        }
+        if value in record_labels:
+            return record_labels[value]
+        if value.startswith("state_homeless_awards_"):
+            entity = value.removeprefix("state_homeless_awards_").replace("_", " ").title()
+            return f"public homelessness funding record: {entity}"
         if value == "source table" or value.startswith("source_table_"):
             return "parsed source collection"
         return value
@@ -787,8 +813,23 @@ class CaseDossierService:
                 return suffix
         return title
 
-    def _glossary_lines(self) -> list[str]:
-        return REVIEWER_GLOSSARY_LINES
+    def _glossary_lines(self, bundle: EvidenceBundle, source_artifact_refs: list[str]) -> list[str]:
+        source_types = {item.source_type for item in bundle.items}
+        artifact_names = {Path(ref).name.lower() for ref in source_artifact_refs}
+        has_sf_payments = bool({"sf_hsh_payment_exposure", "source_extraction_sf_hsh_payment_table"} & source_types)
+        has_housing_awards = "source_extraction_state_homeless_award_table" in source_types
+        lines: list[str] = []
+        for line in REVIEWER_GLOSSARY_LINES:
+            if not has_housing_awards and (
+                "California Department of Housing and Community Development" in line or "Homekey" in line
+            ):
+                continue
+            lines.append(line)
+        if has_sf_payments or "sf_hsh_payment_target_rows.json" in artifact_names:
+            lines.append(
+                "- San Francisco Department of Homelessness and Supportive Housing completed-payment records: official city payment aggregation used here to estimate public-dollar exposure for triage."
+            )
+        return lines
 
     def _executive_snapshot_lines(
         self,
@@ -1566,11 +1607,11 @@ class CaseDossierService:
     def _matrix_refs_for_many(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> str:
         refs: list[str] = []
         for item in rows:
-            for evidence_id in item.evidence_ids:
-                token = f"`{labels.get(evidence_id, evidence_id)}`"
+            for ref_id in self._indicator_ref_ids(item):
+                token = self._ref_token(ref_id, labels)
                 if token not in refs:
                     refs.append(token)
-        return ", ".join(refs) if refs else "risk-matrix source-gap row"
+        return ", ".join(refs) if refs else "missing-source marker"
 
     def _short_excerpt(self, text: str, limit: int = 340) -> str:
         cleaned = " ".join(str(text).replace("...", " ").split())
@@ -1779,34 +1820,52 @@ class CaseDossierService:
         return sorted(priority, key=lambda item: (RISK_ORDER.get(item.risk_level, 99), item.risk_area, item.entity, item.test_name))
 
     def _evidence_labels(self, bundle: EvidenceBundle) -> dict[str, str]:
-        return {item.item_id: f"E{index:02d}" for index, item in enumerate(bundle.items, start=1)}
+        labels: dict[str, str] = {}
+        for index, item in enumerate(bundle.items, start=1):
+            label = f"E{index:02d}"
+            labels[item.item_id] = label
+            labels[item.record_id] = label
+            labels[item.provenance.record_id] = label
+        return labels
+
+    def _indicator_ref_ids(self, indicator: OversightRiskIndicator) -> list[str]:
+        values: list[str] = []
+        for ref_id in [*indicator.evidence_ids, *indicator.record_ids]:
+            if ref_id and ref_id not in values:
+                values.append(ref_id)
+        return values
+
+    def _ref_token(self, ref_id: str, labels: dict[str, str]) -> str:
+        if ref_id in labels:
+            return f"`{labels[ref_id]}`"
+        return self._reader_record_id(ref_id)
 
     def _matrix_refs(self, indicator: OversightRiskIndicator, labels: dict[str, str]) -> str:
         refs = []
-        for evidence_id in indicator.evidence_ids:
-            refs.append(f"`{labels.get(evidence_id, evidence_id)}`")
-        return ", ".join(refs) if refs else "risk-matrix source-gap row"
+        for ref_id in self._indicator_ref_ids(indicator):
+            refs.append(self._ref_token(ref_id, labels))
+        return ", ".join(refs) if refs else "missing-source marker"
 
     def _compact_matrix_refs(self, indicator: OversightRiskIndicator, labels: dict[str, str]) -> str:
         refs = []
-        for evidence_id in indicator.evidence_ids:
-            token = f"`{labels.get(evidence_id, evidence_id)}`"
+        for ref_id in self._indicator_ref_ids(indicator):
+            token = self._ref_token(ref_id, labels)
             if token not in refs:
                 refs.append(token)
         if refs:
             return ", ".join(refs)
-        return "risk-matrix source-gap row"
+        return "missing-source marker"
 
     def _compact_matrix_refs_for_many(self, rows: list[OversightRiskIndicator], labels: dict[str, str]) -> str:
         refs: list[str] = []
         for item in rows:
-            for evidence_id in item.evidence_ids:
-                token = f"`{labels.get(evidence_id, evidence_id)}`"
+            for ref_id in self._indicator_ref_ids(item):
+                token = self._ref_token(ref_id, labels)
                 if token not in refs:
                     refs.append(token)
         if refs:
             return ", ".join(refs)
-        return "risk-matrix source-gap row"
+        return "missing-source marker"
 
     def _format_source_uris(self, uris: Iterable[str]) -> str:
         values = [

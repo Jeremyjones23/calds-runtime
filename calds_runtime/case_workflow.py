@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .case_compiler import CaseDossierService
+from .completeness import CompletenessControllerService
 
 from .agents import (
     CaseDirector,
@@ -27,6 +28,7 @@ from .contracts import (
     utc_now,
 )
 from .forensic_triage import HomelessnessTriageService
+from .investigation_profiles import InvestigationProfileService
 from .quality_gates import CitationVerifierService, CompletionGuardService
 from .review import ReviewArtifactService
 from .risk_matrix import OversightRiskMatrixService
@@ -37,7 +39,7 @@ from .truth import JsonCorpusTruthStore, tokenize
 from .workflow import FileWorkflowStore, WorkflowRunResult
 
 
-RUNTIME_LOGIC_VERSION = "2026-05-01-prompt-logic-audit-v1"
+RUNTIME_LOGIC_VERSION = "2026-05-02-generic-spine-completeness-controller-v6"
 
 
 class CaseWorkflow:
@@ -52,6 +54,8 @@ class CaseWorkflow:
         self.risk_matrix_service = OversightRiskMatrixService()
         self.triage_service = HomelessnessTriageService()
         self.completion_guard = CompletionGuardService()
+        self.completeness_controller = CompletenessControllerService()
+        self.profile_service = InvestigationProfileService()
         self.citation_verifier = CitationVerifierService()
         self.sentinel_policy = SentinelPolicy()
         self.provider = LocalProviderAdapter()
@@ -81,6 +85,22 @@ class CaseWorkflow:
         completed_steps: list[str] = []
         artifacts: dict[str, str] = {}
         self._open_case(store, request, completed_steps, artifacts)
+        profile = self.profile_service.load_for_case(request)
+        profile_path = store.write_artifact("investigation_profile.json", profile)
+        artifacts["investigation_profile"] = str(profile_path)
+        store.trace(
+            request.case_id,
+            Plane.WORKFLOW,
+            "InvestigationProfileService",
+            "investigation_profile_loaded",
+            "Workflow loaded the generic investigation profile before target pruning.",
+            outputs={
+                "profile_id": profile.profile_id,
+                "selection_metric": profile.selection_metric,
+                "required_source_families": profile.required_source_families,
+            },
+            artifacts=[str(profile_path)],
+        )
 
         case_director = CaseDirector()
         bounded_case = case_director.bound(request)
@@ -433,6 +453,52 @@ class CaseWorkflow:
 
         review_decision_path = store.write_artifact("review_decision.json", review_decision)
         artifacts["review_decision"] = str(review_decision_path)
+        task_refs = {
+            f"task_{index:02d}_{path.stem}": str(path)
+            for index, path in enumerate(sorted(store.artifact_dir.glob("task_*.json")), start=1)
+        }
+        controller_artifacts = dict(artifacts)
+        controller_artifacts.update(task_refs)
+        completeness_report = self.completeness_controller.build_report(
+            request=request,
+            profile=profile,
+            artifact_refs=controller_artifacts,
+            handoffs=[handoff],
+            acquisition_ledger=acquisition_ledger,
+            completion_guard=completion_guard,
+            citation_verification=citation_verification,
+            sentinel=sentinel,
+            dossier_text=dossier_path.read_text(encoding="utf-8"),
+            workflow_status=WorkflowStatus.AWAITING_HUMAN_REVIEW,
+            run_attempt=int(request.metadata.get("completeness_run_attempt", 1)),
+        )
+        completeness_path = store.write_artifact("completeness_controller_report.json", completeness_report)
+        self._write_task(
+            store,
+            request,
+            AgentRole.COMPLETENESS_CONTROLLER,
+            "Actively verify source, handoff, citation, sentinel, presentation, and human-review completeness before final pause.",
+            [str(completeness_path)],
+        )
+        artifacts["completeness_controller_report"] = str(completeness_path)
+        completed_steps.append("completeness_checked")
+        store.trace(
+            request.case_id,
+            Plane.WORKFLOW,
+            AgentRole.COMPLETENESS_CONTROLLER.value,
+            "completeness_controller_checked",
+            "Completeness Controller audited handoffs, source coverage, citations, sentinel posture, and dossier presentation.",
+            outputs={
+                "status": completeness_report.status,
+                "critical_anomaly_count": completeness_report.critical_anomaly_count,
+                "retry_required_count": completeness_report.retry_required_count,
+                "blocked_count": completeness_report.blocked_count,
+            },
+            artifacts=[str(completeness_path)],
+            metadata=self.provider.describe_role_call(AgentRole.COMPLETENESS_CONTROLLER.value),
+        )
+        if completeness_report.status == "REPAIR_REQUIRED":
+            raise ValueError("completeness controller requires repair and rerun before human-review pause")
         completed_steps.append("awaiting_human_review")
         store.trace(
             request.case_id,

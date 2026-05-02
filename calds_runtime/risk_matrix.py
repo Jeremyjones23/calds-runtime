@@ -26,7 +26,7 @@ class OversightRiskMatrixService:
 
     METHODOLOGY = (
         "Waste, fraud, abuse, and mismanagement risk-screening matrix generated from parsed IRS Form 990 and ProPublica Nonprofit Explorer API summaries, "
-        "Federal Audit Clearinghouse, DHCS facility-status, HCD Homekey/Homekey+ state-award, official enforcement/docket records, county/document index, and retrieved "
+        "Federal Audit Clearinghouse, DHCS facility-status, public homelessness funding exposure records, official enforcement/docket records, county/document index, and retrieved "
         "service-page records. The matrix tests observable risk proxies: year-over-year financial "
         "growth, spending growth, public-funds concentration, executive compensation, payroll scale, "
         "political/lobbying indicators, audit-control flags, enforcement/docket source flags including connected-party official charges, award concentration, facility closure "
@@ -79,7 +79,11 @@ class OversightRiskMatrixService:
         dhcs = self._load_json_for_type("source_extraction_dhcs_status_table") or {}
         spend_join = self._load_json_for_type("source_extraction_spend_vs_results_table") or {}
         outcome_manifest = self._load_json_for_type("source_extraction_official_outcome_table") or {}
-        state_awards = self._load_json_for_type("source_extraction_state_homeless_award_table") or {}
+        state_awards = (
+            self._load_json_for_type("source_extraction_state_homeless_award_table")
+            or self._load_json_for_type("source_extraction_sf_hsh_payment_table")
+            or {}
+        )
         enforcement = self._load_json_for_type("source_extraction_enforcement_docket_table") or {}
         enforcement_search = self._load_json_for_type("source_extraction_enforcement_docket_discovery_table") or {}
 
@@ -119,10 +123,20 @@ class OversightRiskMatrixService:
         return OversightRiskMatrix(
             matrix_id=stable_id("risk_matrix", request.case_id, str(len(indicators))),
             case_id=request.case_id,
-            methodology=self.METHODOLOGY,
+            methodology=self._methodology(),
             score_scale=self.SCORE_SCALE,
             indicators=indicators,
         )
+
+    def _methodology(self) -> str:
+        source_types = {record.source_type for record in self.records}
+        if "source_extraction_sf_hsh_payment_table" in source_types and "source_extraction_state_homeless_award_table" not in source_types:
+            funding_source = "San Francisco Department of Homelessness and Supportive Housing completed-payment exposure records"
+        elif "source_extraction_state_homeless_award_table" in source_types and "source_extraction_sf_hsh_payment_table" not in source_types:
+            funding_source = "California housing and homelessness award exposure records"
+        else:
+            funding_source = "public homelessness funding exposure records"
+        return self.METHODOLOGY.replace("public homelessness funding exposure records", funding_source)
 
     def _load_json_for_type(self, source_type: str) -> dict[str, Any] | None:
         for record in self.records:
@@ -650,21 +664,24 @@ class OversightRiskMatrixService:
             entity,
             "source_extraction_state_homeless_award_table",
             "state_homelessness_award",
+            "source_extraction_sf_hsh_payment_table",
+            "sf_hsh_payment_exposure",
         )
         row = next((item for item in rows if item.get("entity") == entity), None)
+        is_sf_payment = bool(row and any("San Francisco HSH" in str(program) for program in row.get("programs", [])))
         if not row:
             return [
                 self._indicator(
                     request,
-                    "State homelessness award exposure",
+                    "Public homelessness funding exposure",
                     entity,
-                    "Homekey/Homekey+ co-applicant project-award exposure",
-                    "No parsed HCD Homekey or Homekey+ state award row is present for this entity in the current corpus.",
+                    "Public funding exposure source coverage",
+                    "No parsed public homelessness funding exposure row is present for this entity in the current corpus.",
                     "Data gap",
                     "missing_source",
-                    "Recover official HCD award rows before ranking state homelessness award exposure.",
+                    "Recover official public funding rows before ranking funding exposure.",
                     record_ids,
-                    ["Absence of a parsed row is not evidence that the entity lacked state funding exposure."],
+                    ["Absence of a parsed row is not evidence that the entity lacked public funding exposure."],
                 )
             ]
 
@@ -678,20 +695,33 @@ class OversightRiskMatrixService:
         return [
             self._indicator(
                 request,
-                "State homelessness award exposure",
+                "San Francisco homelessness payment exposure" if is_sf_payment else "State homelessness award exposure",
                 entity,
-                "Homekey/Homekey+ co-applicant project-award exposure",
+                "SF HSH completed-payment exposure" if is_sf_payment else "Homekey/Homekey+ co-applicant project-award exposure",
                 (
-                    f"HCD award lists name {entity} as a co-applicant or project partner on {project_count} "
-                    f"Homekey/Homekey+ project row(s), with total project-award exposure of {self._money(total)}. "
-                    f"Programs: {programs}. Award year(s): {years}. Counties: {counties}. Projects: {projects}."
+                    f"SF Open Data lists {entity} in Department of Homelessness and Supportive Housing completed-payment aggregation with payment exposure of {self._money(total)}. "
+                    f"Programs/source grouping: {programs}. Year span: {years}. Counties: {counties}. Projects/context: {projects}."
+                    if is_sf_payment
+                    else (
+                        f"HCD award lists name {entity} as a co-applicant or project partner on {project_count} "
+                        f"Homekey/Homekey+ project row(s), with total project-award exposure of {self._money(total)}. "
+                        f"Programs: {programs}. Award year(s): {years}. Counties: {counties}. Projects: {projects}."
+                    )
                 ),
                 level,
                 "observed",
-                "Verify HCD source rows, standard agreements, eligible applicant, co-applicant role, draw records, and any subrecipient allocation before treating project-award exposure as direct receipt.",
+                (
+                    "Verify exact SF contracts, invoices, deliverables, monitoring, corrective-action records, and program outcome records before treating payment exposure as performance evidence."
+                    if is_sf_payment
+                    else "Verify HCD source rows, standard agreements, eligible applicant, co-applicant role, draw records, and any subrecipient allocation before treating project-award exposure as direct receipt."
+                ),
                 record_ids,
                 [
-                    "This is project-award exposure assigned to source-listed co-applicants; allocation among co-applicants is not stated in the award lists.",
+                    (
+                        "This is official completed-payment exposure by supplier name; it is not a finding that any payment was improper."
+                        if is_sf_payment
+                        else "This is project-award exposure assigned to source-listed co-applicants; allocation among co-applicants is not stated in the award lists."
+                    ),
                     "The screen prioritizes materiality and follow-up, not a finding that funds were mishandled.",
                 ],
             ),
@@ -699,16 +729,28 @@ class OversightRiskMatrixService:
                 request,
                 "Direct funding verification",
                 entity,
-                "State award direct-recipient and subrecipient allocation coverage",
+                "SF payment, contract, and deliverable coverage" if is_sf_payment else "State award direct-recipient and subrecipient allocation coverage",
                 (
-                    f"The HCD award list identifies eligible public applicant(s) and co-applicant(s) for {entity}, "
-                    "but this run does not recover the standard agreement, payment ledger, subrecipient ledger, or operating-cost draw records needed to verify the exact dollars received by the nonprofit."
+                    f"SF Open Data gives completed-payment exposure for {entity}, but this run still needs exact contract scopes, invoices, deliverables, monitoring letters, corrective actions, and provider-attributable outcomes to judge performance or allowability."
+                    if is_sf_payment
+                    else (
+                        f"The HCD award list identifies eligible public applicant(s) and co-applicant(s) for {entity}, "
+                        "but this run does not recover the standard agreement, payment ledger, subrecipient ledger, or operating-cost draw records needed to verify the exact dollars received by the nonprofit."
+                    )
                 ),
                 "Data gap",
                 "missing_source_or_field",
-                "Pull the state standard agreement, draw/payment records, and local subrecipient contracts before making direct-recipient or cost-allowability claims.",
+                (
+                    "Pull SF contracts, invoice-level payments, deliverables, monitoring letters, corrective actions, and provider-level outcome reports before making cost-allowability or performance claims."
+                    if is_sf_payment
+                    else "Pull the state standard agreement, draw/payment records, and local subrecipient contracts before making direct-recipient or cost-allowability claims."
+                ),
                 record_ids,
-                ["The award-list role field supports exposure ranking but not direct-payment allocation."],
+                [
+                    "The payment exposure row supports materiality ranking but not a conclusion about service delivery, allowability, or misuse."
+                    if is_sf_payment
+                    else "The award-list role field supports exposure ranking but not direct-payment allocation."
+                ],
             ),
         ]
 
@@ -785,11 +827,30 @@ class OversightRiskMatrixService:
             revenue = row.get("revenue_growth_pct")
             grants = row.get("government_grant_growth_pct")
             state_award_exposure = self._number(row.get("state_award_exposure"))
-            state_award_text = f" State project-award exposure={self._money(state_award_exposure)}." if state_award_exposure is not None else ""
-            geography_phrase = "state-award project geography" if state_award_exposure is not None else "matched service geography"
+            source_context = self._spend_join_source_context(spend_join)
+            exposure_text = ""
+            geography_phrase = "matched service geography"
+            reviewer_action = "Review underlying county or Continuum of Care outcome rows, contract geography, and provider-specific outcome records before drawing any conclusion."
+            if state_award_exposure is not None:
+                if source_context == "sf_hsh":
+                    exposure_text = f" San Francisco Department of Homelessness and Supportive Housing completed-payment exposure={self._money(state_award_exposure)}."
+                    geography_phrase = "San Francisco payment geography"
+                    reviewer_action = (
+                        "Review underlying county or Continuum of Care outcome rows, San Francisco contract scopes, deliverables, invoices, monitoring letters, corrective actions, "
+                        "and provider-specific outcome records before drawing any conclusion."
+                    )
+                elif source_context == "hcd_award":
+                    exposure_text = f" California housing-award exposure={self._money(state_award_exposure)}."
+                    geography_phrase = "California housing-award project geography"
+                    reviewer_action = (
+                        "Review underlying county or Continuum of Care outcome rows, housing-award project geography, contract geography, and provider-specific outcome records before drawing any conclusion."
+                    )
+                else:
+                    exposure_text = f" Public homelessness funding exposure={self._money(state_award_exposure)}."
+                    geography_phrase = "public-funding geography"
             observed = (
                 f"{entity} has {geography_phrase} in {county}; official county/CoC context flags {', '.join(flags)}. "
-                f"Parsed entity growth context: spending={self._pct_text(spending)}, revenue={self._pct_text(revenue)}, government grants={self._pct_text(grants)}.{state_award_text}"
+                f"Parsed entity growth context: spending={self._pct_text(spending)}, revenue={self._pct_text(revenue)}, government grants={self._pct_text(grants)}.{exposure_text}"
             )
             indicators.append(
                 self._indicator(
@@ -800,12 +861,25 @@ class OversightRiskMatrixService:
                     observed,
                     level if level in {"High", "Medium", "Low"} else "Medium",
                     "observed_contextual_join",
-                    "Review underlying county/CoC outcome rows, state-award project geography, contract geography, and provider-specific outcome records before drawing any conclusion.",
+                    reviewer_action,
                     record_ids,
                     list(row.get("join_caveats") or ["County outcomes are not provider-attributable without direct program outcome data."]),
                 )
             )
         return indicators
+
+    def _spend_join_source_context(self, spend_join: dict[str, Any]) -> str:
+        methodology = str(spend_join.get("methodology") or "").lower() if isinstance(spend_join, dict) else ""
+        if "san francisco" in methodology or "sf hsh" in methodology or "completed-payment" in methodology:
+            return "sf_hsh"
+        if "hcd" in methodology or "homekey" in methodology or "state project-award" in methodology:
+            return "hcd_award"
+        source_types = {record.source_type for record in getattr(self, "records", [])}
+        if "source_extraction_sf_hsh_payment_table" in source_types:
+            return "sf_hsh"
+        if "source_extraction_state_homeless_award_table" in source_types:
+            return "hcd_award"
+        return "public_funding"
 
     def _public_statement_indicators(self, request: CaseRequest, entity: str) -> list[OversightRiskIndicator]:
         records = [record for record in self.records if record.source_type == "public_statement_source" and entity in record.entities]

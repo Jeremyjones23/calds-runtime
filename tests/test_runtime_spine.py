@@ -9,8 +9,10 @@ from uuid import uuid4
 from calds_runtime.agents import LeadScorerAgent
 from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
-from calds_runtime.contracts import CanonicalRecord, CaseRequest, CompletionGuardResult, EvidenceBundle, EvidenceItem, LinkIntegrityReport, Provenance, SourceLinkCheck, WorkflowStatus, read_json, write_json
+from calds_runtime.completeness import CompletenessControllerService
+from calds_runtime.contracts import AcquisitionSearchRun, CanonicalRecord, CaseRequest, CompletionGuardResult, ContextHandoffLedger, EvidenceBundle, EvidenceItem, InvestigationProfile, LinkIntegrityReport, Provenance, SourceLinkCheck, TriageFinding, WorkflowStatus, read_json, write_json
 from calds_runtime.forensic_triage import HomelessnessTriageService
+from calds_runtime.investigation_profiles import InvestigationProfileService, ReviewValueScoringService
 from calds_runtime.publication import extract_urls, mark_unverified_source_urls, publish_case_site_from_run, repair_public_source_urls, source_access_report
 from calds_runtime.quality_gates import CitationVerifierService, CompletionGuardService, RunReadinessService
 from calds_runtime.risk_matrix import OversightRiskMatrixService
@@ -49,12 +51,17 @@ class RuntimeSpineTests(unittest.TestCase):
             handoff = read_json(Path(state["artifacts"]["context_handoff_ledger"]))
             acquisition = read_json(Path(state["artifacts"]["acquisition_ledger"]))
             completion_guard = read_json(Path(state["artifacts"]["completion_guard"]))
+            completeness_report = read_json(Path(state["artifacts"]["completeness_controller_report"]))
             self.assertIn("results", triage)
             self.assertIn("selected_entities", forensic_plan)
             self.assertEqual(handoff["status"], "PASS")
             self.assertIn("searches", acquisition)
             self.assertGreaterEqual(len(acquisition["searches"]), len(forensic_plan["selected_entities"]))
             self.assertIn(completion_guard["status"], {"PASS", "PASS_WITH_BLOCKERS"})
+            self.assertIn(completeness_report["status"], {"PASS", "PASS_WITH_BLOCKERS"})
+            self.assertGreaterEqual(completeness_report["handoff_count"], 1)
+            self.assertEqual(completeness_report["retry_required_count"], 0)
+            self.assertIn("completeness_checked", state["completed_steps"])
             self.assertGreaterEqual(completion_guard["total_searches"], len(acquisition["searches"]))
             self.assertIn("anything short of a citation-ready hit remains a source-access blocker", " ".join(completion_guard["notes"]))
             self.assertIn("triaged", state["completed_steps"])
@@ -219,6 +226,184 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(result.status, "REPAIR_REQUIRED")
         self.assertEqual(result.error_count, 0)
         self.assertGreater(result.warning_count, 0)
+
+    def test_investigation_profile_loads_sf_review_value_defaults(self) -> None:
+        case = CaseRequest(
+            case_id="sf_profile_test",
+            title="SF profile",
+            objective="Load profile.",
+            jurisdiction="San Francisco, California",
+            metadata={"investigation_profile_path": "data/investigation_profiles/sf_homelessness.json"},
+        )
+        profile = InvestigationProfileService().load_for_case(case)
+
+        self.assertEqual(profile.profile_id, "sf_homelessness_review_value_v1")
+        self.assertEqual(profile.selection_metric, "Review Value Score")
+        self.assertIn("enforcement_or_docket", profile.required_source_families)
+        self.assertGreater(profile.scoring_weights["official_adverse_record"], profile.scoring_weights["source_opacity"])
+        self.assertIn("human_review", profile.completion_gates)
+
+    def test_review_value_score_elevates_public_money_and_official_adverse_records(self) -> None:
+        case = CaseRequest(case_id="review_value_test", title="Review value", objective="Rank target.", entities=["Example Shelter"])
+        profile = InvestigationProfile(
+            profile_id="test_profile",
+            title="Test",
+            topic="homelessness",
+            jurisdiction="California",
+            target_universe="test",
+            selection_metric="Review Value Score",
+            required_source_families=["state_awards", "enforcement_or_docket"],
+            scoring_weights={
+                "public_money_exposure": 0.3,
+                "official_adverse_record": 0.3,
+                "scope_mismatch": 0.1,
+                "spend_outcome_mismatch": 0.1,
+                "tax_audit_financial_anomaly": 0.1,
+                "source_opacity": 0.05,
+                "network_centrality": 0.025,
+                "verifiability": 0.025,
+            },
+            deep_dive_threshold=55,
+        )
+        provenance = Provenance(
+            record_id="official_row",
+            source_uri="https://example.org/official",
+            source_type="enforcement_or_docket_source",
+            collected_at="2026-05-02T00:00:00+00:00",
+            checksum="abc",
+            corpus_name="test",
+            chunk_id="official_row#body",
+        )
+        records = [
+            CanonicalRecord(
+                record_id="funding_row",
+                title="SF HSH payment row",
+                body="Example Shelter has public completed-payment exposure.",
+                source_uri="https://data.sfgov.org/resource/qkex-vh98",
+                source_type="state_homelessness_award",
+                published_at="2026-05-02",
+                entities=["Example Shelter"],
+                attributes={"total_award_exposure": 125000000, "signals": {"sf_hsh_completed_payment_exposure": True}},
+                provenance=provenance,
+            ),
+            CanonicalRecord(
+                record_id="official_row",
+                title="Official violation row",
+                body="Official agency source says a violation occurred.",
+                source_uri="https://example.org/official",
+                source_type="enforcement_or_docket_source",
+                published_at="2026-05-02",
+                entities=["Example Shelter"],
+                attributes={"signals": {"official_enforcement_or_docket_flag": True}},
+                provenance=provenance,
+            ),
+        ]
+        finding = TriageFinding(
+            finding_id="finding",
+            case_id=case.case_id,
+            entity="Example Shelter",
+            source_family="enforcement_or_docket",
+            finding_type="official_adverse_record",
+            observed_fact="Official source row exists.",
+            risk_level="High",
+            data_status="Official source recovered",
+            trigger_reason="Official adverse record.",
+            source_uris=["https://example.org/official"],
+            record_ids=["official_row"],
+        )
+
+        score = ReviewValueScoringService().score_entity(case, profile, "Example Shelter", records, [finding], [])
+
+        self.assertGreaterEqual(score.final_score, profile.deep_dive_threshold)
+        self.assertEqual(score.component_scores["public_money_exposure"], 100.0)
+        self.assertEqual(score.component_scores["official_adverse_record"], 100.0)
+        self.assertIn("Review Value Score combines materiality", score.rationale)
+
+    def test_completeness_controller_requires_repair_for_missing_handoff_and_sources(self) -> None:
+        case = CaseRequest(case_id="controller_gate", title="Controller gate", objective="Force repair.")
+        profile = InvestigationProfileService().load_for_case(case)
+        guard = CompletionGuardResult(
+            guard_id="guard",
+            case_id=case.case_id,
+            status="FAIL",
+            required_source_families=profile.required_source_families,
+            selected_entities=[],
+            total_searches=0,
+            hit_count=0,
+            miss_count=0,
+            blocker_count=0,
+            missing_required=[],
+        )
+
+        report = CompletenessControllerService().build_report(
+            request=case,
+            profile=profile,
+            artifact_refs={},
+            handoffs=[],
+            acquisition_ledger=[],
+            completion_guard=guard,
+            workflow_status=WorkflowStatus.RETRIEVED,
+        )
+
+        self.assertEqual(report.status, "REPAIR_REQUIRED")
+        self.assertGreaterEqual(report.retry_required_count, 2)
+        self.assertTrue(any(action.rerun_step == "rerun source acquisition" for action in report.repair_actions))
+        self.assertTrue(any(action.rerun_step == "rerun affected agent handoff" for action in report.repair_actions))
+
+    def test_completeness_controller_catches_handoff_context_loss(self) -> None:
+        case = CaseRequest(case_id="handoff_loss", title="Handoff loss", objective="Catch context loss.")
+        profile = InvestigationProfileService().load_for_case(case)
+        handoff = ContextHandoffLedger(
+            ledger_id="handoff",
+            case_id=case.case_id,
+            from_step="triage",
+            to_step="forensic",
+            required_fields=["case_scope", "entities", "evidence_ids", "source_uris", "caveats", "unresolved_gaps", "next_task"],
+            present_fields=["case_scope", "entities"],
+            missing_fields=["evidence_ids", "source_uris", "caveats", "unresolved_gaps", "next_task"],
+            artifact_refs=[],
+            status="REPAIR_REQUIRED",
+        )
+        ledger = [
+            AcquisitionSearchRun(
+                search_id="search",
+                case_id=case.case_id,
+                entity="Example Shelter",
+                source_family="state_awards",
+                query="Example Shelter funding",
+                attempted_sources=["official source"],
+                matched_record_ids=["record"],
+                source_uris=["https://example.org/record"],
+                status="hit",
+                confidence="High",
+            )
+        ]
+        guard = CompletionGuardResult(
+            guard_id="guard",
+            case_id=case.case_id,
+            status="PASS",
+            required_source_families=["state_awards"],
+            selected_entities=["Example Shelter"],
+            total_searches=1,
+            hit_count=1,
+            miss_count=0,
+            blocker_count=0,
+            missing_required=[],
+        )
+
+        report = CompletenessControllerService().build_report(
+            request=case,
+            profile=profile,
+            artifact_refs={"acquisition_ledger": "acquisition_ledger.json"},
+            handoffs=[handoff],
+            acquisition_ledger=ledger,
+            completion_guard=guard,
+            workflow_status=WorkflowStatus.AWAITING_HUMAN_REVIEW,
+        )
+
+        self.assertEqual(report.status, "REPAIR_REQUIRED")
+        self.assertTrue(any(check.gate == "handoff" and check.status == "REPAIR_REQUIRED" for check in report.checks))
+        self.assertIn("source_uris", report.checks[0].missing_context)
 
     def test_publication_repairs_stale_public_source_links_before_publish(self) -> None:
         ledger = [
@@ -485,7 +670,7 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(ledger[0].matched_record_ids, [])
         self.assertIn("Only discovery/source-gap", ledger[0].blocker_reason)
 
-    def test_completion_guard_counts_official_no_record_search_as_blocker_not_clearance(self) -> None:
+    def test_completion_guard_accepts_official_no_record_search_without_treating_it_as_clearance(self) -> None:
         record = CanonicalRecord(
             record_id="enforcement_docket_no_record_shelter_group",
             title="Official enforcement search: Shelter Group",
@@ -505,15 +690,15 @@ class RuntimeSpineTests(unittest.TestCase):
                 chunk_id="official-no-record#body",
             ),
         )
-        case = CaseRequest(case_id="guard_no_record_test", title="Guard no-record regression", objective="Count official no-record searches as blockers, not clearance.", entities=["Shelter Group"])
+        case = CaseRequest(case_id="guard_no_record_test", title="Guard no-record regression", objective="Accept official no-record searches with caveats.", entities=["Shelter Group"])
         service = CompletionGuardService()
         ledger = service.build_acquisition_ledger(case, [record], ["Shelter Group"], ["enforcement_or_docket"])
         guard = service.guard(case, ledger, ["Shelter Group"], ["enforcement_or_docket"])
         self.assertEqual(ledger[0].status, "searched_no_public_official_record")
         self.assertEqual(ledger[0].matched_record_ids, ["enforcement_docket_no_record_shelter_group"])
-        self.assertEqual(guard.status, "PASS_WITH_BLOCKERS")
-        self.assertEqual(guard.blocker_count, 1)
-        self.assertEqual(guard.missing_required, ["Shelter Group: enforcement_or_docket"])
+        self.assertEqual(guard.status, "PASS")
+        self.assertEqual(guard.blocker_count, 0)
+        self.assertEqual(guard.missing_required, [])
         self.assertIn("not legal clearance", " ".join(guard.notes))
 
     def test_triage_missing_source_families_ignore_discovery_gap_records(self) -> None:
@@ -837,6 +1022,15 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("https://search.justice.gov/search", module.US_DOJ_SEARCH_URL)
         self.assertTrue(module.PUBLIC_ENFORCEMENT_SEARCH_SOURCES)
         self.assertTrue(module.MANUAL_ENFORCEMENT_SEARCH_SOURCES)
+        module.configure_profile("sf_homelessness", target_limit=15)
+        self.assertEqual(module.CASE_ID, "live_ca_sf_homelessness_complex")
+        self.assertEqual(module.ACTIVE_PROFILE, "sf_homelessness")
+        self.assertIn("United Council of Human Services", module.SF_ADVERSE_ENTITY_BOOSTS)
+        self.assertIn("San Francisco", module.build_case_request_payload(PROJECT_ROOT / "data" / "live_corpus" / "sf_test")["jurisdiction"])
+        self.assertEqual(
+            module.build_case_request_payload(PROJECT_ROOT / "data" / "live_corpus" / "sf_test")["metadata"]["selection_metric"],
+            "Review Value Score",
+        )
         self.assertEqual(
             module.extract_object_id_from_pdf_url("https://projects.propublica.org/nonprofits/download-filing?path=IRS%2F956054617_202304_990_2024040522347579.pdf"),
             "2024040522347579",

@@ -1,0 +1,48 @@
+{
+  "profile_id": "sf_homelessness_review_value_v1",
+  "title": "San Francisco Homelessness NGO Review Value Profile",
+  "topic": "homelessness",
+  "jurisdiction": "San Francisco, California",
+  "target_universe": "San Francisco homelessness-service nonprofit candidates selected from official payment exposure plus citation-ready public-record dings",
+  "selection_metric": "Review Value Score",
+  "required_source_families": [
+    "state_awards",
+    "irs_990",
+    "audit",
+    "enforcement_or_docket",
+    "county_contract_monitoring",
+    "web_and_social",
+    "outcomes"
+  ],
+  "scoring_weights": {
+    "public_money_exposure": 0.24,
+    "official_adverse_record": 0.24,
+    "scope_mismatch": 0.12,
+    "spend_outcome_mismatch": 0.12,
+    "tax_audit_financial_anomaly": 0.12,
+    "source_opacity": 0.06,
+    "network_centrality": 0.04,
+    "verifiability": 0.06
+  },
+  "deep_dive_threshold": 58.0,
+  "max_targets": 15,
+  "language_rules": [
+    "Treat public output as source-cited review leads, not legal findings.",
+    "Use official legal terms only when an official source supports the term.",
+    "Preserve named-party distinctions between entity findings, connected-party charges, and third-party transaction records.",
+    "Describe possible waste, fraud, abuse, mismanagement, or off-scope use as a review hypothesis until a human validates the underlying records."
+  ],
+  "publication_policy": "sanitized_public_case_after_completeness_and_sentinel_gates",
+  "completion_gates": [
+    "source",
+    "retry",
+    "handoff",
+    "citation",
+    "link",
+    "hallucination",
+    "sentinel",
+    "presentation",
+    "human_review",
+    "github"
+  ]
+}

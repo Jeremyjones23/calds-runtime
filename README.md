@@ -6,7 +6,7 @@ This repository is not an autonomous accusation engine. It produces reviewer-saf
 
 ## What Is Included
 
-- `calds_runtime/` - core contracts, deterministic truth/search/scoring/review services, local workflow adapter, bounded role adapters, sentinel gate, and CLI.
+- `calds_runtime/` - core contracts, deterministic truth/search/scoring/review services, generic investigation profiles, Review Value Score pruning, active completeness controller, local workflow adapter, bounded role adapters, sentinel gate, and CLI.
 - `scripts/` - source ingestion, deterministic extraction, gap recovery, official outcome ingestion, and live pipeline orchestration.
 - `cases/` - live case configurations for the California recovery NGO and homelessness top-15 workflows.
 - `data/sample_corpus/` - small synthetic/sample corpus for tests and evals.
@@ -30,11 +30,14 @@ CalDS treats retrieved material as evidence context, not conclusions. The runtim
 
 Review packets use possible waste, fraud, abuse, or mismanagement screening language, but rows are screening prompts only. County or Continuum of Care outcome movements are contextual and are not provider-attributable results without direct program outcome evidence.
 
-The homelessness workflow now includes a first-pass top-15 triage gate before deep investigation. The gate records entity-level source-family findings, deep-dive selection, and context handoff status before the normal evidence bundle, sentinel, dossier, public-site, and human-review pause steps.
+The investigation workflow now starts from an `InvestigationProfile`: topic, jurisdiction, target universe, required source families, scoring weights, language rules, publication policy, and completion gates. Target pruning uses `Review Value Score`, which combines public-dollar exposure, official adverse records or public-record dings, off-scope activity signals, spending growth versus outcome movement, tax/audit/compensation anomalies, source opacity, network role, and citation quality.
+
+The homelessness workflow includes a first-pass triage gate before deep investigation. The gate records entity-level source-family findings, Review Value Score, deep-dive selection, and context handoff status before the normal evidence bundle, sentinel, dossier, public-site, and human-review pause steps.
 
 The workflow also includes four anti-drift quality gates:
 
 - `CompletionGuardService` records source-family acquisition hits, no-record public searches, and misses before synthesis. Anything short of a citation-ready hit remains a source-access blocker, not clearance.
+- `CompletenessControllerService` audits source, retry, handoff, citation, link, hallucination, sentinel, presentation, and human-review gates. A failed gate creates a concrete repair action and rerun target before the workflow can accept the step as complete.
 - `CitationVerifierService` checks the compiled dossier for unresolved evidence labels, missing traceability, named-party legal-status drift, and provider-attribution overclaim.
 - `LinkIntegrityService` checks public source links during static-site publication and blocks publication when external citation links are broken. The public publisher repairs known stale URLs to working source pages and reports remaining source-access gaps instead of hiding them.
 - `RunReadinessService` compares a rerun against a baseline and reports whether the new run is materially deeper before treating it as an improved result.
@@ -78,6 +81,15 @@ python -m calds_runtime run-case --case-file cases\live_ca_homelessness_top15_ca
 python -m calds_runtime publish-case-site --run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --output-dir site\cases\live_ca_homelessness_top15_2026_04_29
 python -m calds_runtime publish-site-index --site-dir site
 python -m calds_runtime compare-run-readiness --current-run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --baseline-run-dir runs\<baseline-run>\live_ca_homelessness_top15_2026_04_29 --output-file runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29\artifacts\run_readiness.json
+```
+
+Run the San Francisco homelessness complex profile from scratch:
+
+```powershell
+python scripts\ingest_homelessness_top15_sources.py --profile sf_homelessness --target-limit 15 --corpus-dir data\live_corpus\live_ca_sf_homelessness_complex_fresh --case-file-out runs\live-sf-homelessness\live_ca_sf_homelessness_complex_case.json
+python -m calds_runtime run-case --case-file runs\live-sf-homelessness\live_ca_sf_homelessness_complex_case.json --corpus-dir data\live_corpus\live_ca_sf_homelessness_complex_fresh --runs-dir runs\live-sf-homelessness
+python -m calds_runtime publish-case-site --run-dir runs\live-sf-homelessness\live_ca_sf_homelessness_complex --output-dir site\cases\live_ca_sf_homelessness_complex
+python -m calds_runtime publish-site-index --site-dir site
 ```
 
 ## Current Verification Baseline

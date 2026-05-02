@@ -34,11 +34,13 @@ SOURCE_TYPE_LABELS = {
     "dhcs_adverse_status_discovery": "California Department of Health Care Services adverse-status source discovery",
     "county_contract_or_monitoring": "County contract or monitoring source",
     "state_homelessness_award": "California Department of Housing and Community Development homelessness award record",
+    "sf_hsh_payment_exposure": "San Francisco homelessness completed-payment exposure record",
     "court_docket_manifest": "Court docket search manifest",
     "enforcement_or_docket_source": "Official enforcement or docket source",
     "contract_payment_discovery": "Contract and payment acquisition gap record",
     "social_media_source": "Social media source",
     "source_extraction_state_homeless_award_table": "California state homelessness award source collection",
+    "source_extraction_sf_hsh_payment_table": "San Francisco homelessness payment exposure source collection",
     "source_extraction_enforcement_docket_table": "Enforcement and docket source collection",
     "source_extraction_irs_990_table": "Internal Revenue Service source collection",
     "source_extraction_fac_audit_table": "Federal Audit Clearinghouse audit source collection",
@@ -473,9 +475,14 @@ class ReviewArtifactService:
             )
         if signals.get("state_homelessness_award_exposure") or signals.get("state_homelessness_award_table"):
             refs = self._refs_for(bundle, labels, "state_homelessness_award_exposure", "state_homelessness_award_table")
-            bullets.append(
-                f"- State homelessness award context: California Department of Housing and Community Development Homekey or Homekey+ award rows are present. Review use: verify eligible applicant, co-applicant role, project amount, units, and any standard agreement or subrecipient allocation before treating award exposure as direct receipt. Cited refs: {refs}."
-            )
+            if signals.get("sf_hsh_completed_payment_exposure"):
+                bullets.append(
+                    f"- San Francisco homelessness payment context: SF HSH completed-payment exposure rows are present. Review use: verify contract, invoice, deliverable, monitoring, and payment-ledger records before treating payment exposure as performance evidence. Cited refs: {refs}."
+                )
+            else:
+                bullets.append(
+                    f"- State homelessness award context: California Department of Housing and Community Development Homekey or Homekey+ award rows are present. Review use: verify eligible applicant, co-applicant role, project amount, units, and any standard agreement or subrecipient allocation before treating award exposure as direct receipt. Cited refs: {refs}."
+                )
         if signals.get("pdf_layout_extracted") or signals.get("pdf_text_extracted"):
             refs = self._refs_for(bundle, labels, "pdf_layout_extracted", "pdf_text_extracted")
             bullets.append(
@@ -550,7 +557,11 @@ class ReviewArtifactService:
             return f"{label}: secondary source only until official Internal Revenue Service machine-readable filing data or source document is recovered"
         if item.source_type.startswith("source_extraction_"):
             return f"{label}: deterministic parser output; raw source controls"
+        if item.source_type == "sf_hsh_payment_exposure":
+            return f"{label}: official San Francisco completed-payment exposure; payment exposure is not the same as verified waste, fraud, abuse, or mismanagement"
         if item.source_type == "state_homelessness_award":
+            if signals.get("sf_hsh_completed_payment_exposure"):
+                return f"{label}: official San Francisco completed-payment exposure; payment exposure is not the same as verified waste, fraud, abuse, or mismanagement"
             return f"{label}: official state project-award context; co-applicant exposure is not the same as verified direct receipt"
         if item.source_type in {"fac_audit_pdf", "fac_findings", "fac_federal_awards", "fac_audit_summary"}:
             return f"{label}: audit or award context requiring year-specific review"
@@ -591,7 +602,11 @@ class ReviewArtifactService:
             return "California Department of Health Care Services adverse-status source discovery remains incomplete or machine-readability is unresolved."
         if item.source_type == "county_contract_or_monitoring":
             return "County monitoring, contract, or ledger document is available for current-status review."
+        if item.source_type == "sf_hsh_payment_exposure":
+            return "Official San Francisco completed-payment row gives public-dollar exposure for triage; it does not by itself indicate improper use."
         if item.source_type == "state_homelessness_award":
+            if signals.get("sf_hsh_completed_payment_exposure"):
+                return "Official San Francisco completed-payment row gives public-dollar exposure for triage; it does not by itself indicate improper use."
             return "Official state Homekey or Homekey+ award row names the entity as a project co-applicant or partner; this flags material public-funds exposure and a direct-allocation verification need."
         if item.source_type == "court_docket_manifest":
             return "Court calendar or docket-search pointer requiring direct docket verification."
@@ -609,7 +624,11 @@ class ReviewArtifactService:
             return "California Department of Health Care Services source collection shows facility counts, active or closed status counts, and counties."
         if item.source_type == "source_extraction_pdf_text_index":
             return "PDF extraction index flags where reviewer navigation aids are available."
+        if item.source_type == "source_extraction_sf_hsh_payment_table":
+            return "San Francisco homelessness payment source collection ranks completed-payment exposure and preserves public-dollar materiality caveats."
         if item.source_type == "source_extraction_state_homeless_award_table":
+            if signals.get("sf_hsh_completed_payment_exposure"):
+                return "San Francisco homelessness payment source collection ranks completed-payment exposure and preserves public-dollar materiality caveats."
             return "State homelessness award source collection ranks source-listed co-applicant project-award exposure and preserves direct-receipt caveats."
         if item.source_type == "source_extraction_official_outcome_table":
             return "Official outcome-source manifest flags which county or Continuum of Care datasets were ingested or blocked."

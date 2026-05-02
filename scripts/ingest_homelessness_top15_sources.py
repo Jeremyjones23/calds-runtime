@@ -34,6 +34,8 @@ FAC_DIR = ARTIFACT_BASE_DIR / "fac"
 CONTRACT_DIR = ARTIFACT_BASE_DIR / "contracts"
 DOCKET_DIR = ARTIFACT_BASE_DIR / "enforcement_dockets"
 DEFAULT_CORPUS_DIR = PROJECT_ROOT / "data" / "live_corpus" / f"{CASE_ID}_stage1"
+ACTIVE_PROFILE = "statewide_homekey"
+ACTIVE_TARGET_LIMIT = 15
 
 HCD_ROUND3_URL = "https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/homekey-round-3-awardee-list.pdf"
 HCD_PLUS_URL = "https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/hk-plus-awardee-list.pdf"
@@ -80,6 +82,17 @@ OAKLAND_QUALITY_INN_URL = "https://www.oaklandca.gov/News-Releases/HCD/Oakland-a
 LA_HOMEKEY_PLUS_SAFE_HARBOR_REPORT_URL = "https://cityclerk.lacity.org/onlinedocs/2025/25-0269_rpt_hci_3-6-25.pdf"
 LA_HOMEKEY_PLUS_SAFE_HARBOR_I_RESOLUTION_URL = "https://cityclerk.lacity.org/onlinedocs/2025/25-0269_misc_05-28-25.pdf"
 LA_HOMEKEY_PLUS_SAFE_HARBOR_II_RESOLUTION_URL = "https://cityclerk.lacity.org/onlinedocs/2025/25-0269_misc_07-22-25.pdf"
+SF_NONPROFIT_SPENDING_DATASET_URL = "https://catalog.data.gov/dataset/citywide-nonprofit-spending"
+SF_NONPROFIT_SPENDING_API = "https://data.sfgov.org/resource/qkex-vh98.json"
+SF_NONPROFIT_SPENDING_COLUMNS_URL = "https://data.sfgov.org/api/views/qkex-vh98/columns.json"
+SF_NONPROFIT_SPENDING_DASHBOARD_URL = "https://www.sf.gov/data/san-francisco-nonprofit-contracts-and-spending"
+SF_HOMELESSNESS_DATA_URL = "https://www.sf.gov/resource/2024/homelessness-response-system-data"
+SF_HOMELESSNESS_OVERSIGHT_PDF_URL = "https://sfbos.org/sites/default/files/Policy_Analysis.GF_Vacancies.Contract_Oversight.Dept_Restructures.Final_.01.13.25.pdf"
+SF_HOMERISE_AUDIT_PRESS_URL = "https://www.sf.gov/news--audit-finds-one-citys-providers-housing-unhoused-residents-had-serious-financial-shortfalls"
+SF_HOMERISE_AUDIT_PDF_URL = "https://www.sf.gov/sites/default/files/2024-04/HSH-MOHCD%20HomeRise%20Audit%20Report%2004.02.24.pdf"
+SF_UCHS_VIOLATION_PRESS_URL = "https://www.sf.gov/news--united-council-human-services-found-be-violation-city-agreements"
+SF_DA_UCHS_CHARGES_URL = "https://sfdistrictattorney.org/former-nonprofit-ceo-charged-with-stealing-and-misappropriating-public-funds/"
+SF_SUSPENDED_DEBARRED_URL = "https://www.sf.gov/resource--2022--suspended-and-debarred-contractors"
 
 HOMELESSNESS_SCOPE_HIGH_TERMS = [
     "voter registration",
@@ -208,7 +221,7 @@ def fetch_bytes(url: str, timeout: int = 60, attempts: int = 3) -> tuple[bytes, 
     raise last_error
 
 
-def fetch_json_url(url: str, timeout: int = 60) -> tuple[dict[str, Any], str, str]:
+def fetch_json_url(url: str, timeout: int = 60) -> tuple[Any, str, str]:
     raw, final_url, content_type = fetch_bytes(url, timeout=timeout)
     return json.loads(raw.decode("utf-8", "replace")), final_url, content_type
 
@@ -295,6 +308,43 @@ def build_record(
         "attributes": attrs,
         "body": body,
     }
+
+
+SF_ENTITY_METADATA: dict[str, dict[str, Any]] = {
+    "Tenderloin Housing Clinic Inc": {"aliases": ["Tenderloin Housing Clinic", "THC"], "service_urls": ["https://www.thclinic.org/en/what-we-do/"], "statement_urls": ["https://www.thclinic.org/"]},
+    "Episcopal Community Svcs of SF Inc": {"aliases": ["Episcopal Community Services of San Francisco", "ECS"], "service_urls": ["https://ecs-sf.org/programs/"], "statement_urls": ["https://ecs-sf.org/"]},
+    "Five Keys Schools And Programs": {"aliases": ["Five Keys Schools and Programs", "Five Keys"], "service_urls": ["https://www.fivekeys.org/programs"], "statement_urls": ["https://www.fivekeys.org/"]},
+    "St Vincent De Paul Society of SF": {"aliases": ["St. Vincent de Paul Society of San Francisco", "Society Of St Vincent De Paul District Council Of San Francisco", "SVDP-SF"], "service_urls": ["https://svdp-sf.org/what-we-do/"], "statement_urls": ["https://svdp-sf.org/"]},
+    "Larkin Street Youth Services": {"aliases": ["Larkin Street"], "service_urls": ["https://larkinstreetyouth.org/how-we-help/"], "statement_urls": ["https://larkinstreetyouth.org/"]},
+    "Heluna Health": {"aliases": ["Heluna", "Public Health Foundation Enterprises", "Public Health Foundation Enterprises Inc"], "service_urls": ["https://www.helunahealth.org/our-work/"], "statement_urls": ["https://www.helunahealth.org/"]},
+    "Tides Center": {"aliases": ["Tides"], "service_urls": ["https://www.tides.org/services/fiscal-sponsorship/"], "statement_urls": ["https://www.tides.org/"]},
+    "Compass Family Services": {"aliases": ["Compass Families", "Compass SF"], "service_urls": ["https://www.compass-sf.org/our-programs"], "statement_urls": ["https://www.compass-sf.org/"]},
+    "Catholic Charities": {"aliases": ["Catholic Charities San Francisco"], "service_urls": ["https://www.catholiccharitiessf.org/what-we-do/homelessness-housing/"], "statement_urls": ["https://www.catholiccharitiessf.org/"]},
+    "Brilliant Corners": {"aliases": [], "service_urls": ["https://brilliantcorners.org/what-we-do/"], "statement_urls": ["https://brilliantcorners.org/"]},
+    "Community Housing Partnership": {"aliases": ["HomeRise", "Community Housing Partnership Corporation"], "service_urls": ["https://homerisesf.org/what-we-do/"], "statement_urls": ["https://homerisesf.org/"]},
+    "Tenderloin Neighborhood Development Corp": {"aliases": ["Tenderloin Neighborhood Development Corporation", "TNDC"], "service_urls": ["https://www.tndc.org/our-work/"], "statement_urls": ["https://www.tndc.org/"]},
+    "Hamilton Families": {"aliases": ["Hamilton Family Center"], "service_urls": ["https://hamiltonfamilies.org/programs"], "statement_urls": ["https://hamiltonfamilies.org/"]},
+    "Urban Alchemy": {"aliases": [], "service_urls": ["https://urban-alchemy.us/services/"], "statement_urls": ["https://urban-alchemy.us/"]},
+    "Bayview Hunters Pt Fndtn For Comm Improv": {"aliases": ["Bayview Hunters Point Foundation", "Bayview Hunters Point Foundation for Community Improvement"], "service_urls": ["https://bayviewci.org/"], "statement_urls": ["https://bayviewci.org/"]},
+    "Abode Services": {"aliases": ["Abode"], "service_urls": ["https://abodeservices.org/how-we-help/"], "statement_urls": ["https://abodeservices.org/"]},
+    "Conard House Inc": {"aliases": ["Conard House"], "service_urls": ["https://conardhouse.org/programs/"], "statement_urls": ["https://conardhouse.org/"]},
+    "Providence Foundation of San Francisco": {"aliases": ["Providence Foundation"], "service_urls": [SF_SUSPENDED_DEBARRED_URL], "statement_urls": [SF_SUSPENDED_DEBARRED_URL]},
+    "Homeless Prenatal Program": {"aliases": ["HPP"], "service_urls": ["https://homelessprenatal.org/what-we-do/"], "statement_urls": ["https://homelessprenatal.org/"]},
+    "Felton Institute": {"aliases": ["Felton"], "service_urls": ["https://felton.org/social-services/"], "statement_urls": ["https://felton.org/"]},
+    "United Council of Human Services": {"aliases": ["UCHS", "United Council for Human Services"], "service_urls": [SF_UCHS_VIOLATION_PRESS_URL], "statement_urls": [SF_DA_UCHS_CHARGES_URL]},
+}
+
+
+SF_ADVERSE_ENTITY_BOOSTS = {
+    "United Council of Human Services": 125_000_000,
+    "Community Housing Partnership": 110_000_000,
+    "Providence Foundation of San Francisco": 100_000_000,
+}
+
+SF_PROPUBLICA_EIN_OVERRIDES = {
+    "Heluna Health": "952557063",
+    "St Vincent De Paul Society of SF": "994698655",
+}
 
 
 TARGETS: list[dict[str, Any]] = [
@@ -532,17 +582,121 @@ def award_summary_rows() -> list[dict[str, Any]]:
     return rows
 
 
+def sf_hsh_payment_rows(limit: int = 80) -> list[dict[str, Any]]:
+    query = {
+        "$select": "supplier_name,sum(completed_payments)",
+        "$where": "department='Homelessness and Supportive Housing' AND completed_payments IS NOT NULL",
+        "$group": "supplier_name",
+        "$order": "sum_completed_payments DESC",
+        "$limit": str(limit),
+    }
+    url = SF_NONPROFIT_SPENDING_API + "?" + urllib.parse.urlencode(query)
+    payload, final_url, content_type = fetch_json_url(url, timeout=90)
+    rows = payload if isinstance(payload, list) else list(payload.get("rows", []))
+    table = {
+        "created_at": now(),
+        "source_url": SF_NONPROFIT_SPENDING_DATASET_URL,
+        "api_url": url,
+        "final_url": final_url,
+        "content_type": content_type,
+        "rows": rows,
+        "methodology": "Aggregate San Francisco Open Data nonprofit payment rows for the Department of Homelessness and Supportive Housing by supplier name.",
+    }
+    write_json(RAW_DIR / "sf_hsh_payment_target_rows.json", table)
+    return list(rows)
+
+
+def sf_targets_from_payments(target_limit: int = 15) -> list[dict[str, Any]]:
+    rows = sf_hsh_payment_rows(limit=80)
+    by_name: dict[str, float] = {}
+    for row in rows:
+        name = normalize_space(row.get("supplier_name"))
+        amount = number(row.get("sum_completed_payments")) or 0.0
+        if name:
+            by_name[name] = max(by_name.get(name, 0.0), amount)
+    for name, boost in SF_ADVERSE_ENTITY_BOOSTS.items():
+        by_name.setdefault(name, 0.0)
+    ranked = sorted(
+        by_name.items(),
+        key=lambda item: item[1] + SF_ADVERSE_ENTITY_BOOSTS.get(item[0], 0.0),
+        reverse=True,
+    )[:target_limit]
+    targets = []
+    for rank, (name, amount) in enumerate(ranked, start=1):
+        metadata = SF_ENTITY_METADATA.get(name, {})
+        aliases = list(metadata.get("aliases", []))
+        targets.append(
+            {
+                "rank": rank,
+                "name": name,
+                "slug": slugify(name),
+                "aliases": aliases,
+                "service_urls": list(metadata.get("service_urls") or [SF_NONPROFIT_SPENDING_DASHBOARD_URL]),
+                "statement_urls": list(metadata.get("statement_urls") or list(metadata.get("service_urls") or [SF_NONPROFIT_SPENDING_DASHBOARD_URL])),
+                "awards": [
+                    {
+                        "program": "San Francisco HSH nonprofit payments",
+                        "award_date": "2019-2025",
+                        "eligible_applicant": "City and County of San Francisco",
+                        "project": "Aggregated HSH payments by supplier name",
+                        "city": "San Francisco",
+                        "county": "San Francisco",
+                        "amount": amount,
+                        "units": "",
+                        "source_url": SF_NONPROFIT_SPENDING_DATASET_URL,
+                        "source_note": "SF Open Data dataset qkex-vh98 aggregated by supplier_name for Homelessness and Supportive Housing.",
+                    }
+                ],
+                "target_selection": {
+                    "selection_metric": "Review Value Score intake proxy",
+                    "sf_hsh_completed_payments_2019_2025": amount,
+                    "official_adverse_record_boost": SF_ADVERSE_ENTITY_BOOSTS.get(name, 0),
+                },
+            }
+        )
+    return targets
+
+
+def configure_profile(profile: str, target_limit: int = 15) -> None:
+    global CASE_ID, DEFAULT_ARTIFACT_BASE_DIR, DEFAULT_CORPUS_DIR, ACTIVE_PROFILE, ACTIVE_TARGET_LIMIT
+    ACTIVE_PROFILE = profile
+    ACTIVE_TARGET_LIMIT = target_limit
+    if profile == "statewide_homekey":
+        return
+    if profile != "sf_homelessness":
+        raise ValueError(f"unknown homelessness ingestion profile: {profile}")
+    CASE_ID = "live_ca_sf_homelessness_complex"
+    DEFAULT_ARTIFACT_BASE_DIR = PROJECT_ROOT / "artifacts" / "sf_homelessness_sources"
+    DEFAULT_CORPUS_DIR = PROJECT_ROOT / "data" / "live_corpus" / f"{CASE_ID}_fresh"
+
+
 def download_source_docs() -> dict[str, dict[str, Any]]:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    manifest = {}
-    for name, url in {
+    source_urls = {
         "homekey_round3_awardee_list": HCD_ROUND3_URL,
         "homekey_plus_awardee_list": HCD_PLUS_URL,
         "fhfa_oig_homelessness_funds_press_release": FHFA_OIG_HOMELESSNESS_FUNDS_PRESS_RELEASE_URL,
         "la_city_homekey3_shelby_authorization": LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL,
         "la_city_shelby_2026_operations": LA_CITY_SHELBY_2026_OPERATIONS_URL,
-    }.items():
-        path = RAW_DIR / f"{name}.pdf"
+    }
+    if ACTIVE_PROFILE == "sf_homelessness":
+        source_urls.update(
+            {
+                "sf_hsh_nonprofit_spending_dashboard": SF_NONPROFIT_SPENDING_DASHBOARD_URL,
+                "sf_hsh_nonprofit_spending_columns": SF_NONPROFIT_SPENDING_COLUMNS_URL,
+                "sf_homelessness_response_data": SF_HOMELESSNESS_DATA_URL,
+                "sf_homelessness_contract_oversight_report": SF_HOMELESSNESS_OVERSIGHT_PDF_URL,
+                "sf_homerise_controller_audit_announcement": SF_HOMERISE_AUDIT_PRESS_URL,
+                "sf_homerise_controller_audit_pdf": SF_HOMERISE_AUDIT_PDF_URL,
+                "sf_uchs_city_violation_notice": SF_UCHS_VIOLATION_PRESS_URL,
+                "sf_uchs_da_charging_announcement": SF_DA_UCHS_CHARGES_URL,
+                "sf_suspended_debarred_contractors": SF_SUSPENDED_DEBARRED_URL,
+            }
+        )
+    manifest = {}
+    for name, url in source_urls.items():
+        suffix = ".json" if url.endswith(".json") else ".pdf" if ".pdf" in url.lower() else ".html"
+        path = RAW_DIR / f"{name}{suffix}"
         try:
             raw, final_url, content_type = fetch_bytes(url, timeout=120)
             path.write_bytes(raw)
@@ -611,6 +765,59 @@ def enforcement_docket_artifacts() -> dict[str, Any]:
             "trigger_confidence": "High",
         }
     ]
+    if ACTIVE_PROFILE == "sf_homelessness":
+        rows.extend(
+            [
+                {
+                    "entity": "Community Housing Partnership",
+                    "risk_level": "High",
+                    "test_name": "Official Controller audit finding for HomeRise",
+                    "legal_status": "official_audit_financial_shortfalls",
+                    "official_source": True,
+                    "observed_fact": (
+                        "A San Francisco Controller announcement and audit report identify HomeRise, formerly Community Housing Partnership, "
+                        "as the provider in an audit of City-funded housing for unhoused residents. The Controller announcement says the audit "
+                        "found serious financial shortfalls. This is an entity-level official audit trigger for deeper review, not a legal finding."
+                    ),
+                    "reviewer_action": (
+                        "Open the Controller announcement and audit PDF; verify the audit period, contracts reviewed, fiscal findings, corrective-action status, "
+                        "current HSH payment exposure, and whether subsequent monitoring records show remediation."
+                    ),
+                    "source_urls": [SF_HOMERISE_AUDIT_PRESS_URL, SF_HOMERISE_AUDIT_PDF_URL],
+                    "caveats": [
+                        "CalDS uses the official audit as a deep-review trigger, not as proof of fraud or intent.",
+                        "The run must preserve the distinction between financial-control findings, operational shortfalls, and legal conclusions.",
+                    ],
+                    "connected_party_entity_trigger": False,
+                    "relationship_type": "official entity audit",
+                    "trigger_confidence": "High",
+                },
+                {
+                    "entity": "United Council of Human Services",
+                    "risk_level": "High",
+                    "test_name": "Official City violation and District Attorney charging-source screen",
+                    "legal_status": "former_ceo_charged_presumption_of_innocence",
+                    "official_source": True,
+                    "observed_fact": (
+                        "San Francisco issued an official notice that United Council of Human Services was found to be in violation of City agreements. "
+                        "The San Francisco District Attorney separately announced that a former nonprofit CEO was charged with stealing and misappropriating "
+                        "public funds. This combination is a mandatory deep-review trigger for the entity and its public-funding controls."
+                    ),
+                    "reviewer_action": (
+                        "Open the City violation notice and District Attorney announcement; verify the agreements, named parties, charging document, "
+                        "payment controls, board oversight, current vendor status, and whether any official source names the entity itself as charged."
+                    ),
+                    "source_urls": [SF_UCHS_VIOLATION_PRESS_URL, SF_DA_UCHS_CHARGES_URL],
+                    "caveats": [
+                        "Charges against an individual are allegations unless proven in court.",
+                        "The former-CEO charge is a connected-party trigger; the source chain must not be rewritten as a final entity legal conclusion.",
+                    ],
+                    "connected_party_entity_trigger": True,
+                    "relationship_type": "entity agreement violation plus former-executive charging context",
+                    "trigger_confidence": "High",
+                },
+            ]
+        )
     table = {
         "created_at": now(),
         "case_id": CASE_ID,
@@ -712,6 +919,24 @@ def select_propublica_org(target: dict[str, Any], organizations: list[dict[str, 
     return best[1] if best else None
 
 
+def propublica_search_queries(target: dict[str, Any]) -> list[str]:
+    queries: list[str] = []
+    for candidate in [target["name"], *target.get("aliases", [])]:
+        cleaned = normalize_space(candidate)
+        if cleaned and cleaned not in queries:
+            queries.append(cleaned)
+    compact = compact_name(target["name"])
+    if "inc" in compact:
+        cleaned = re.sub(r"\binc(?:orporated)?\b\.?", "", target["name"], flags=re.IGNORECASE).strip()
+        if cleaned and cleaned not in queries:
+            queries.append(cleaned)
+    if "svcs" in target["name"].lower():
+        expanded = target["name"].replace("Svcs", "Services")
+        if expanded not in queries:
+            queries.append(expanded)
+    return queries[:6]
+
+
 def propublica_artifacts() -> dict[str, Any]:
     """Fetch browseable ProPublica nonprofit profile and filing summaries.
 
@@ -723,13 +948,37 @@ def propublica_artifacts() -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     matches: list[dict[str, Any]] = []
     for target in TARGETS:
-        search_url = propublica_search_url(target["name"])
         search_path = PROPUBLICA_DIR / f"{target['slug']}_search.json"
         org_path = PROPUBLICA_DIR / f"{target['slug']}_organization.json"
+        search_errors: list[dict[str, str]] = []
+        selected: dict[str, Any] | None = None
+        search_data: dict[str, Any] = {}
+        search_url = ""
+        search_final_url = ""
+        search_content_type = ""
         try:
-            search_data, search_final_url, search_content_type = fetch_json_url(search_url, timeout=75)
-            write_json(search_path, search_data)
-            selected = select_propublica_org(target, list(search_data.get("organizations", [])))
+            override_ein = SF_PROPUBLICA_EIN_OVERRIDES.get(target["name"]) if ACTIVE_PROFILE == "sf_homelessness" else None
+            if override_ein:
+                selected = {"ein": override_ein, "name": target["name"], "subseccd": 3, "state": "CA"}
+                search_url = propublica_org_api_url(override_ein)
+                search_final_url = search_url
+                search_content_type = "application/json override"
+                search_errors.append({"query": target["name"], "search_url": search_url, "error": "matched_by_profile_ein_override"})
+                write_json(search_path, {"selected_query": target["name"], "selected_search_url": search_url, "organizations": [selected]})
+            else:
+                for query in propublica_search_queries(target):
+                    search_url = propublica_search_url(query)
+                    try:
+                        payload, search_final_url, search_content_type = fetch_json_url(search_url, timeout=75)
+                        search_data = payload if isinstance(payload, dict) else {"organizations": payload}
+                        write_json(PROPUBLICA_DIR / f"{target['slug']}_search_{slugify(query)}.json", search_data)
+                        selected = select_propublica_org(target, list(search_data.get("organizations", [])))
+                        if selected:
+                            write_json(search_path, {"selected_query": query, "selected_search_url": search_url, **search_data})
+                            break
+                        search_errors.append({"query": query, "search_url": search_url, "error": "not_matched"})
+                    except Exception as exc:
+                        search_errors.append({"query": query, "search_url": search_url, "error": repr(exc)})
             if not selected:
                 matches.append(
                     {
@@ -739,6 +988,7 @@ def propublica_artifacts() -> dict[str, Any]:
                         "search_final_url": search_final_url,
                         "search_content_type": search_content_type,
                         "candidate_count": len(search_data.get("organizations", [])),
+                        "search_attempts": search_errors,
                         "error": "",
                     }
                 )
@@ -762,6 +1012,7 @@ def propublica_artifacts() -> dict[str, Any]:
                     "ntee_code": selected.get("ntee_code") or org.get("ntee_code"),
                     "subsection_code": selected.get("subseccd") or org.get("subsection_code"),
                     "search_url": search_url,
+                    "search_attempts": search_errors,
                     "organization_api_url": org_url,
                     "organization_page_url": propublica_org_page(ein),
                     "organization_final_url": org_final_url,
@@ -1694,9 +1945,19 @@ def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> 
             f"{target['name']} monitoring letter",
             f"{target['name']} corrective action Homekey",
         ]
+        if ACTIVE_PROFILE == "sf_homelessness":
+            query_terms = [
+                f"{target['name']} SF HSH contract",
+                f"{target['name']} San Francisco payment ledger",
+                f"{target['name']} HSH monitoring letter",
+                f"{target['name']} corrective action San Francisco homelessness",
+            ]
         if any(award.get("county") == "Los Angeles" for award in target["awards"]):
             official_sources.extend([LA_CITY_CLERK_BASE_URL, LA_CITY_HOMEKEY3_SHELBY_AUTHORIZATION_URL, LA_CITY_SHELBY_2026_OPERATIONS_URL])
         official_sources.extend(source["source_url"] for source in recovered_sources)
+        if ACTIVE_PROFILE == "sf_homelessness":
+            official_sources.extend([SF_NONPROFIT_SPENDING_DATASET_URL, SF_NONPROFIT_SPENDING_DASHBOARD_URL, SF_NONPROFIT_SPENDING_API])
+        citation_ready_payment = ACTIVE_PROFILE == "sf_homelessness"
         rows.append(
             {
                 "entity": target["name"],
@@ -1704,22 +1965,39 @@ def contract_payment_discovery_artifacts(summary_rows: list[dict[str, Any]]) -> 
                 "state_award_exposure": summary.get("total_award_exposure"),
                 "project_count": summary.get("project_count"),
                 "counties": summary.get("counties", []),
-                "contract_or_payment_record_recovered": bool(recovered_sources),
+                "contract_or_payment_record_recovered": bool(recovered_sources) or citation_ready_payment,
                 "standard_agreement_status": "not_recovered",
-                "payment_ledger_status": "not_recovered",
+                "payment_ledger_status": "official_sf_open_data_completed_payment_aggregation_recovered" if citation_ready_payment else "not_recovered",
                 "monitoring_or_corrective_action_status": "local_project_or_application_source_recovered" if recovered_sources else "not_recovered",
                 "recovered_source_count": len(recovered_sources),
                 "recovered_sources": recovered_sources,
-                "official_sources_to_search": sorted(set(official_sources + [HCD_ROUND3_ELIGIBILITY_URL, HCD_PLUS_ELIGIBILITY_URL, HCD_HOMEKEY_FUNDING_URL])),
+                "official_sources_to_search": sorted(
+                    set(
+                        official_sources
+                        + (
+                            [SF_NONPROFIT_SPENDING_DATASET_URL, SF_NONPROFIT_SPENDING_DASHBOARD_URL, SF_HOMELESSNESS_DATA_URL]
+                            if ACTIVE_PROFILE == "sf_homelessness"
+                            else [HCD_ROUND3_ELIGIBILITY_URL, HCD_PLUS_ELIGIBILITY_URL, HCD_HOMEKEY_FUNDING_URL]
+                        )
+                    )
+                ),
                 "query_terms": query_terms,
-                "source_gap": True,
-                "reviewer_action": "Request or retrieve standard agreements, amendments, payment ledgers, monitoring letters, corrective actions, and deliverable records before making entity-level findings.",
+                "source_gap": not citation_ready_payment,
+                "reviewer_action": (
+                    "Use the SF Open Data payment aggregation as citation-ready payment exposure, then request exact contracts, invoices, deliverables, monitoring letters, corrective actions, and program outcome records before making entity-level findings."
+                    if citation_ready_payment
+                    else "Request or retrieve standard agreements, amendments, payment ledgers, monitoring letters, corrective actions, and deliverable records before making entity-level findings."
+                ),
             }
         )
     table = {
         "created_at": now(),
         "case_id": CASE_ID,
-        "methodology": "Systematic contract/payment-ledger discovery scaffold for every top-15 entity. Rows preserve acquisition gaps and do not count as citation-ready contract evidence.",
+        "methodology": (
+            "Systematic San Francisco contract/payment acquisition table. Official SF Open Data completed-payment aggregation counts as citation-ready payment exposure; exact contracts, invoices, monitoring, corrective actions, and deliverables remain follow-up records."
+            if ACTIVE_PROFILE == "sf_homelessness"
+            else "Systematic contract/payment-ledger discovery scaffold for every top-15 entity. Rows preserve acquisition gaps and do not count as citation-ready contract evidence."
+        ),
         "rows": rows,
         "row_count": len(rows),
         "recovered_local_source_count": sum(len(row.get("recovered_sources") or []) for row in rows),
@@ -2020,7 +2298,11 @@ def outcome_artifacts(summary_rows: list[dict[str, Any]]) -> tuple[dict[str, Any
                 "join_grain": "statewide and Continuum of Care context",
             },
         },
-        "methodology": "Official CA SPM M1a rows are matched by county-name text to the counties listed in HCD Homekey/Homekey+ award rows. This is contextual screening and not provider attribution.",
+        "methodology": (
+            "Official CA SPM M1a rows are matched by San Francisco geography to the SF HSH completed-payment supplier list. This is contextual screening and not provider attribution."
+            if ACTIVE_PROFILE == "sf_homelessness"
+            else "Official CA SPM M1a rows are matched by county-name text to the counties listed in HCD Homekey/Homekey+ award rows. This is contextual screening and not provider attribution."
+        ),
     }
     entity_rows = []
     for row in summary_rows:
@@ -2044,6 +2326,7 @@ def outcome_artifacts(summary_rows: list[dict[str, Any]]) -> tuple[dict[str, Any
                     "risk_level": risk_level,
                     "outcome_flags": flags,
                     "state_award_exposure": row["total_award_exposure"],
+                    "public_funding_exposure": row["total_award_exposure"],
                     "state_project_count": row["project_count"],
                     "spending_growth_pct": None,
                     "revenue_growth_pct": None,
@@ -2051,8 +2334,16 @@ def outcome_artifacts(summary_rows: list[dict[str, Any]]) -> tuple[dict[str, Any
                     "homelessness_spm_change": county_changes,
                     "join_caveats": [
                         "County and Continuum of Care outcomes are not provider-attributable without direct program outcome records.",
-                        "This join compares state project-award exposure to official geography-level homelessness service-system movement, not audited spend or client outcomes.",
-                        "The award-list exposure total is not a verified direct-payment total to the nonprofit.",
+                        (
+                            "This join compares SF HSH completed-payment exposure to official geography-level homelessness service-system movement, not audited program performance or client outcomes."
+                            if ACTIVE_PROFILE == "sf_homelessness"
+                            else "This join compares state project-award exposure to official geography-level homelessness service-system movement, not audited spend or client outcomes."
+                        ),
+                        (
+                            "The completed-payment exposure total is a supplier-name aggregation; exact contract scope, allowability, deliverables, and outcomes still require contract-file review."
+                            if ACTIVE_PROFILE == "sf_homelessness"
+                            else "The award-list exposure total is not a verified direct-payment total to the nonprofit."
+                        ),
                     ],
                 }
             )
@@ -2084,26 +2375,42 @@ def markdown_table(rows: list[dict[str, Any]], columns: list[str], limit: int = 
 
 
 def top_award_summary_lines(summary_rows: list[dict[str, Any]], limit: int = 15) -> str:
-    lines = ["Top source-ranked co-applicant project-award exposures from official HCD tables:"]
+    if ACTIVE_PROFILE == "sf_homelessness":
+        lines = ["Top source-ranked San Francisco HSH completed-payment exposures from official SF Open Data:"]
+    else:
+        lines = ["Top source-ranked co-applicant project-award exposures from official HCD tables:"]
     for row in summary_rows[:limit]:
-        lines.append(
-            "- Rank {rank}: {entity} appears on {project_count} Homekey/Homekey+ project-award row(s), "
-            "with {exposure} in attached project-award exposure across {counties}.".format(
-                rank=row["rank"],
-                entity=row["entity"],
-                project_count=row["project_count"],
-                exposure=money(float(row["total_award_exposure"])),
-                counties=row["counties"],
+        if ACTIVE_PROFILE == "sf_homelessness":
+            lines.append(
+                "- Rank {rank}: {entity} appears in SF HSH completed-payment aggregation with {exposure} in payment exposure across {counties}.".format(
+                    rank=row["rank"],
+                    entity=row["entity"],
+                    exposure=money(float(row["total_award_exposure"])),
+                    counties=row["counties"],
+                )
             )
-        )
+        else:
+            lines.append(
+                "- Rank {rank}: {entity} appears on {project_count} Homekey/Homekey+ project-award row(s), "
+                "with {exposure} in attached project-award exposure across {counties}.".format(
+                    rank=row["rank"],
+                    entity=row["entity"],
+                    project_count=row["project_count"],
+                    exposure=money(float(row["total_award_exposure"])),
+                    counties=row["counties"],
+                )
+            )
     return "\n".join(lines)
 
 
 def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
+    global TARGETS
     corpus_dir.mkdir(parents=True, exist_ok=True)
     artifacts_dir = artifacts_dir or corpus_dir / "_source_artifacts"
     reset_run_scoped_artifact_dir(corpus_dir, artifacts_dir)
     configure_artifact_dirs(artifacts_dir)
+    if ACTIVE_PROFILE == "sf_homelessness":
+        TARGETS = sf_targets_from_payments(ACTIVE_TARGET_LIMIT)
     for old in corpus_dir.glob("*.json"):
         old.unlink()
 
@@ -2113,14 +2420,31 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
     award_table = {
         "created_at": now(),
         "case_id": CASE_ID,
-        "methodology": "Rank source-listed nonprofit co-applicant names by the full HCD project-award amount attached to each Homekey/Homekey+ row. This is award exposure, not proof of direct receipt.",
+        "methodology": (
+            "Rank San Francisco homelessness-service candidates by completed-payment exposure from official SF Open Data, then boost citation-ready official adverse-record seeds for mandatory triage."
+            if ACTIVE_PROFILE == "sf_homelessness"
+            else "Rank source-listed nonprofit co-applicant names by the full HCD project-award amount attached to each Homekey/Homekey+ row. This is award exposure, not proof of direct receipt."
+        ),
         "source_documents": source_manifest,
-        "eligibility_sources": [HCD_ROUND3_ELIGIBILITY_URL, HCD_PLUS_ELIGIBILITY_URL, HCD_HOMEKEY_FUNDING_URL],
+        "eligibility_sources": (
+            [SF_NONPROFIT_SPENDING_DATASET_URL, SF_NONPROFIT_SPENDING_DASHBOARD_URL, SF_HOMELESSNESS_DATA_URL]
+            if ACTIVE_PROFILE == "sf_homelessness"
+            else [HCD_ROUND3_ELIGIBILITY_URL, HCD_PLUS_ELIGIBILITY_URL, HCD_HOMEKEY_FUNDING_URL]
+        ),
         "entity_award_summary": summary_rows,
         "caveats": [
-            "HCD award lists name eligible applicants and co-applicants; allocation among co-applicants is not stated in the award tables.",
-            "HHAP and ESG allocation pages were not used for the top-15 ranking because they do not provide a statewide nonprofit subrecipient table comparable to the Homekey award lists.",
+            (
+                "SF Open Data completed-payment aggregation is public-dollar exposure by supplier name; it is not a finding that any payment was improper."
+                if ACTIVE_PROFILE == "sf_homelessness"
+                else "HCD award lists name eligible applicants and co-applicants; allocation among co-applicants is not stated in the award tables."
+            ),
+            (
+                "Official adverse-record seeds are included so a lower-payment entity with a public-record ding is not missed at intake."
+                if ACTIVE_PROFILE == "sf_homelessness"
+                else "HHAP and ESG allocation pages were not used for the top-15 ranking because they do not provide a statewide nonprofit subrecipient table comparable to the Homekey award lists."
+            ),
         ],
+        "profile": ACTIVE_PROFILE,
     }
     award_table_path = RAW_DIR / "state_homeless_award_summary.json"
     write_json(award_table_path, award_table)
@@ -2138,26 +2462,50 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
     records.append(
         build_record(
             "source_table_state_homeless_awards",
-            "Parsed HCD Homekey/Homekey+ state homelessness award exposure table",
+            (
+                "Parsed San Francisco HSH nonprofit completed-payment exposure table"
+                if ACTIVE_PROFILE == "sf_homelessness"
+                else "Parsed HCD Homekey/Homekey+ state homelessness award exposure table"
+            ),
             str(award_table_path),
-            "source_extraction_state_homeless_award_table",
-            "2026-02-18",
+            "source_extraction_sf_hsh_payment_table" if ACTIVE_PROFILE == "sf_homelessness" else "source_extraction_state_homeless_award_table",
+            "2026-05-02" if ACTIVE_PROFILE == "sf_homelessness" else "2026-02-18",
             entities,
             "\n".join(
                 [
-                    "Parsed California Department of Housing and Community Development Homekey/Homekey+ award exposure table.",
-                    "Methodology: rank source-listed nonprofit co-applicant names by the full project-award amount attached to each award row. This is materiality exposure, not direct-payment proof.",
+                    (
+                        "Parsed San Francisco Open Data completed-payment exposure table for the Department of Homelessness and Supportive Housing."
+                        if ACTIVE_PROFILE == "sf_homelessness"
+                        else "Parsed California Department of Housing and Community Development Homekey/Homekey+ award exposure table."
+                    ),
+                    (
+                        "Methodology: rank supplier names by official completed-payment exposure, then add official adverse-record seeds so the intake pass does not miss lower-payment public-record dings."
+                        if ACTIVE_PROFILE == "sf_homelessness"
+                        else "Methodology: rank source-listed nonprofit co-applicant names by the full project-award amount attached to each award row. This is materiality exposure, not direct-payment proof."
+                    ),
                     top_award_summary_lines(summary_rows),
                     "Official source URLs:",
-                    HCD_ROUND3_URL,
-                    HCD_PLUS_URL,
-                    HCD_ROUND3_ELIGIBILITY_URL,
-                    HCD_PLUS_ELIGIBILITY_URL,
+                    *(
+                        [SF_NONPROFIT_SPENDING_DATASET_URL, SF_NONPROFIT_SPENDING_DASHBOARD_URL, SF_HOMELESSNESS_DATA_URL]
+                        if ACTIVE_PROFILE == "sf_homelessness"
+                        else [HCD_ROUND3_URL, HCD_PLUS_URL, HCD_ROUND3_ELIGIBILITY_URL, HCD_PLUS_ELIGIBILITY_URL]
+                    ),
                     markdown_table(summary_rows, ["rank", "entity", "total_award_exposure", "project_count", "programs", "counties", "projects"], limit=20),
                 ]
             ),
-            {"state_homelessness_award_table": True, "source_extraction_table": True, "state_homelessness_award_exposure": True},
-            {"table_path": str(award_table_path), "row_count": len(summary_rows), "source_urls": [HCD_ROUND3_URL, HCD_PLUS_URL]},
+            {
+                "state_homelessness_award_table": True,
+                "source_extraction_table": True,
+                "state_homelessness_award_exposure": True,
+                "sf_hsh_completed_payment_exposure": ACTIVE_PROFILE == "sf_homelessness",
+            },
+            {
+                "table_path": str(award_table_path),
+                "row_count": len(summary_rows),
+                "source_urls": [SF_NONPROFIT_SPENDING_DATASET_URL, SF_NONPROFIT_SPENDING_DASHBOARD_URL]
+                if ACTIVE_PROFILE == "sf_homelessness"
+                else [HCD_ROUND3_URL, HCD_PLUS_URL],
+            },
         )
     )
 
@@ -2184,16 +2532,32 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
 
     join_record = build_record(
         "source_table_spend_vs_results_join",
-        "Deterministic state-award exposure versus homelessness outcome-context join",
+        (
+            "Deterministic SF HSH completed-payment exposure versus homelessness outcome-context join"
+            if ACTIVE_PROFILE == "sf_homelessness"
+            else "Deterministic state-award exposure versus homelessness outcome-context join"
+        ),
         str(OUTCOME_DIR / "outcome_join_summary.json"),
         "source_extraction_spend_vs_results_table",
         "2026-04-29",
         entities,
         "\n".join(
             [
-                "Deterministic join from HCD state project-award exposure to official county/Continuum of Care homelessness outcome context.",
+                (
+                    "Deterministic join from SF HSH completed-payment exposure to official San Francisco Continuum of Care homelessness outcome context."
+                    if ACTIVE_PROFILE == "sf_homelessness"
+                    else "Deterministic join from HCD state project-award exposure to official county/Continuum of Care homelessness outcome context."
+                ),
                 "County and Continuum of Care outcomes are not provider-attributable without direct program outcome records.",
-                markdown_table(join_summary.get("entity_outcome_rows", []), ["entity", "county", "risk_level", "state_award_exposure", "state_project_count", "outcome_flags"], limit=80),
+                markdown_table(
+                    join_summary.get("entity_outcome_rows", []),
+                    (
+                        ["entity", "county", "risk_level", "public_funding_exposure", "outcome_flags"]
+                        if ACTIVE_PROFILE == "sf_homelessness"
+                        else ["entity", "county", "risk_level", "state_award_exposure", "state_project_count", "outcome_flags"]
+                    ),
+                    limit=80,
+                ),
             ]
         ),
         {"spend_vs_results_join_created": True, "source_extraction_table": True, "outcome_context_present": bool(join_summary.get("entity_outcome_rows"))},
@@ -2554,35 +2918,50 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
         )
     for row in contract_rows:
         entity = row["entity"]
+        citation_ready_payment = ACTIVE_PROFILE == "sf_homelessness" and str(row.get("payment_ledger_status") or "").startswith("official_sf")
+        source_type = "county_contract_or_monitoring" if citation_ready_payment else "contract_payment_discovery"
+        source_uri = SF_NONPROFIT_SPENDING_DATASET_URL if citation_ready_payment else HCD_HOMEKEY_FUNDING_URL
         records.append(
             build_record(
                 f"contract_payment_discovery_{slugify(entity)}",
-                f"Contract/payment acquisition gap: {entity}",
-                HCD_HOMEKEY_FUNDING_URL,
-                "contract_payment_discovery",
+                f"{'SF payment ledger exposure' if citation_ready_payment else 'Contract/payment acquisition gap'}: {entity}",
+                source_uri,
+                source_type,
                 "2026-04-30",
                 [entity],
                 "\n".join(
                     [
-                        f"{entity} has {money(float(row.get('state_award_exposure') or 0))} in HCD award-list exposure across {row.get('project_count')} project row(s).",
-                        "No direct standard agreement, payment ledger, monitoring letter, corrective-action record, or deliverable ledger was recovered in this pass.",
+                        (
+                            f"{entity} has {money(float(row.get('state_award_exposure') or 0))} in SF HSH completed-payment exposure in the current intake table."
+                            if ACTIVE_PROFILE == "sf_homelessness"
+                            else f"{entity} has {money(float(row.get('state_award_exposure') or 0))} in HCD award-list exposure across {row.get('project_count')} project row(s)."
+                        ),
+                        (
+                            "Official SF Open Data completed-payment aggregation was recovered as payment exposure; exact contracts, invoices, deliverables, monitoring letters, and corrective-action records were not recovered in this pass."
+                            if citation_ready_payment
+                            else "No direct standard agreement, payment ledger, monitoring letter, corrective-action record, or deliverable ledger was recovered in this pass."
+                        ),
                         f"Official sources to search next: {', '.join(row.get('official_sources_to_search') or [])}.",
                         f"Query terms: {', '.join(row.get('query_terms') or [])}.",
                         f"Reviewer action: {row.get('reviewer_action')}",
                     ]
                 ),
                 {
-                    "county_contract_monitoring_discovery": True,
-                    "discovery_only_source_gap": True,
-                    "source_gap_only": True,
-                    "not_citation_ready": True,
-                    "missing_data": True,
+                    "county_contract_monitoring_discovery": not citation_ready_payment,
+                    "county_contract_source_match": citation_ready_payment,
+                    "contract_payment_source": citation_ready_payment,
+                    "sf_hsh_completed_payment_exposure": citation_ready_payment,
+                    "discovery_only_source_gap": not citation_ready_payment,
+                    "source_gap_only": not citation_ready_payment,
+                    "not_citation_ready": not citation_ready_payment,
+                    "missing_data": not citation_ready_payment,
                 },
                 {
                     "official_sources_to_search": row.get("official_sources_to_search", []),
                     "query_terms": row.get("query_terms", []),
                     "state_award_exposure": row.get("state_award_exposure"),
                     "project_count": row.get("project_count"),
+                    "payment_ledger_status": row.get("payment_ledger_status"),
                 },
             )
         )
@@ -2683,25 +3062,46 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
         summary = next(row for row in summary_rows if row["entity"] == target["name"])
         award_lines = []
         for award in target["awards"]:
-            award_lines.append(
-                f"- {award['award_date']} {award['program']}: {award['project']} in {award['city']}, {award['county']} County; eligible applicant {award['eligible_applicant']}; total awarded amount {money(float(award['amount']))}; HCD source note {award['source_note']}."
-            )
+            if ACTIVE_PROFILE == "sf_homelessness":
+                award_lines.append(
+                    f"- {award['award_date']} {award['program']}: {award['project']} in {award['city']}; public-payment exposure {money(float(award['amount']))}; source note {award['source_note']}."
+                )
+            else:
+                award_lines.append(
+                    f"- {award['award_date']} {award['program']}: {award['project']} in {award['city']}, {award['county']} County; eligible applicant {award['eligible_applicant']}; total awarded amount {money(float(award['amount']))}; HCD source note {award['source_note']}."
+                )
         records.append(
             build_record(
                 f"state_homeless_awards_{target['slug']}",
-                f"HCD Homekey/Homekey+ award rows: {target['name']}",
+                (
+                    f"San Francisco HSH completed-payment exposure: {target['name']}"
+                    if ACTIVE_PROFILE == "sf_homelessness"
+                    else f"HCD Homekey/Homekey+ award rows: {target['name']}"
+                ),
                 " ".join(sorted({award["source_url"] for award in target["awards"]})),
-                "state_homelessness_award",
+                "sf_hsh_payment_exposure" if ACTIVE_PROFILE == "sf_homelessness" else "state_homelessness_award",
                 max(award["award_date"] for award in target["awards"]),
                 [target["name"], *target["aliases"]],
                 "\n".join(
                     [
                         f"Entity: {target['name']}.",
-                        f"Rank by parsed state project-award exposure: {target['rank']} of 15.",
-                        f"Total Homekey/Homekey+ project-award exposure from source-listed co-applicant rows: {money(float(summary['total_award_exposure']))}.",
-                        "Award rows:",
+                        (
+                            f"Rank by Review Value Score intake proxy from SF HSH payment exposure plus official adverse-record seeds: {target['rank']} of {len(TARGETS)}."
+                            if ACTIVE_PROFILE == "sf_homelessness"
+                            else f"Rank by parsed state project-award exposure: {target['rank']} of 15."
+                        ),
+                        (
+                            f"Total SF HSH completed-payment exposure recovered from SF Open Data aggregation: {money(float(summary['total_award_exposure']))}."
+                            if ACTIVE_PROFILE == "sf_homelessness"
+                            else f"Total Homekey/Homekey+ project-award exposure from source-listed co-applicant rows: {money(float(summary['total_award_exposure']))}."
+                        ),
+                        "Funding rows:",
                         *award_lines,
-                        "Important caveat: this assigns the full project-award amount to each source-listed co-applicant for exposure ranking; the HCD award list does not state the direct payment allocation among co-applicants.",
+                        (
+                            "Important caveat: SF completed-payment exposure is a materiality screen and does not by itself indicate misuse, waste, fraud, abuse, or mismanagement."
+                            if ACTIVE_PROFILE == "sf_homelessness"
+                            else "Important caveat: this assigns the full project-award amount to each source-listed co-applicant for exposure ranking; the HCD award list does not state the direct payment allocation among co-applicants."
+                        ),
                     ]
                 ),
                 {
@@ -2709,6 +3109,7 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
                     "large_state_award_exposure": summary["total_award_exposure"] >= 50_000_000,
                     "direct_payment_allocation_missing": True,
                     "missing_data": True,
+                    "sf_hsh_completed_payment_exposure": ACTIVE_PROFILE == "sf_homelessness",
                 },
                 {"rank": target["rank"], "total_award_exposure": summary["total_award_exposure"], "project_count": summary["project_count"], "counties": summary["counties"]},
             )
@@ -2881,21 +3282,96 @@ def write_corpus(corpus_dir: Path, artifacts_dir: Path | None = None) -> None:
     )
 
 
+def build_case_request_payload(corpus_dir: Path) -> dict[str, Any]:
+    if ACTIVE_PROFILE == "sf_homelessness":
+        return {
+            "case_id": CASE_ID,
+            "title": "San Francisco homelessness NGO complex triage",
+            "objective": (
+                "Run a generic CalDS investigation profile against San Francisco homelessness-service nonprofit candidates, "
+                "rank targets by Review Value Score, deep-dive entities with public-dollar exposure plus official adverse-record or scope-mismatch signals, "
+                "and pause for human review with source-cited findings."
+            ),
+            "jurisdiction": "San Francisco, California",
+            "allowed_sources": [
+                "SF Open Data nonprofit spending",
+                "SF Department of Homelessness and Supportive Housing records",
+                "SF Controller audits",
+                "SF Board and City records",
+                "IRS Form 990 and ProPublica Nonprofit Explorer",
+                "Federal Audit Clearinghouse",
+                "official enforcement, docket, settlement, and adverse-action sources",
+                "organization websites, public statements, and social-media pages",
+                "official homelessness outcome data",
+            ],
+            "entities": [target["name"] for target in TARGETS],
+            "max_results": min(len(TARGETS), ACTIVE_TARGET_LIMIT),
+            "metadata": {
+                "investigation_profile_path": "data/investigation_profiles/sf_homelessness.json",
+                "topic": "homelessness",
+                "target_universe": "San Francisco homelessness-service nonprofit candidates",
+                "selection_metric": "Review Value Score",
+                "target_selection_source": str(RAW_DIR / "sf_hsh_payment_target_rows.json"),
+                "source_corpus_dir": str(corpus_dir),
+                "profile": ACTIVE_PROFILE,
+                "completeness_run_attempt": 1,
+            },
+        }
+    return {
+        "case_id": CASE_ID,
+        "title": "California homelessness top-15 nonprofit triage",
+        "objective": "Run CalDS homelessness triage against a source-listed California homelessness nonprofit target set.",
+        "jurisdiction": "California",
+        "allowed_sources": [
+            "HCD Homekey and Homekey+ award lists",
+            "IRS Form 990 and ProPublica Nonprofit Explorer",
+            "Federal Audit Clearinghouse",
+            "official enforcement, docket, settlement, and adverse-action sources",
+            "organization websites and public statements",
+            "official homelessness outcome data",
+        ],
+        "entities": [target["name"] for target in TARGETS],
+        "max_results": min(len(TARGETS), ACTIVE_TARGET_LIMIT),
+        "metadata": {
+            "topic": "homelessness",
+            "target_universe": "California source-listed homelessness nonprofit co-applicants",
+            "selection_metric": "Review Value Score",
+            "source_corpus_dir": str(corpus_dir),
+            "profile": ACTIVE_PROFILE,
+        },
+    }
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build CalDS homelessness top-15 state-award corpus.")
-    parser.add_argument("--corpus-dir", type=Path, default=DEFAULT_CORPUS_DIR)
+    parser = argparse.ArgumentParser(description="Build CalDS homelessness investigation corpus.")
+    parser.add_argument("--profile", choices=["statewide_homekey", "sf_homelessness"], default="statewide_homekey")
+    parser.add_argument("--target-limit", type=int, default=15)
+    parser.add_argument("--corpus-dir", type=Path, default=None)
     parser.add_argument(
         "--artifacts-dir",
         type=Path,
         default=None,
         help="Run-scoped source artifact directory. Defaults to <corpus-dir>/_source_artifacts.",
     )
+    parser.add_argument(
+        "--case-file-out",
+        type=Path,
+        default=None,
+        help="Optional path to write a runnable CalDS CaseRequest JSON for this generated corpus.",
+    )
     args = parser.parse_args()
-    write_corpus(args.corpus_dir, args.artifacts_dir)
+    configure_profile(args.profile, args.target_limit)
+    corpus_dir = args.corpus_dir or DEFAULT_CORPUS_DIR
+    write_corpus(corpus_dir, args.artifacts_dir)
+    if args.case_file_out:
+        write_json(args.case_file_out, build_case_request_payload(corpus_dir))
     print(f"case_id={CASE_ID}")
-    print(f"corpus_dir={args.corpus_dir}")
+    print(f"profile={ACTIVE_PROFILE}")
+    print(f"corpus_dir={corpus_dir}")
     print(f"artifacts_dir={ARTIFACT_BASE_DIR}")
-    print(f"records={len([path for path in args.corpus_dir.glob('*.json') if not path.name.startswith('_')])}")
+    if args.case_file_out:
+        print(f"case_file={args.case_file_out}")
+    print(f"records={len([path for path in corpus_dir.glob('*.json') if not path.name.startswith('_')])}")
     return 0
 
 

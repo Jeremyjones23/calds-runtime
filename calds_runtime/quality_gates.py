@@ -40,6 +40,7 @@ REQUIRED_SOURCE_FAMILIES = [
 SOURCE_FAMILY_TARGETS = {
     "state_awards": [
         "California Department of Housing and Community Development award lists",
+        "San Francisco HSH nonprofit spending and completed-payment rows",
         "state standard agreements",
         "draw or payment records",
     ],
@@ -141,10 +142,11 @@ class CompletionGuardService:
         entities = selected_entities or request.entities
         missing_required: list[str] = []
         by_key = {(run.entity, run.source_family): run for run in ledger}
+        acceptable_statuses = {"hit", "searched_no_public_official_record"}
         for entity in entities:
             for family in families:
                 run = by_key.get((entity, family))
-                if run is None or run.status != "hit":
+                if run is None or run.status not in acceptable_statuses:
                     missing_required.append(f"{entity}: {family}")
         counts = Counter(run.status for run in ledger)
         status = "PASS" if not missing_required else "PASS_WITH_BLOCKERS"
@@ -173,7 +175,12 @@ class CompletionGuardService:
 
     def source_family(self, record: CanonicalRecord) -> str:
         value = f"{record.source_type} {record.record_id}".lower()
-        if record.source_type in {"state_homelessness_award", "source_extraction_state_homeless_award_table"} or "homekey" in value or "state_homeless" in value:
+        if record.source_type in {
+            "state_homelessness_award",
+            "source_extraction_state_homeless_award_table",
+            "sf_hsh_payment_exposure",
+            "source_extraction_sf_hsh_payment_table",
+        } or "homekey" in value or "state_homeless" in value or "sf_hsh_payment" in value:
             return "state_awards"
         if "irs_990" in value or record.source_type.startswith("irs_990") or record.source_type == "source_extraction_irs_990_table":
             return "irs_990"
