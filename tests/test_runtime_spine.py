@@ -27,6 +27,7 @@ from calds_runtime.quality_gates import CitationVerifierService, CompletionGuard
 from calds_runtime.risk_matrix import OversightRiskMatrixService
 from calds_runtime.search import KeywordSearchIndex, SearchPlan
 from calds_runtime.sentinel import find_escalated_language
+from calds_runtime.source_catalog import CaliforniaSourceCatalogService
 from calds_runtime.scoring import LeadScoringService
 
 
@@ -283,12 +284,71 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertEqual(profile.selection_metric, "Review Value Score")
         self.assertIn("enforcement_or_docket", profile.required_source_families)
         self.assertIn("raw_irs_990", profile.deep_source_families)
+        self.assertIn("state_charity_registry", profile.deep_source_families)
+        self.assertIn("state_entity_registry", profile.deep_source_families)
+        self.assertIn("campaign_finance", profile.deep_source_families)
         self.assertIn("source_connectors", profile.__dataclass_fields__)
         self.assertGreater(profile.scoring_weights["official_adverse_record"], profile.scoring_weights["source_opacity"])
         self.assertIn("entity_resolution", profile.completion_gates)
         self.assertIn("target_discovery", profile.completion_gates)
         self.assertIn("human_action", profile.completion_gates)
         self.assertIn("human_review", profile.completion_gates)
+
+    def test_california_source_catalog_adds_statewide_and_sf_connectors(self) -> None:
+        case = CaseRequest(
+            case_id="sf_catalog_test",
+            title="SF catalog",
+            objective="Load catalog.",
+            jurisdiction="San Francisco, California",
+            metadata={"investigation_profile_path": "data/investigation_profiles/sf_homelessness.json"},
+        )
+        profile = InvestigationProfileService().load_for_case(case)
+        catalog = CaliforniaSourceCatalogService()
+        connectors = catalog.connector_specs_for_profile(profile)
+        connector_ids = {spec.connector_id for spec in connectors}
+        source_families = {spec.source_family for spec in connectors}
+
+        self.assertIn("irs_teos_bulk_xml", connector_ids)
+        self.assertIn("fac_public_api", connector_ids)
+        self.assertIn("ca_ag_charity_registry", connector_ids)
+        self.assertIn("ca_sos_business_search", connector_ids)
+        self.assertIn("sf_legislative_research_center", connector_ids)
+        self.assertIn("sf_ethics_lobbying_data", connector_ids)
+        self.assertIn("county_contract_monitoring_records", connector_ids)
+        self.assertIn("state_charity_registry", source_families)
+        self.assertIn("state_entity_registry", source_families)
+        self.assertIn("campaign_finance", source_families)
+        sf_lrc = next(spec for spec in connectors if spec.connector_id == "sf_legislative_research_center")
+        self.assertIn("https://www.sf.gov/legislative-research-center-lrc", sf_lrc.source_uris)
+        summary = catalog.coverage_summary(profile)
+        self.assertGreaterEqual(summary["public_http_connector_count"], 1)
+        self.assertGreaterEqual(summary["manual_or_records_request_connector_count"], 1)
+
+    def test_source_acquisition_planner_uses_california_catalog_for_statewide_profile(self) -> None:
+        case = CaseRequest(
+            case_id="statewide_catalog_test",
+            title="Statewide catalog",
+            objective="Preview statewide source coverage.",
+            jurisdiction="California",
+            entities=["Example Shelter"],
+            metadata={"investigation_profile_path": "data/investigation_profiles/ca_statewide_homelessness.json"},
+        )
+        profile = InvestigationProfileService().load_for_case(case)
+        source_plan = SourceAcquisitionPlannerService().build_plan(case, profile, [], ["Example Shelter"])
+        families = {req.source_family for req in source_plan.requirements}
+        connector_ids = {spec.connector_id for spec in source_plan.connector_specs}
+
+        self.assertIn("state_charity_registry", families)
+        self.assertIn("state_entity_registry", families)
+        self.assertIn("campaign_finance", families)
+        self.assertIn("county_contracts", families)
+        self.assertIn("ca_ag_charity_registry", connector_ids)
+        self.assertIn("ca_sos_business_search", connector_ids)
+        self.assertIn("ca_cal_access_power_search", connector_ids)
+        self.assertIn("county_contract_monitoring_records", connector_ids)
+        registry_requirement = next(req for req in source_plan.requirements if req.source_family == "state_charity_registry")
+        self.assertIn("https://oag.ca.gov/charities", registry_requirement.blocker_reason)
+        self.assertEqual(registry_requirement.status, "needs_ingestor_or_records_request")
 
     def test_profile_gate_rejects_missing_generic_spine_gates(self) -> None:
         profile = InvestigationProfile(
@@ -1293,6 +1353,16 @@ class RuntimeSpineTests(unittest.TestCase):
         self.assertIn("https://search.justice.gov/search", module.US_DOJ_SEARCH_URL)
         self.assertTrue(module.PUBLIC_ENFORCEMENT_SEARCH_SOURCES)
         self.assertTrue(module.MANUAL_ENFORCEMENT_SEARCH_SOURCES)
+        module.configure_profile("ca_statewide_homelessness", target_limit=15)
+        statewide_payload = module.build_case_request_payload(PROJECT_ROOT / "data" / "live_corpus" / "statewide_test")
+        self.assertEqual(module.CASE_ID, "live_ca_homelessness_top15_2026_04_29")
+        self.assertEqual(module.ACTIVE_PROFILE, "ca_statewide_homelessness")
+        self.assertEqual(
+            statewide_payload["metadata"]["investigation_profile_path"],
+            "data/investigation_profiles/ca_statewide_homelessness.json",
+        )
+        self.assertIn("California Attorney General charity registry", statewide_payload["allowed_sources"])
+        self.assertIn("CAL-ACCESS, Power Search, and FPPC campaign/lobbying sources", statewide_payload["allowed_sources"])
         module.configure_profile("sf_homelessness", target_limit=15)
         self.assertEqual(module.CASE_ID, "live_ca_sf_homelessness_complex")
         self.assertEqual(module.ACTIVE_PROFILE, "sf_homelessness")

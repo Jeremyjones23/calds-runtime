@@ -32,6 +32,7 @@ from .contracts import (
 )
 from .investigation_profiles import DEFAULT_DEEP_SOURCE_FAMILIES, DEFAULT_SOURCE_FAMILIES, ReviewValueScoringService
 from .quality_gates import CompletionGuardService
+from .source_catalog import CaliforniaSourceCatalogService
 from .truth import tokenize
 
 
@@ -264,6 +265,9 @@ class SourceAcquisitionPlannerService:
         SourceConnectorSpec("provider_outcomes", "provider_outcomes", "Provider-attributable outcomes, deliverables, capacity, and completion records", "public_or_records_request", ["outcome report", "deliverable report", "capacity history"], []),
     ]
 
+    def __init__(self) -> None:
+        self.source_catalog = CaliforniaSourceCatalogService()
+
     def build_plan(
         self,
         request: CaseRequest,
@@ -289,7 +293,7 @@ class SourceAcquisitionPlannerService:
                     retryable = False
                 elif connectors:
                     status = "needs_ingestor_or_records_request"
-                    blocker = "No current corpus record satisfies this deep source family; add connector/parser coverage or perform records request."
+                    blocker = self._source_gap_blocker(connectors)
                     retryable = True
                 else:
                     status = "needs_connector_profile"
@@ -323,22 +327,7 @@ class SourceAcquisitionPlannerService:
         )
 
     def _connector_specs(self, profile: InvestigationProfile) -> list[SourceConnectorSpec]:
-        specs = list(self.DEFAULT_CONNECTORS)
-        for item in profile.source_connectors:
-            specs.append(
-                SourceConnectorSpec(
-                    connector_id=str(item.get("connector_id") or stable_id("connector", str(item))),
-                    source_family=str(item.get("source_family") or ""),
-                    name=str(item.get("name") or item.get("connector_id") or "profile connector"),
-                    access_mode=str(item.get("access_mode") or "public_http"),
-                    required_artifacts=list(item.get("required_artifacts") or []),
-                    source_uris=list(item.get("source_uris") or []),
-                    credentials_required=bool(item.get("credentials_required") or False),
-                    manual_access_reason=str(item.get("manual_access_reason") or ""),
-                    parser_version=str(item.get("parser_version") or "profile-v1"),
-                )
-            )
-        return specs
+        return self._dedupe_connectors([*self.DEFAULT_CONNECTORS, *self.source_catalog.connector_specs_for_profile(profile)])
 
     def _record_matches(self, record: CanonicalRecord, entity: str, family: str) -> bool:
         if not any(self._norm(value) == self._norm(entity) for value in record.entities):
@@ -362,7 +351,27 @@ class SourceAcquisitionPlannerService:
             return record.source_type in {"org_service_page", "public_statement_source", "social_media_source"}
         if family == "provider_outcomes":
             return "outcome" in value or "deliverable" in value or "capacity" in value
+        if family == "state_charity_registry":
+            return "charity" in value or "registry" in value or "attorney general" in value or "rct" in value
+        if family == "state_entity_registry":
+            return "secretary" in value or "business" in value or "entity registry" in value or "bizfile" in value
+        if family == "campaign_finance":
+            return "campaign" in value or "lobby" in value or "ethics" in value or "cal access" in value or "fppc" in value
+        if family == "state_awards":
+            return "state award" in value or "grant" in value or "california grants" in value
         return family in value
+
+    def _source_gap_blocker(self, connectors: list[SourceConnectorSpec]) -> str:
+        source_uris = self._dedupe(uri for spec in connectors for uri in spec.source_uris)
+        source_note = ""
+        if source_uris:
+            source_note = f" Candidate official/public source(s): {', '.join(source_uris[:4])}."
+        manual_notes = self._dedupe(spec.manual_access_reason for spec in connectors if spec.manual_access_reason)
+        manual_note = f" Access note: {'; '.join(manual_notes[:2])}." if manual_notes else ""
+        return (
+            "No current corpus record satisfies this deep source family; add connector/parser coverage or perform records request."
+            f"{source_note}{manual_note}"
+        )
 
     def _required_artifacts(self, connectors: list[SourceConnectorSpec], family: str) -> list[str]:
         artifacts = self._dedupe(artifact for spec in connectors for artifact in spec.required_artifacts)
@@ -370,6 +379,26 @@ class SourceAcquisitionPlannerService:
 
     def _norm(self, value: str) -> str:
         return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+    def _dedupe_connectors(self, specs: list[SourceConnectorSpec]) -> list[SourceConnectorSpec]:
+        seen: dict[str, SourceConnectorSpec] = {}
+        for spec in specs:
+            existing = seen.get(spec.connector_id)
+            if existing is None:
+                seen[spec.connector_id] = spec
+                continue
+            seen[spec.connector_id] = SourceConnectorSpec(
+                connector_id=existing.connector_id,
+                source_family=existing.source_family or spec.source_family,
+                name=existing.name or spec.name,
+                access_mode=existing.access_mode or spec.access_mode,
+                required_artifacts=self._dedupe([*existing.required_artifacts, *spec.required_artifacts]),
+                source_uris=self._dedupe([*existing.source_uris, *spec.source_uris]),
+                credentials_required=existing.credentials_required or spec.credentials_required,
+                manual_access_reason=existing.manual_access_reason or spec.manual_access_reason,
+                parser_version=existing.parser_version,
+            )
+        return list(seen.values())
 
     def _dedupe(self, values: Iterable[str]) -> list[str]:
         seen: set[str] = set()
@@ -392,6 +421,8 @@ class ForensicTestService:
         ForensicTestDefinition("spend_vs_results", "spend versus results", "Did public-dollar exposure rise while geography or provider outcomes moved the wrong direction?", ["provider_outcomes", "payment_ledger"], "geography context without provider attribution", "Pull provider-attributable outcomes for the same contract window."),
         ForensicTestDefinition("legal_status", "enforcement and docket", "Do official adverse records name the entity, a connected party, or a project counterparty?", ["enforcement_adverse", "litigation_docket"], "legal status overstatement risk", "Verify named parties, status, docket, and relationship."),
         ForensicTestDefinition("off_scope_activity", "scope mismatch", "Do public statements suggest activity outside funded scope and is there a funding nexus?", ["web_social_archive", "county_contracts"], "keyword without funding nexus", "Compare web/public statements to contract scope and cost allocation."),
+        ForensicTestDefinition("entity_registry_status", "entity status", "Do California charity and business registry records support the entity identity, status, officers, and addresses used in the investigation?", ["state_charity_registry", "state_entity_registry"], "entity identity or status not independently verified", "Verify California Attorney General charity filings and Secretary of State business records."),
+        ForensicTestDefinition("political_activity_disclosure", "scope and political activity", "Do campaign, lobbying, website, or social records create a funding-scope or cost-allocation review question?", ["campaign_finance", "web_social_archive", "county_contracts"], "activity signal without funding nexus", "Compare campaign/lobbying/public-statement records to contract scope and allowable-use language."),
     ]
 
     def run_tests(

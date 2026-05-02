@@ -661,7 +661,10 @@ def configure_profile(profile: str, target_limit: int = 15) -> None:
     global CASE_ID, DEFAULT_ARTIFACT_BASE_DIR, DEFAULT_CORPUS_DIR, ACTIVE_PROFILE, ACTIVE_TARGET_LIMIT
     ACTIVE_PROFILE = profile
     ACTIVE_TARGET_LIMIT = target_limit
-    if profile == "statewide_homekey":
+    if profile in {"statewide_homekey", "ca_statewide_homelessness"}:
+        CASE_ID = "live_ca_homelessness_top15_2026_04_29"
+        DEFAULT_ARTIFACT_BASE_DIR = PROJECT_ROOT / "artifacts" / "homelessness_top15_sources_2026_04_29"
+        DEFAULT_CORPUS_DIR = PROJECT_ROOT / "data" / "live_corpus" / f"{CASE_ID}_stage1"
         return
     if profile != "sf_homelessness":
         raise ValueError(f"unknown homelessness ingestion profile: {profile}")
@@ -3326,6 +3329,10 @@ def build_case_request_payload(corpus_dir: Path) -> dict[str, Any]:
             "HCD Homekey and Homekey+ award lists",
             "IRS Form 990 and ProPublica Nonprofit Explorer",
             "Federal Audit Clearinghouse",
+            "California Attorney General charity registry",
+            "California Secretary of State business records",
+            "California Grants Portal and Open FI$Cal",
+            "CAL-ACCESS, Power Search, and FPPC campaign/lobbying sources",
             "official enforcement, docket, settlement, and adverse-action sources",
             "organization websites and public statements",
             "official homelessness outcome data",
@@ -3333,6 +3340,7 @@ def build_case_request_payload(corpus_dir: Path) -> dict[str, Any]:
         "entities": [target["name"] for target in TARGETS],
         "max_results": min(len(TARGETS), ACTIVE_TARGET_LIMIT),
         "metadata": {
+            "investigation_profile_path": "data/investigation_profiles/ca_statewide_homelessness.json",
             "topic": "homelessness",
             "target_universe": "California source-listed homelessness nonprofit co-applicants",
             "selection_metric": "Review Value Score",
@@ -3344,7 +3352,7 @@ def build_case_request_payload(corpus_dir: Path) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build CalDS homelessness investigation corpus.")
-    parser.add_argument("--profile", choices=["statewide_homekey", "sf_homelessness"], default="statewide_homekey")
+    parser.add_argument("--profile", choices=["statewide_homekey", "ca_statewide_homelessness", "sf_homelessness"], default="statewide_homekey")
     parser.add_argument("--target-limit", type=int, default=15)
     parser.add_argument("--corpus-dir", type=Path, default=None)
     parser.add_argument(

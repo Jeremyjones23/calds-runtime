@@ -1,0 +1,114 @@
+{
+  "profile_id": "ca_statewide_homelessness_review_value_v1",
+  "title": "California Statewide Homelessness NGO Review Value Profile",
+  "topic": "homelessness",
+  "jurisdiction": "California",
+  "target_universe": "California homelessness-service nonprofit candidates selected from statewide awards, payment exposure, official adverse records, source opacity, and citation-ready public-record signals",
+  "selection_metric": "Review Value Score",
+  "required_source_families": [
+    "state_awards",
+    "irs_990",
+    "audit",
+    "enforcement_or_docket",
+    "county_contract_monitoring",
+    "web_and_social",
+    "outcomes"
+  ],
+  "scoring_weights": {
+    "public_money_exposure": 0.22,
+    "official_adverse_record": 0.22,
+    "scope_mismatch": 0.13,
+    "spend_outcome_mismatch": 0.13,
+    "tax_audit_financial_anomaly": 0.12,
+    "source_opacity": 0.08,
+    "network_centrality": 0.04,
+    "verifiability": 0.06
+  },
+  "deep_dive_threshold": 60.0,
+  "max_targets": 15,
+  "language_rules": [
+    "Treat public output as source-cited review leads, not legal findings.",
+    "Use official legal terms only when an official source supports the term.",
+    "Preserve named-party distinctions between entity findings, connected-party charges, and third-party transaction records.",
+    "Describe possible waste, fraud, abuse, mismanagement, or off-scope use as a review hypothesis until a human validates the underlying records."
+  ],
+  "publication_policy": "sanitized_public_case_after_completeness_and_sentinel_gates",
+  "completion_gates": [
+    "profile",
+    "entity_resolution",
+    "target_discovery",
+    "source",
+    "retry",
+    "handoff",
+    "forensic_tests",
+    "evidence_store",
+    "citation",
+    "link",
+    "hallucination",
+    "sentinel",
+    "presentation",
+    "human_action",
+    "human_review",
+    "github"
+  ],
+  "deep_source_families": [
+    "raw_irs_990",
+    "audit_pdf",
+    "state_awards",
+    "state_charity_registry",
+    "state_entity_registry",
+    "county_contracts",
+    "payment_ledger",
+    "litigation_docket",
+    "board_files",
+    "campaign_finance",
+    "enforcement_adverse",
+    "web_social_archive",
+    "provider_outcomes"
+  ],
+  "source_connectors": [],
+  "entity_aliases": {},
+  "target_discovery_rules": [
+    "Seed from statewide grant, payment, and official adverse-record sources where available.",
+    "Add mandatory official adverse-record seeds even when payment exposure is lower.",
+    "Rank by Review Value Score, not by dollars alone.",
+    "Treat county-level missing contract, monitoring, and outcome records as source-access blockers until a portal hit, verified no-public-record search, or records-request blocker is documented."
+  ],
+  "forensic_tests": [
+    {
+      "test_id": "ca_statewide_allowability",
+      "category": "contract allowability",
+      "question": "Do state and county payments map to contract purpose, invoices, deliverables, monitoring files, and provider-attributable outcomes for the same period?",
+      "required_source_families": ["state_awards", "payment_ledger", "county_contracts", "provider_outcomes"],
+      "failure_mode": "payment exposure without contract allowability and outcome support",
+      "human_next_step": "Pull state award records, county contracts, invoices, deliverables, monitoring letters, corrective actions, and provider-attributable outcome records for the entity."
+    },
+    {
+      "test_id": "ca_statewide_entity_status",
+      "category": "entity and registration status",
+      "question": "Do California charity and business registry records support the entity status, officers, addresses, and standing used in the investigation?",
+      "required_source_families": ["state_charity_registry", "state_entity_registry"],
+      "failure_mode": "entity identity or status not independently verified",
+      "human_next_step": "Verify California Attorney General charity filings and Secretary of State business records for names, status, officers, addresses, and filing dates."
+    },
+    {
+      "test_id": "ca_statewide_activity_disclosure",
+      "category": "scope and political activity",
+      "question": "Do campaign, lobbying, website, or social records create a funding-scope or cost-allocation review question?",
+      "required_source_families": ["campaign_finance", "web_social_archive", "county_contracts"],
+      "failure_mode": "off-scope activity signal without funding nexus",
+      "human_next_step": "Compare campaign/lobbying/public-statement records to contract scope, cost-allocation records, and allowable-use language."
+    }
+  ],
+  "evidence_store_policy": {
+    "snapshot_required_for_public_links": true,
+    "hash_algorithm": "sha256",
+    "parser_version_required": true
+  },
+  "human_action_rules": [
+    "Prioritize official adverse records, audit findings, entity-status mismatches, and payment-to-deliverable gaps.",
+    "Every next step must name the document family a human should obtain.",
+    "Do not call a no-record public search clearance.",
+    "For statewide cases, separate statewide source blockers from county-specific blockers so a reviewer can see what can be automated and what still requires local records access."
+  ]
+}

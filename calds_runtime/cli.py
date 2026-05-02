@@ -10,6 +10,7 @@ from .generic_spine import EntityResolutionService, ProfileGateService, SourceAc
 from .investigation_profiles import InvestigationProfileService
 from .publication import publish_case_site_from_run, publish_site_index
 from .quality_gates import RunReadinessService
+from .source_catalog import CaliforniaSourceCatalogService
 from .truth import JsonCorpusTruthStore
 
 
@@ -127,6 +128,41 @@ def plan_source_acquisition(args: argparse.Namespace) -> int:
     print(f"source_acquisition_preview={output_file}")
     return 0
 
+
+def source_catalog(args: argparse.Namespace) -> int:
+    metadata = {}
+    if args.profile_file:
+        metadata["investigation_profile_path"] = str(args.profile_file)
+    request = CaseRequest(
+        case_id=args.case_id,
+        title="Source catalog preview",
+        objective="Preview California source catalog coverage for an investigation profile.",
+        jurisdiction=args.jurisdiction,
+        metadata=metadata,
+    )
+    profile = InvestigationProfileService().load_for_case(request)
+    catalog = CaliforniaSourceCatalogService()
+    connectors = catalog.connector_specs_for_profile(profile)
+    summary = catalog.coverage_summary(profile)
+    payload = {
+        "profile_id": profile.profile_id,
+        "jurisdiction": profile.jurisdiction,
+        "summary": summary,
+        "connectors": connectors,
+    }
+    if args.output_file:
+        write_json(args.output_file, payload)
+    print(f"profile_id={profile.profile_id}")
+    print(f"jurisdiction={profile.jurisdiction}")
+    print(f"connectors={len(connectors)}")
+    print(f"source_families={','.join(summary['source_families'])}")
+    print(f"public_http_connectors={summary['public_http_connector_count']}")
+    print(f"manual_or_records_request_connectors={summary['manual_or_records_request_connector_count']}")
+    if args.output_file:
+        print(f"source_catalog={args.output_file}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CalDS local workflow spine")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -181,6 +217,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--runs-dir", type=Path, default=DEFAULT_RUNS_DIR)
     plan_parser.add_argument("--output-file", type=Path, default=None)
     plan_parser.set_defaults(func=plan_source_acquisition)
+
+    catalog_parser = subparsers.add_parser("source-catalog", help="Preview statewide and local California source connectors for a profile.")
+    catalog_parser.add_argument("--jurisdiction", default="California")
+    catalog_parser.add_argument("--profile-file", type=Path, default=None)
+    catalog_parser.add_argument("--case-id", default="source_catalog_preview")
+    catalog_parser.add_argument("--output-file", type=Path, default=None)
+    catalog_parser.set_defaults(func=source_catalog)
 
     return parser
 

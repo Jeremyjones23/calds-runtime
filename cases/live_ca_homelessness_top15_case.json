@@ -24,7 +24,13 @@
     "source_extraction_enforcement_docket_table",
     "enforcement_or_docket_source",
     "source_extraction_social_web_table",
-    "social_media_source"
+    "social_media_source",
+    "ca_ag_charity_registry",
+    "ca_sos_business_search",
+    "ca_grants_portal",
+    "open_fiscal_vendor_payments",
+    "ca_cal_access_power_search",
+    "ca_fppc_lobbying_guidance"
   ],
   "entities": [
     "Hope the Mission",
@@ -46,6 +52,9 @@
   "requested_by": "live-web-test",
   "max_results": 80,
   "metadata": {
+    "investigation_profile_path": "data/investigation_profiles/ca_statewide_homelessness.json",
+    "profile": "ca_statewide_homelessness",
+    "selection_metric": "Review Value Score",
     "ranking_proxy": "California HCD Homekey and Homekey+ source-listed co-applicant project-award exposure",
     "evidence_posture": "leads, not allegations",
     "award_exposure_caveat": "HCD award lists identify eligible applicants and co-applicants; this case ranks co-applicant project-award exposure and does not claim direct payment allocation without standard agreements or payment ledgers.",

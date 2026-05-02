@@ -16,7 +16,7 @@ This repository is not an autonomous accusation engine. It produces reviewer-saf
 
 Generated live artifacts, run outputs, PDFs, and downloaded corpora are intentionally excluded from Git by `.gitignore`.
 
-For the canonical folder map and cleanup rules, see `docs/repo_layout.md`. For the current no-shortcut methodology audit, see `docs/methodology_integrity_audit.md`.
+For the canonical folder map and cleanup rules, see `docs/repo_layout.md`. For the current no-shortcut methodology audit, see `docs/methodology_integrity_audit.md`. For statewide source-family coverage and official California connector planning, see `docs/california_source_catalog.md`.
 
 ## Safety Boundaries
 
@@ -43,6 +43,8 @@ The generic spine now emits first-class artifacts for the reusable investigation
 - `evidence_store_manifest.json` records checksums, immutable references, parser versions, and snapshot availability for retrieved records.
 - `forensic_test_results.json` records which forensic checks are ready and which are blocked by source gaps.
 - `human_action_plan.json` turns risk rows, source blockers, and forensic-test blockers into cited human-only next actions.
+
+The source acquisition planner now loads a California source catalog for every profile. Statewide connectors cover IRS Form 990 sources, ProPublica filing summaries, Federal Audit Clearinghouse audits, California charity and business registries, California Grants Portal, Open FI$Cal, HDIS homelessness outcomes, CAL-ACCESS/Power Search, FPPC ethics sources, PACER, and generic county records families. Jurisdiction-specific overlays are added when a known local portal exists; San Francisco profiles now include the Legislative Research Center, Ethics lobbying data, Controller reports, HSH sources, and Open Data payment rows. County contract, payment, board-file, and provider-outcome records remain explicit source blockers until a public hit, verified no-public-record search, or records-request blocker is documented.
 
 The workflow also includes four anti-drift quality gates:
 
@@ -75,6 +77,8 @@ Audit a case profile and preview the deep source plan before a full run:
 
 ```powershell
 python -m calds_runtime audit-profile --profile-file data\investigation_profiles\sf_homelessness.json --output-file runs\profile-audits\sf_homelessness_profile_gate.json
+python -m calds_runtime source-catalog --jurisdiction "San Francisco, California" --profile-file data\investigation_profiles\sf_homelessness.json --output-file runs\source-catalog\sf_catalog.json
+python -m calds_runtime source-catalog --jurisdiction "California" --profile-file data\investigation_profiles\ca_statewide_homelessness.json --output-file runs\source-catalog\ca_statewide_catalog.json
 python -m calds_runtime plan-source-acquisition --case-file evals\cases\easy_case.json --corpus-dir data\sample_corpus --output-file runs\local-smoke\source_acquisition_preview.json
 ```
 
@@ -93,7 +97,7 @@ python scripts\run_live_case_pipeline.py --runs-dir runs\live-full-local
 Run the homelessness top-15 corpus refresh and workflow:
 
 ```powershell
-python scripts\ingest_homelessness_top15_sources.py --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2
+python scripts\ingest_homelessness_top15_sources.py --profile ca_statewide_homelessness --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2
 python -m calds_runtime run-case --case-file cases\live_ca_homelessness_top15_case.json --corpus-dir data\live_corpus\live_ca_homelessness_top15_2026_04_29_stage2 --runs-dir runs\live-homelessness-forensic-local
 python -m calds_runtime publish-case-site --run-dir runs\live-homelessness-forensic-local\live_ca_homelessness_top15_2026_04_29 --output-dir site\cases\live_ca_homelessness_top15_2026_04_29
 python -m calds_runtime publish-site-index --site-dir site
@@ -128,4 +132,4 @@ The live pipeline can ingest public official and public-access sources such as C
 
 The homelessness triage model treats connected-party official legal records as mandatory deep-review triggers while preserving named-party status. It also screens voter registration, citizenship, immigration, advocacy, lobbying, and political-language matches as homelessness funding-scope and cost-allocation questions rather than automatic illegality.
 
-The product remains incomplete until direct provider-attributable treatment completion, full DHCS license/adverse-action histories, and governed social/traffic metrics are added.
+The product remains incomplete until direct provider-attributable treatment completion, full DHCS license/adverse-action histories, governed social/traffic metrics, and county-specific scrapers or records-request adapters are added for all target jurisdictions. The statewide catalog makes those gaps visible and repeatable instead of hiding them.

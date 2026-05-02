@@ -54,10 +54,14 @@
   "deep_source_families": [
     "raw_irs_990",
     "audit_pdf",
+    "state_awards",
+    "state_charity_registry",
+    "state_entity_registry",
     "county_contracts",
     "payment_ledger",
     "litigation_docket",
     "board_files",
+    "campaign_finance",
     "enforcement_adverse",
     "web_social_archive",
     "provider_outcomes"
@@ -76,14 +80,41 @@
       "source_family": "board_files",
       "name": "San Francisco board, committee, and contract approval files",
       "access_mode": "public_http",
-      "required_artifacts": ["board file", "resolution", "staff report"]
+      "required_artifacts": ["board file", "resolution", "staff report", "contract approval attachment"],
+      "source_uris": ["https://www.sf.gov/legislative-research-center-lrc", "https://sfgov.legistar.com/Legislation.aspx"]
     },
     {
       "connector_id": "sf_hsh_contract_monitoring",
       "source_family": "county_contracts",
       "name": "San Francisco HSH contract, monitoring, and corrective-action files",
       "access_mode": "public_or_records_request",
-      "required_artifacts": ["contract", "amendment", "invoice", "monitoring letter", "corrective action"]
+      "required_artifacts": ["contract", "amendment", "invoice", "monitoring letter", "corrective action"],
+      "source_uris": ["https://www.sf.gov/departments/homelessness-and-supportive-housing"],
+      "manual_access_reason": "Some San Francisco HSH contract-monitoring files may require targeted public-records requests."
+    },
+    {
+      "connector_id": "sf_ethics_lobbying_data",
+      "source_family": "campaign_finance",
+      "name": "San Francisco Ethics Commission lobbying disclosure data",
+      "access_mode": "public_http",
+      "required_artifacts": ["lobbyist client record", "contacts", "payments", "subject matter disclosure"],
+      "source_uris": ["https://sfethics.org/disclosures/lobbyist-disclosure/lobbyist-disclosure-data"]
+    },
+    {
+      "connector_id": "sf_controller_reports",
+      "source_family": "audit_pdf",
+      "name": "San Francisco Controller audits, performance reports, and recommendations",
+      "access_mode": "public_http",
+      "required_artifacts": ["controller report", "audit finding", "recommendation status"],
+      "source_uris": ["https://www.sf.gov/departments/city-administrator/office-controller"]
+    },
+    {
+      "connector_id": "sf_hsh_data_hub",
+      "source_family": "provider_outcomes",
+      "name": "San Francisco homelessness and supportive housing data and archived reports",
+      "access_mode": "public_http",
+      "required_artifacts": ["HSH report", "capacity measure", "system outcome context"],
+      "source_uris": ["https://hsh.archive.sf.gov/"]
     }
   ],
   "entity_aliases": {
