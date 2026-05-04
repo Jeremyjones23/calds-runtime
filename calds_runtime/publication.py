@@ -591,6 +591,14 @@ def score_display(value: object) -> str:
     return text if "/" in text or text == "not computed" else f"{text} / 100"
 
 
+def display_status(value: object) -> str:
+    text = str(value or "not provided").strip()
+    if not text:
+        return "not provided"
+    text = text.replace("_", " ").replace("-", " ")
+    return " ".join(part.capitalize() for part in text.split())
+
+
 def source_access_status_text(context: dict[str, Any]) -> str:
     blockers = int(context.get("completion_guard_blocker_count") or 0) + int(context.get("deep_source_blocker_count") or 0)
     checked = int(context.get("public_link_checked_count") or 0)
@@ -620,10 +628,10 @@ def render_reviewer_panel(context: dict[str, Any]) -> str:
     <p>Start with the briefing, click each <span class=\"mono\">E##</span> evidence label, and verify the linked source card before relying on a claim. This page is a review aid, not a formal finding.</p>
   </div>
   <div class=\"reviewer-panel__grid\">
-    <div><span>Workflow state</span><strong>{html.escape(str(context.get('workflow_state', 'AWAITING_HUMAN_REVIEW')))}</strong></div>
-    <div><span>Human decision</span><strong>{html.escape(str(context.get('human_decision', 'PENDING')))}</strong></div>
-    <div><span>Public links</span><strong>{html.escape(str(context.get('public_link_status', 'not checked')))} / {int(context.get('public_link_checked_count') or 0)} checked</strong></div>
-    <div><span>Source gates</span><strong>{html.escape(str(context.get('completeness_status', context.get('completion_guard_status', 'not computed'))))} / {int(context.get('completion_guard_blocker_count') or 0) + int(context.get('deep_source_blocker_count') or 0)} blocker(s)</strong></div>
+    <div><span>Workflow state</span><strong>{html.escape(display_status(context.get('workflow_state', 'AWAITING_HUMAN_REVIEW')))}</strong></div>
+    <div><span>Human decision</span><strong>{html.escape(display_status(context.get('human_decision', 'PENDING')))}</strong></div>
+    <div><span>Public links</span><strong>{html.escape(display_status(context.get('public_link_status', 'not checked')))} / {int(context.get('public_link_checked_count') or 0)} checked</strong></div>
+    <div><span>Source gates</span><strong>{html.escape(display_status(context.get('completeness_status', context.get('completion_guard_status', 'not computed'))))} / {int(context.get('completion_guard_blocker_count') or 0) + int(context.get('deep_source_blocker_count') or 0)} blocker(s)</strong></div>
   </div>
 {missing_items}
 </section>
@@ -795,7 +803,7 @@ code {
   margin: 0;
   max-width: 940px;
   font-family: "Fraunces", Georgia, serif;
-  font-size: clamp(38px, 7vw, 86px);
+  font-size: 72px;
   line-height: .92;
   letter-spacing: 0;
 }
@@ -986,7 +994,7 @@ h1, h2, h3, h4 {
 }
 .dossier h1 {
   margin-top: 0;
-  font-size: clamp(34px, 4vw, 52px);
+  font-size: 46px;
 }
 .dossier h2, #source-ledger h2 {
   margin-top: 38px;
@@ -1125,6 +1133,590 @@ footer {
 """
 
 
+def premium_public_case_css() -> str:
+    return """
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Geist:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+:root {
+  color-scheme: light;
+  --paper: #f5ecda;
+  --paper-2: #fffaf0;
+  --paper-3: #e8d7ba;
+  --ink: #171511;
+  --muted: #625b50;
+  --quiet: #8a7d69;
+  --charcoal: #101513;
+  --charcoal-2: #17231f;
+  --civic-blue: #234f72;
+  --civic-blue-2: #2e728d;
+  --docket-red: #9d302c;
+  --audit-amber: #dca326;
+  --ledger-green: #2d6d55;
+  --line: rgba(23, 21, 17, .16);
+  --line-strong: rgba(23, 21, 17, .34);
+  --line-dark: rgba(255, 250, 240, .18);
+  --shadow: 0 28px 80px rgba(23, 21, 17, .18);
+  --hard-shadow: 10px 10px 0 rgba(157, 48, 44, .14);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 10% -4%, rgba(220, 163, 38, .28), transparent 30%),
+    radial-gradient(circle at 88% 8%, rgba(35, 79, 114, .14), transparent 34%),
+    linear-gradient(90deg, rgba(23, 21, 17, .035) 1px, transparent 1px) 0 0 / 42px 42px,
+    linear-gradient(180deg, rgba(23, 21, 17, .026) 1px, transparent 1px) 0 0 / 42px 42px,
+    linear-gradient(145deg, #f8edda 0%, #ecddc1 42%, #fff7e8 100%);
+  font-family: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.55;
+  overflow-x: hidden;
+}
+a { color: var(--civic-blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 3px solid var(--audit-amber);
+  outline-offset: 3px;
+}
+.skip-link {
+  position: absolute;
+  left: 16px;
+  top: -60px;
+  z-index: 10;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: var(--audit-amber);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+}
+.skip-link:focus { top: 12px; }
+code, pre, .mono, .evidence-ref {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  letter-spacing: 0;
+}
+code {
+  background: rgba(255, 250, 240, .82);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.case-hero {
+  position: relative;
+  overflow: hidden;
+  color: var(--paper-2);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(220, 163, 38, .16), transparent 24%),
+    radial-gradient(circle at 86% 22%, rgba(46, 114, 141, .22), transparent 32%),
+    linear-gradient(135deg, rgba(16, 21, 19, .98), rgba(23, 35, 31, .97)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 1px, transparent 1px 32px);
+  border-bottom: 8px solid var(--docket-red);
+}
+.case-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(120deg, transparent 0 52%, rgba(220,163,38,.18) 52% 53%, transparent 53%),
+    linear-gradient(90deg, rgba(255,250,240,.04) 1px, transparent 1px) 0 0 / 54px 54px,
+    repeating-linear-gradient(135deg, rgba(255,255,255,.032) 0 1px, transparent 1px 18px);
+  pointer-events: none;
+}
+.case-hero__inner {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 22px 24px 38px;
+}
+.case-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 36px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 250, 240, .13);
+}
+.case-brand {
+  color: var(--paper-2);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.case-topbar__links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.case-topbar__links a,
+.case-topbar__links button,
+.case-nav a,
+.print-button {
+  color: rgba(255, 250, 240, .92);
+  border: 1px solid rgba(255, 250, 240, .24);
+  border-radius: 999px;
+  background: rgba(255, 250, 240, .07);
+  padding: 8px 11px;
+  text-decoration: none;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.case-topbar__links button,
+.print-button { cursor: pointer; }
+.case-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 28px;
+  align-items: end;
+}
+.case-command-grid > * { min-width: 0; }
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--audit-amber);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.case-hero h1 {
+  margin: 0;
+  max-width: 1180px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 5rem;
+  line-height: .9;
+  letter-spacing: 0;
+}
+.case-title {
+  max-width: 880px;
+  margin: 20px 0 0;
+  color: rgba(255, 250, 240, .88);
+  font-size: 22px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.case-id {
+  margin: 14px 0 0;
+  color: rgba(255, 250, 240, .72);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.case-docket {
+  min-height: 248px;
+  padding: 18px;
+  background: rgba(255, 250, 240, .08);
+  border: 1px solid rgba(255, 250, 240, .18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 12px 12px 0 rgba(0,0,0,.18);
+}
+.case-docket h2 {
+  margin: 0 0 16px;
+  color: var(--paper-2);
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 30px;
+}
+.case-docket p {
+  margin: 0;
+  color: rgba(255, 250, 240, .78);
+  font-size: 14px;
+}
+.status-strip {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr 1.25fr;
+  grid-auto-flow: dense;
+  gap: 12px;
+  margin: 34px 0 0;
+}
+.status-tile {
+  min-height: 132px;
+  padding: 16px;
+  border: 1px solid var(--line-dark);
+  background: rgba(255, 250, 240, .08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.status-tile strong {
+  display: block;
+  color: #fffaf0;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status-tile span {
+  display: block;
+  margin-top: 8px;
+  color: rgba(255, 250, 240, .84);
+  font-size: 20px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.case-nav {
+  display: none;
+}
+.case-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 30px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 34px 24px 80px;
+}
+.case-rail {
+  position: sticky;
+  top: 18px;
+  align-self: start;
+  padding: 20px;
+  background: linear-gradient(180deg, rgba(255,250,240,.94), rgba(245,236,218,.88));
+  border: 1px solid var(--line);
+  box-shadow: var(--hard-shadow);
+}
+.case-rail h2 {
+  margin: 0 0 10px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 24px;
+  line-height: 1;
+}
+.case-rail a {
+  display: block;
+  margin: 8px 0;
+  padding: 8px 0;
+  color: var(--charcoal);
+  border-bottom: 1px solid rgba(23, 21, 17, .08);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+.case-main { min-width: 0; }
+.reviewer-panel {
+  margin: 0 0 24px;
+  padding: 22px;
+  background: linear-gradient(120deg, rgba(47,109,85,.12), transparent 46%), #fffdf5;
+  border: 2px solid rgba(47, 109, 85, .38);
+  box-shadow: 10px 10px 0 rgba(47, 109, 85, .13);
+}
+.reviewer-panel p { margin: 8px 0 0; }
+.reviewer-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: dense;
+  gap: 10px;
+  margin-top: 14px;
+}
+.reviewer-panel__grid div {
+  min-height: 92px;
+  padding: 12px;
+  background: rgba(243, 234, 216, .72);
+  border: 1px solid var(--line);
+}
+.reviewer-panel__grid span {
+  display: block;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.reviewer-panel__grid strong { overflow-wrap: anywhere; }
+.reviewer-panel details {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.case-intel-strip {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  grid-auto-flow: dense;
+  gap: 12px;
+  margin: 0 0 24px;
+}
+.case-intel-card {
+  min-height: 124px;
+  padding: 16px;
+  background: rgba(255, 250, 240, .88);
+  border: 1px solid var(--line);
+}
+.case-intel-card strong {
+  display: block;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.case-intel-card span {
+  display: block;
+  margin-top: 8px;
+  font-size: 22px;
+  font-weight: 700;
+}
+.notice {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding: 18px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.notice::before { content: ""; background: var(--audit-amber); }
+.notice strong { color: var(--docket-red); }
+.dossier, #source-ledger {
+  background: rgba(255, 250, 240, .94);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.dossier {
+  padding: 36px;
+}
+#source-ledger {
+  margin-top: 30px;
+  padding: 36px;
+}
+.ledger-digest {
+  margin: 20px 0 28px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(35,79,114,.1), transparent 44%), rgba(243, 234, 216, .76);
+  border: 1px solid var(--line);
+}
+.ledger-digest h3 { margin-top: 0; }
+.table-scroll { overflow-x: auto; }
+.ledger-digest table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.ledger-digest th, .ledger-digest td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.ledger-digest th {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+h1, h2, h3, h4 {
+  font-family: "Fraunces", Georgia, serif;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+.dossier h1 {
+  max-width: 920px;
+  margin-top: 0;
+  font-size: 48px;
+}
+.dossier h2, #source-ledger h2 {
+  margin-top: 44px;
+  padding-top: 20px;
+  border-top: 3px solid rgba(157, 48, 44, .24);
+  color: var(--charcoal);
+}
+.dossier h3 { color: var(--civic-blue); }
+.dossier p, .dossier li { font-size: 17px; }
+.dossier ul, .dossier ol { padding-left: 26px; }
+.table-block {
+  overflow: auto;
+  margin: 18px 0;
+  padding: 16px;
+  color: #f9edd4;
+  background: linear-gradient(90deg, rgba(216, 157, 40, .1), transparent 26%), #18201d;
+  border: 1px solid rgba(25, 21, 15, .42);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+  white-space: pre;
+}
+.evidence-ref {
+  display: inline-block;
+  color: var(--paper-2);
+  background: var(--docket-red);
+  border: 1px solid rgba(25, 21, 15, .22);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: .78em;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.evidence-card {
+  position: relative;
+  margin: 18px 0;
+  padding: 20px 20px 20px 30px;
+  border: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(47, 109, 85, .12), transparent 32%), #fffaf0;
+  box-shadow: 6px 6px 0 rgba(23, 21, 17, .06);
+  transition: transform .25s ease, box-shadow .25s ease;
+}
+.evidence-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 10px 10px 0 rgba(23, 21, 17, .09);
+}
+.evidence-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: var(--ledger-green);
+}
+.evidence-card--source-access-required::before { background: var(--audit-amber); }
+.evidence-card--external-source-linked::before { background: var(--ledger-green); }
+.evidence-card--derived-external-source-linked::before { background: var(--civic-blue-2); }
+.evidence-card h3 {
+  margin: 0 0 10px;
+  font-size: 24px;
+}
+.meta, .link-status, footer {
+  color: var(--muted);
+  font-size: 14px;
+}
+.source-role {
+  margin: 8px 0;
+  padding: 10px;
+  background: rgba(33, 79, 114, .08);
+  border-left: 4px solid var(--civic-blue);
+}
+.repro-details {
+  margin: 12px 0;
+  padding: 10px;
+  background: rgba(25, 21, 15, .04);
+  border: 1px solid var(--line);
+}
+.repro-details summary {
+  cursor: pointer;
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.source-list {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  overflow-wrap: anywhere;
+}
+.source-list a { word-break: break-word; }
+footer {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 22px 24px 38px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .notice, .dossier, #source-ledger, .evidence-card, .reviewer-panel {
+    animation: rise-in .7s ease both;
+  }
+  .notice { animation-delay: .08s; }
+  .dossier { animation-delay: .14s; }
+  #source-ledger { animation-delay: .2s; }
+  .evidence-card:nth-of-type(2n) { animation-delay: .05s; }
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+@media (max-width: 940px) {
+  .case-command-grid { grid-template-columns: 1fr; }
+  .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .case-shell { grid-template-columns: 1fr; }
+  .case-rail { position: static; }
+  .reviewer-panel__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .case-intel-strip { grid-template-columns: 1fr; }
+  .case-hero h1 { font-size: 3.9rem; }
+  .case-title { font-size: 20px; }
+}
+@media (max-width: 560px) {
+  .case-hero * { box-sizing: border-box; }
+  .case-hero__inner, .case-shell {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .case-hero__inner,
+  .case-command-grid,
+  .case-command-grid > *,
+  .case-title,
+  .case-id {
+    max-width: 320px;
+    width: 100%;
+  }
+  .case-command-grid { display: block; }
+  .case-title { overflow-wrap: break-word; font-size: 18px; }
+  .case-docket { margin-top: 22px; width: 100%; max-width: 320px; }
+  .case-hero h1 {
+    max-width: 320px;
+    font-size: 2.35rem;
+    line-height: .96;
+    overflow-wrap: anywhere;
+  }
+  .case-topbar { align-items: flex-start; flex-direction: column; }
+  .case-topbar__links {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+    width: 100%;
+    max-width: 320px;
+  }
+  .case-topbar__links a,
+  .case-topbar__links button {
+    min-width: 0;
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+  .status-strip { grid-template-columns: 1fr; }
+  .reviewer-panel__grid { grid-template-columns: 1fr; }
+  .dossier, #source-ledger { padding: 18px; }
+  .dossier p, .dossier li { font-size: 16px; }
+}
+@media print {
+  body { background: #fff; color: #000; }
+  .case-hero, .case-rail, .case-nav { background: #fff; color: #000; border: 0; }
+  .case-topbar, .case-nav, .print-button, .skip-link { display: none; }
+  .case-shell { display: block; max-width: none; padding: 0; }
+  .dossier, #source-ledger, .notice { box-shadow: none; border-color: #999; }
+  .reviewer-panel, .evidence-card { break-inside: avoid; box-shadow: none; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; }
+}
+"""
+
+
+def premium_public_case_script() -> str:
+    return """
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer></script>
+<script>
+window.addEventListener("load", function () {
+  if (!window.gsap || !window.ScrollTrigger || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+  window.gsap.registerPlugin(window.ScrollTrigger);
+  window.gsap.utils.toArray(".evidence-card").slice(0, 24).forEach(function (card, index) {
+    window.gsap.from(card, {
+      scrollTrigger: { trigger: card, start: "top 92%" },
+      y: 22,
+      opacity: 0,
+      duration: 0.42,
+      delay: Math.min(index * 0.015, 0.16),
+      ease: "power2.out"
+    });
+  });
+  window.gsap.to(".case-rail", {
+    scrollTrigger: { trigger: ".case-shell", start: "top top", end: "bottom bottom", scrub: true },
+    boxShadow: "2px 2px 0 rgba(157, 48, 44, .1)"
+  });
+});
+</script>
+"""
+
+
 def render_public_html(
     request: CaseRequest,
     markdown_text: str,
@@ -1140,10 +1732,13 @@ def render_public_html(
     cards = "\n".join(render_evidence_card(entry) for entry in source_ledger)
     title = html.escape(request.title)
     generated = html.escape(utc_now())
-    css = public_case_css()
+    css = premium_public_case_css()
+    motion_script = premium_public_case_script()
     evidence_count = len(source_ledger)
     case_id = html.escape(request.case_id)
     access_status = source_access_status_text(context)
+    source_blockers = int(context.get("completion_guard_blocker_count") or 0) + int(context.get("deep_source_blocker_count") or 0)
+    verified_links = int(context.get("public_link_checked_count") or 0)
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -1158,12 +1753,31 @@ def render_public_html(
 <a class=\"skip-link\" href=\"#dossier\">Skip to case briefing</a>
 <header class=\"case-hero\">
   <div class=\"case-hero__inner\">
-    <p class=\"eyebrow\">California Evidence Room</p>
-    <h1>{title}</h1>
-    <p class=\"case-title\">Public-safe source-cited review packet. Human review required; not a formal finding.</p>
-    <p class=\"case-id\">Case ID: {case_id} | Generated: {generated} | Run: {html.escape(str(context.get('run_label', 'not provided')))}</p>
+    <nav class=\"case-topbar\" aria-label=\"Case tools\">
+      <a class=\"case-brand\" href=\"../../\">California Evidence Room</a>
+      <div class=\"case-topbar__links\">
+        <a href=\"#dossier\">Briefing</a>
+        <a href=\"#source-ledger\">Source Ledger</a>
+        <a href=\"case_dossier.md\">Markdown</a>
+        <a href=\"source_ledger.json\">Source JSON</a>
+        <a href=\"publication_manifest.json\">Publication Manifest</a>
+        <button class=\"print-button\" type=\"button\" onclick=\"window.print()\">Print / Save PDF</button>
+      </div>
+    </nav>
+    <div class=\"case-command-grid\">
+      <div>
+        <p class=\"eyebrow\">Human-review case packet</p>
+        <h1>{title}</h1>
+        <p class=\"case-title\">Public-safe, source-cited briefing for a reviewer who needs to see the money trail, the flags, the source receipts, and the unresolved blockers before taking action.</p>
+        <p class=\"case-id\">Case ID: {case_id} | Generated: {generated} | Run: {html.escape(str(context.get('run_label', 'not provided')))}</p>
+      </div>
+      <aside class=\"case-docket\" aria-label=\"Publication posture\">
+        <h2>Review posture</h2>
+        <p>This page is a review aid. It preserves source blockers and sentinel caveats instead of converting unresolved gaps into conclusions.</p>
+      </aside>
+    </div>
     <div class=\"status-strip\" aria-label=\"Case publication status\">
-      <div class=\"status-tile\"><strong>Sentinel posture</strong><span>{html.escape(sentinel_decision)}</span></div>
+      <div class=\"status-tile\"><strong>Sentinel posture</strong><span>{html.escape(display_status(sentinel_decision))}</span></div>
       <div class=\"status-tile\"><strong>Review priority</strong><span>{html.escape(score_display(context.get('review_priority')))}</span></div>
       <div class=\"status-tile\"><strong>Evidence ledger</strong><span>{evidence_count} records</span></div>
       <div class=\"status-tile\"><strong>Source status</strong><span>{html.escape(access_status)}</span></div>
@@ -1185,6 +1799,11 @@ def render_public_html(
   </aside>
   <div class=\"case-main\">
 {reviewer_panel}
+  <section class=\"case-intel-strip\" aria-label=\"Case status summary\">
+    <div class=\"case-intel-card\"><strong>Human-review state</strong><span>{html.escape(display_status(context.get('workflow_state', 'AWAITING_HUMAN_REVIEW')))}</span></div>
+    <div class=\"case-intel-card\"><strong>Verified source links</strong><span>{verified_links}</span></div>
+    <div class=\"case-intel-card\"><strong>Open source blockers</strong><span>{source_blockers}</span></div>
+  </section>
   <section class=\"notice\">
     <div><strong>Publication safety note:</strong> This page is a public-safe review aid, not a formal finding. Local file paths are omitted. Evidence labels jump to source-ledger cards; source rows either link to verified internet sources or state that source access is still required and must be resolved before the packet is treated as complete.</div>
   </section>
@@ -1198,6 +1817,7 @@ def render_public_html(
   </div>
 </main>
 <footer>Generated {generated}. Human review remains required before outside-facing use.</footer>
+{motion_script}
 </body>
 </html>
 """
@@ -1491,16 +2111,47 @@ def publish_site_index(site_dir: Path) -> Path:
         )
     cards_html = "\n".join(render_case_index_card(card) for card in case_cards) or "<p>No published cases found.</p>"
     generated = html.escape(utc_now())
-    css = public_case_css() + """
-.index-main { max-width: 1220px; margin: 0 auto; padding: 30px 24px 72px; }
-.case-index-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
-.case-index-card { background: rgba(255, 249, 237, .92); border: 1px solid var(--line); box-shadow: var(--shadow); padding: 20px; }
-.case-index-card h2 { margin-top: 0; }
-.case-index-card__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
-.case-index-card__meta div { padding: 8px; background: rgba(243, 234, 216, .72); border: 1px solid var(--line); }
+    css = premium_public_case_css() + """
+.index-main { max-width: 1280px; margin: 0 auto; padding: 34px 24px 82px; }
+.case-index-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); grid-auto-flow: dense; gap: 18px; }
+.case-index-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 380px;
+  background: linear-gradient(135deg, rgba(255, 250, 240, .97), rgba(245, 236, 218, .9));
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+.case-index-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 8px;
+  background: var(--docket-red);
+}
+.case-index-card h2 {
+  margin: 0 0 12px;
+  max-width: 720px;
+  font-size: 32px;
+}
+.case-index-card h2 a { color: var(--ink); text-decoration: none; }
+.case-index-card__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; gap: 8px; margin: 16px 0; }
+.case-index-card__meta div { min-height: 82px; padding: 10px; background: rgba(243, 234, 216, .72); border: 1px solid var(--line); }
 .case-index-card__meta span { display: block; color: var(--muted); font-family: \"IBM Plex Mono\", Consolas, monospace; font-size: 11px; text-transform: uppercase; }
-.case-index-card__links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.case-index-card__links a { border: 1px solid var(--line); padding: 7px 9px; background: #fffdf5; font-family: \"IBM Plex Mono\", Consolas, monospace; font-size: 12px; text-decoration: none; text-transform: uppercase; }
+.case-index-card__meta strong { overflow-wrap: anywhere; }
+.case-index-card__links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.case-index-card__links a {
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 8px 10px;
+  background: #fffdf5;
+  color: var(--ink);
+  font-family: \"IBM Plex Mono\", Consolas, monospace;
+  font-size: 11px;
+  text-decoration: none;
+  text-transform: uppercase;
+}
 """
     html_text = f"""<!doctype html>
 <html lang=\"en\">
@@ -1514,10 +2165,25 @@ def publish_site_index(site_dir: Path) -> Path:
 <a class=\"skip-link\" href=\"#cases\">Skip to cases</a>
 <header class=\"case-hero\">
   <div class=\"case-hero__inner\">
-    <p class=\"eyebrow\">California Evidence Room</p>
-    <h1>CalDS Public Case Index</h1>
-    <p class=\"case-title\">Source-cited public review packets for state and local government reviewers. Each case remains a review aid, not a formal finding.</p>
-    <p class=\"case-id\">Generated: {generated}</p>
+    <nav class=\"case-topbar\" aria-label=\"Site tools\">
+      <a class=\"case-brand\" href=\"./\">California Evidence Room</a>
+      <div class=\"case-topbar__links\">
+        <a href=\"#cases\">Cases</a>
+        <a href=\"https://github.com/Jeremyjones23/calds-public-cases\">GitHub</a>
+      </div>
+    </nav>
+    <div class=\"case-command-grid\">
+      <div>
+        <p class=\"eyebrow\">Public review packets</p>
+        <h1>CalDS Public Case Index</h1>
+        <p class=\"case-title\">Source-cited case rooms for state and local government reviewers. Each case keeps evidence links, source blockers, sentinel posture, and human-review status visible.</p>
+        <p class=\"case-id\">Generated: {generated}</p>
+      </div>
+      <aside class=\"case-docket\" aria-label=\"Index posture\">
+        <h2>Read like a case room</h2>
+        <p>Open a case, read the briefing first, then audit every evidence label in the source ledger before relying on the lead.</p>
+      </aside>
+    </div>
   </div>
 </header>
 <main id=\"cases\" class=\"index-main\">
@@ -1560,7 +2226,7 @@ def render_case_index_card(card: dict[str, Any]) -> str:
   <div class=\"case-index-card__meta\">
     <div><span>Case ID</span><strong>{html.escape(str(card.get('case_id', '')))}</strong></div>
     <div><span>Generated</span><strong>{html.escape(str(card.get('generated_at', 'not provided')))}</strong></div>
-    <div><span>Sentinel</span><strong>{html.escape(str(card.get('sentinel', 'not provided')))}</strong></div>
+    <div><span>Sentinel</span><strong>{html.escape(display_status(card.get('sentinel', 'not provided')))}</strong></div>
     <div><span>Links and source access</span><strong>{html.escape(str(card.get('link_status', 'not checked')))} / {html.escape(source_text)}</strong></div>
   </div>
   <p><strong>Public posture:</strong> {'Human review required; not a formal finding.' if card.get('review_required', True) else 'Review state not provided.'}</p>
