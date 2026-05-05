@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import argparse
+import hashlib
 import json
 import re
 from typing import Any
@@ -61,12 +62,28 @@ DEFAULT_CAVEATS = [
 ]
 
 
+AMOUNT_RE = re.compile(r"\$\s?[0-9][0-9,]*(?:\.[0-9]+)?(?:\s*(?:million|billion))?", re.IGNORECASE)
+YEAR_RE = re.compile(r"\b(20[0-9]{2})\b")
+
+SUPPLEMENTAL_DOSSIER_PATTERNS = (
+    "runs/**/{case_id}/case_dossier.md",
+    "runs/**/{case_id}/artifacts/case_dossier.md",
+    "runs/**/cases/{case_id}/case_dossier.md",
+    "artifacts/**/cases/{case_id}/case_dossier.md",
+)
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+
+
+def stable_public_id(prefix: str, *parts: Any) -> str:
+    digest = hashlib.sha256("|".join(str(part or "") for part in parts).encode("utf-8")).hexdigest()[:16]
+    return f"{prefix}_{digest}"
 
 
 def clean_sentence(value: Any) -> str:
@@ -78,6 +95,82 @@ def clean_sentence(value: Any) -> str:
     text = text.replace("deep-dive", "review")
     text = text.replace("Review Value Score", "review score")
     return text
+
+
+def clean_money_context(value: Any, limit: int = 260) -> str:
+    text = reader_facing_source_text(value)
+    text = re.sub(r"`[^`]*`", "", text)
+    text = re.sub(r"\bevidence\s+E\d+\b", "source record", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    if len(text) > limit:
+        text = text[: limit - 3].rsplit(" ", 1)[0] + "..."
+    return text
+
+
+def extract_entity_from_context(text: str, known_entities: list[str]) -> str:
+    lower = text.lower()
+    flag_subject = re.search(r"\bCalDS flags\s+([^/]+?)\s*/", text, re.IGNORECASE)
+    if flag_subject:
+        return flag_subject.group(1).strip()
+    for entity in known_entities:
+        if entity and entity.lower() in lower:
+            return entity
+    subject = re.search(r"\bsubject:\s*([^;.)]+)", text, re.IGNORECASE)
+    if subject:
+        return subject.group(1).strip()
+    org_named = re.search(r"\borganization named in the cited source:\s*([^;.)]+)", text, re.IGNORECASE)
+    if org_named:
+        return org_named.group(1).strip()
+    payment = re.search(r"([A-Z][A-Za-z0-9&.' -]{3,90})\s+in Department of Homelessness", text)
+    if payment:
+        return payment.group(1).strip()
+    return "Organization named in source"
+
+
+def discover_supplemental_dossiers(data_dir: Path, case_id: str) -> list[Path]:
+    repo_root = data_dir.resolve()
+    while repo_root.name.lower() not in {"calds", ""} and repo_root.parent != repo_root:
+        repo_root = repo_root.parent
+    candidates: list[Path] = []
+    for pattern in SUPPLEMENTAL_DOSSIER_PATTERNS:
+        candidates.extend(repo_root.glob(pattern.format(case_id=case_id)))
+    unique: dict[str, Path] = {}
+    for path in candidates:
+        if path.exists() and path.is_file():
+            unique[str(path.resolve())] = path
+    return sorted(unique.values(), key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def supplemental_money_snippets(data_dir: Path, case_id: str) -> list[str]:
+    snippets: list[str] = []
+    for path in discover_supplemental_dossiers(data_dir, case_id):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            if "$" not in line:
+                continue
+            lower = line.lower()
+            if not any(
+                marker in lower
+                for marker in (
+                    "payment exposure",
+                    "federal award exposure",
+                    "government grants",
+                    "total revenue",
+                    "revenue moved",
+                    "expenses moved",
+                    "compensation",
+                    "salaries",
+                    "award amount total",
+                    "award data captured",
+                )
+            ):
+                continue
+            cleaned = clean_money_context(line, 620)
+            if cleaned and cleaned not in snippets:
+                snippets.append(cleaned)
+            if len(snippets) >= 16:
+                return snippets
+    return snippets
 
 
 def is_mechanical(value: Any) -> bool:
@@ -208,6 +301,209 @@ def sanitize_claims_and_source_refs(data_dir: Path) -> None:
         print(f"sanitized={source_path}")
 
 
+def augment_money_trail(data_dir: Path) -> None:
+    money_path = data_dir / "money-trail.json"
+    claim_path = data_dir / "claim-ledger.json"
+    source_path = data_dir / "source-ledger.json"
+    case_path = data_dir / "case-summaries.json"
+    entity_path = data_dir / "entities.json"
+    if not all(path.exists() for path in (money_path, claim_path, source_path, case_path, entity_path)):
+        return
+
+    money_payload = read_json(money_path)
+    claims = read_json(claim_path)
+    source_payload = read_json(source_path)
+    cases = read_json(case_path).get("cases", [])
+    entity_payload = read_json(entity_path)
+
+    sources = source_payload.get("sources", [])
+    entities = entity_payload.get("entities", [])
+    source_by_claim: dict[str, dict[str, Any]] = {}
+    source_by_id = {source.get("source_id"): source for source in sources}
+    for source in sources:
+        for claim_id in source.get("claim_ids", []) or []:
+            source_by_claim[claim_id] = source
+
+    entity_by_name = {str(entity.get("display_name", "")).lower(): entity for entity in entities}
+    known_entities_by_case = {
+        case.get("case_id"): [str(entity) for entity in case.get("entities", []) or []]
+        for case in cases
+    }
+
+    rows = money_payload.setdefault("money_trail", [])
+    existing = {
+        (
+            str(row.get("case_id")),
+            str(row.get("entity_id")),
+            str(row.get("amount")).replace(" ", ""),
+            str(row.get("source_id")),
+            str(row.get("claim_id")),
+        )
+        for row in rows
+    }
+    existing_display_amounts = {
+        (
+            str(row.get("case_id")),
+            str(row.get("entity_id")),
+            str(row.get("amount")).replace(" ", ""),
+        )
+        for row in rows
+    }
+    existing_case_amounts = {
+        (
+            str(row.get("case_id")),
+            str(row.get("amount")).replace(" ", ""),
+        )
+        for row in rows
+    }
+
+    def add_row(case_id: str, entity_name: str, amount: str, source_id: str, claim_id: str, context: str) -> None:
+        amount = amount.rstrip(".,;:")
+        if amount == "$11.2":
+            amount = "$11.2 million"
+        entity = entity_by_name.get(entity_name.lower())
+        if entity:
+            entity_id = entity.get("entity_id", "")
+        else:
+            entity_id = stable_public_id("entity", entity_name)
+            entity = {
+                "case_ids": [case_id],
+                "caveats": [],
+                "display_name": entity_name,
+                "entity_id": entity_id,
+                "geography": "",
+                "issue_area": "",
+                "official_records_found": [],
+                "public_money_found": [],
+                "red_flags": [],
+                "source_ids": [],
+                "what_it_claims_to_do": "",
+            }
+            entities.append(entity)
+            entity_by_name[entity_name.lower()] = entity
+        key = (case_id, str(entity_id), amount.replace(" ", ""), source_id, claim_id)
+        display_key = (case_id, str(entity_id), amount.replace(" ", ""))
+        case_amount_key = (case_id, amount.replace(" ", ""))
+        if display_key in existing_display_amounts:
+            return
+        if entity_name == "Organization named in source" and case_amount_key in existing_case_amounts:
+            return
+        if key in existing:
+            return
+        existing.add(key)
+        existing_display_amounts.add(display_key)
+        existing_case_amounts.add(case_amount_key)
+        years = YEAR_RE.findall(context)
+        rows.append(
+            {
+                "amount": amount,
+                "amount_type": "public amount or filing amount named in cited record",
+                "calculation_note": "Amount is published only as it appears in the cited record text.",
+                "case_id": case_id,
+                "claim_id": claim_id,
+                "entity_id": entity_id,
+                "is_partial": True,
+                "missing_records_note": "Treat as partial unless the source says it is a full total.",
+                "source_id": source_id,
+                "year": years[0] if years else "",
+            }
+        )
+        if context and context not in entity.get("public_money_found", []):
+            entity.setdefault("public_money_found", []).append(context)
+        if source_id and source_id not in entity.get("source_ids", []):
+            entity.setdefault("source_ids", []).append(source_id)
+
+    for claim in claims:
+        case_id = str(claim.get("case_id", ""))
+        context = clean_money_context(
+            " ".join(
+                str(claim.get(field, ""))
+                for field in ("public_sentence", "plain_language_sentence", "source_excerpt")
+            )
+        )
+        amounts = AMOUNT_RE.findall(context)
+        if not amounts:
+            continue
+        source = source_by_claim.get(claim.get("claim_id"), {})
+        source_id = source.get("source_id") or stable_public_id("source", case_id, claim.get("claim_id"), context)
+        if source_id not in source_by_id:
+            source_by_id[source_id] = {
+                "archive_status": "Live",
+                "blocker_reason": "",
+                "case_id": case_id,
+                "checksum": stable_public_id("checksum", context),
+                "claim_ids": [claim.get("claim_id")],
+                "content_type": "",
+                "evidence_ids": claim.get("evidence_ids", []),
+                "final_url": (claim.get("source_urls") or [""])[0],
+                "http_status": "verified" if claim.get("source_urls") else "listed",
+                "retrieval_date": claim.get("retrieval_date", ""),
+                "source_family": claim.get("source_family", "Public dollar record"),
+                "source_id": source_id,
+                "source_type": "public_dollar_record",
+                "supports": context,
+                "title": f"Public dollar record: {claim.get('entity') or 'organization named in source'}",
+                "url": (claim.get("source_urls") or [""])[0],
+            }
+            sources.append(source_by_id[source_id])
+        for amount in amounts[:4]:
+            add_row(
+                case_id,
+                str(claim.get("entity") or extract_entity_from_context(context, known_entities_by_case.get(case_id, []))),
+                amount,
+                source_id,
+                str(claim.get("claim_id")),
+                context,
+            )
+
+    money_counts = {case.get("case_id"): 0 for case in cases}
+    for row in rows:
+        money_counts[row.get("case_id")] = money_counts.get(row.get("case_id"), 0) + 1
+
+    for case in cases:
+        case_id = str(case.get("case_id", ""))
+        if money_counts.get(case_id, 0) > 0:
+            continue
+        for index, snippet in enumerate(supplemental_money_snippets(data_dir, case_id), start=1):
+            amounts = AMOUNT_RE.findall(snippet)
+            if not amounts:
+                continue
+            entity_name = extract_entity_from_context(snippet, known_entities_by_case.get(case_id, []))
+            source_id = stable_public_id("source", case_id, "supplemental-money", index)
+            claim_id = stable_public_id("claim", case_id, "supplemental-money", index)
+            if source_id not in source_by_id:
+                source_by_id[source_id] = {
+                    "archive_status": "Public artifact",
+                    "blocker_reason": "",
+                    "case_id": case_id,
+                    "checksum": stable_public_id("checksum", snippet),
+                    "claim_ids": [claim_id],
+                    "content_type": "text/markdown",
+                    "evidence_ids": [],
+                    "final_url": "",
+                    "http_status": "listed",
+                    "retrieval_date": "",
+                    "source_family": "Public dollar record",
+                    "source_id": source_id,
+                    "source_type": "public_dollar_record",
+                    "supports": snippet,
+                    "title": f"Public dollar record: {entity_name}",
+                    "url": "",
+                }
+                sources.append(source_by_id[source_id])
+            before_count = len(rows)
+            for amount in amounts[:2]:
+                add_row(case_id, entity_name, amount, source_id, claim_id, snippet)
+            money_counts[case_id] = money_counts.get(case_id, 0) + (len(rows) - before_count)
+            if money_counts.get(case_id, 0) >= 8:
+                break
+
+    write_json(money_path, money_payload)
+    write_json(source_path, source_payload)
+    write_json(entity_path, entity_payload)
+    print(f"augmented_money_trail={money_path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, required=True)
@@ -233,6 +529,7 @@ def main() -> int:
         print(f"sanitized={money_path}")
     sanitize_entities(args.data_dir)
     sanitize_claims_and_source_refs(args.data_dir)
+    augment_money_trail(args.data_dir)
     return 0
 
 

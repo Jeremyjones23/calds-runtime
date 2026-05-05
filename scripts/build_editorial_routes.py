@@ -65,6 +65,8 @@ def source_link(source: dict[str, Any]) -> str:
     url = source.get("url") or ""
     if url:
         return f'<a href="{esc(url)}" target="_blank" rel="noreferrer">Open source</a>'
+    if source.get("archive_status") == "Public artifact":
+        return "<span>Public artifact row</span>"
     return "<span>Record still needed</span>"
 
 

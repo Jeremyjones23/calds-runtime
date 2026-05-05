@@ -308,7 +308,12 @@ def render_index(data_dir: Path, output_dir: Path) -> str:
     source_rows = []
     for source in sources:
         url = source.get("url") or ""
-        link = f'<a href="{esc(url)}" target="_blank" rel="noreferrer">Open receipt</a>' if url else "<span>Record still needed</span>"
+        if url:
+            link = f'<a href="{esc(url)}" target="_blank" rel="noreferrer">Open receipt</a>'
+        elif source.get("archive_status") == "Public artifact":
+            link = "<span>Public artifact row</span>"
+        else:
+            link = "<span>Record still needed</span>"
         source_rows.append(
             f"""
             <tr data-source-id="{esc(source['source_id'])}" data-case="{esc(source['case_id'])}">
@@ -334,10 +339,12 @@ def render_index(data_dir: Path, output_dir: Path) -> str:
     <header class="poster-hero" id="top">
       <div class="sun-strip" aria-hidden="true"></div>
       <section class="poster-sheet">
+        <div class="capitol-rail" aria-hidden="true"></div>
+        <div class="paper-stamp" aria-hidden="true">California<br>public file</div>
         <div class="poster-copy">
           <p class="type-stamp">Public records / public power</p>
           <h1><span>Follow</span><span class="receipt-line"><span>the</span> <span>receipts.</span></span></h1>
-          <p class="dek">We read the records, pull out the money trail, and show the questions a human should ask next.</p>
+          <p class="dek">We dig through the records so you do not have to. Explore the cases. Check the money.</p>
         </div>
         <aside class="tip-note">
           <span>See something worth checking?</span>
@@ -349,13 +356,21 @@ def render_index(data_dir: Path, output_dir: Path) -> str:
           <div class="case-strip">{''.join(case_cards)}</div>
         </section>
         <aside class="recent-source">
-          <span>Receipt count</span>
+          <span>Recent source</span>
           <p>{esc(compact_sentence(recent_source.get('title', 'Public source receipt'), 125))}</p>
           <strong>{live_sources}/{total_sources}</strong>
           <small>live public links</small>
         </aside>
         <p class="verdict-note">Red flag, not a verdict.</p>
         <div class="public-service">Journalism is a public service</div>
+        <aside class="loop-note receipt-note">
+          <b>Recent source</b>
+          <span>{esc(compact_sentence(recent_source.get('title', 'Public source receipt'), 90))}</span>
+          <i>{live_sources}/{total_sources} live public links</i>
+        </aside>
+        <aside class="curiosity-card" aria-hidden="true">
+          <b>California counts on curiosity</b>
+        </aside>
         <div class="marquee" aria-hidden="true"><span>New records added</span><span>IRS 990s</span><span>Contracts</span><span>City grants</span><span>Audits</span><span>Open questions</span></div>
       </section>
     </header>
