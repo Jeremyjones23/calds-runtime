@@ -11,6 +11,7 @@ from calds_runtime.case_compiler import CaseDossierService
 from calds_runtime.case_workflow import CaseWorkflow
 from calds_runtime.completeness import CompletenessControllerService
 from calds_runtime.contracts import AcquisitionSearchRun, CanonicalRecord, CaseRequest, CompletionGuardResult, ContextHandoffLedger, EvidenceBundle, EvidenceItem, InvestigationProfile, LinkIntegrityReport, Provenance, SourceLinkCheck, TriageFinding, WorkflowStatus, read_json, write_json
+from calds_runtime.editorial_export import export_editorial_public_data
 from calds_runtime.forensic_triage import HomelessnessTriageService
 from calds_runtime.generic_spine import (
     EntityResolutionService,
@@ -35,6 +36,41 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class RuntimeSpineTests(unittest.TestCase):
+    def test_editorial_export_builds_combined_public_bundle(self) -> None:
+        output_dir = PROJECT_ROOT / "runs" / "tests" / f"editorial-export-{uuid4().hex}"
+        try:
+            export = export_editorial_public_data(PROJECT_ROOT / "site", output_dir)
+            self.assertEqual(export.verification_manifest["status"], "PASS")
+            self.assertEqual(len(export.verification_manifest["included_cases"]), 3)
+            self.assertGreaterEqual(export.verification_manifest["claim_coverage"]["claim_count"], 3)
+            self.assertEqual(export.verification_manifest["public_safety"]["status"], "PASS")
+
+            public_cases = read_json(output_dir / "public-cases.json")
+            claim_ledger = read_json(output_dir / "claim-ledger.json")
+            source_ledger = read_json(output_dir / "source-ledger.json")
+            case_summaries = read_json(output_dir / "case-summaries.json")
+            self.assertEqual(public_cases["case_count"], 3)
+            self.assertEqual(len(case_summaries["cases"]), 3)
+            self.assertGreaterEqual(len(claim_ledger), 3)
+            self.assertGreaterEqual(len(source_ledger["sources"]), 3)
+            text = "\n".join(
+                [
+                    (output_dir / "public-cases.json").read_text(encoding="utf-8"),
+                    (output_dir / "claim-ledger.json").read_text(encoding="utf-8"),
+                    (output_dir / "source-ledger.json").read_text(encoding="utf-8"),
+                ]
+            )
+            self.assertNotIn("C:\\Users\\", text)
+            self.assertNotIn("sentinel", text.lower())
+            self.assertNotIn("row count", text.lower())
+            self.assertIn("red flag", text.lower())
+            for claim in claim_ledger:
+                self.assertTrue(claim["claim_id"])
+                self.assertTrue(claim["evidence_ids"])
+                self.assertIn("legal_language_notes", claim)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_case_runs_to_human_review_pause_with_provenance(self) -> None:
         case = CaseRequest.from_dict(read_json(PROJECT_ROOT / "evals" / "cases" / "easy_case.json"))
         temp_dir = PROJECT_ROOT / "runs" / "tests" / f"calds-test-{uuid4().hex}"

@@ -6,6 +6,7 @@ from pathlib import Path
 from .case_compiler import compile_dossier_from_run
 from .case_workflow import CaseWorkflow
 from .contracts import CaseRequest, HumanDecision, read_json, write_json
+from .editorial_export import export_editorial_public_data
 from .generic_spine import EntityResolutionService, ProfileGateService, SourceAcquisitionPlannerService, TargetDiscoveryService
 from .investigation_profiles import InvestigationProfileService
 from .publication import publish_case_site_from_run, publish_site_index
@@ -69,6 +70,17 @@ def publish_case_index(args: argparse.Namespace) -> int:
     path = publish_site_index(args.site_dir)
     print(f"site_index={path}")
     return 0
+
+
+def export_editorial_site_data(args: argparse.Namespace) -> int:
+    export = export_editorial_public_data(args.site_dir, args.output_dir)
+    print(f"output_dir={export.output_dir}")
+    print(f"status={export.verification_manifest['status']}")
+    print(f"cases={len(export.verification_manifest['included_cases'])}")
+    print(f"claims={export.verification_manifest['claim_coverage']['claim_count']}")
+    for name, path in sorted(export.files.items()):
+        print(f"{name}={path}")
+    return 0 if export.verification_manifest["status"] == "PASS" else 1
 
 
 def compare_run_readiness(args: argparse.Namespace) -> int:
@@ -198,6 +210,11 @@ def build_parser() -> argparse.ArgumentParser:
     index_parser = subparsers.add_parser("publish-site-index", help="Build the public case index from published case manifests.")
     index_parser.add_argument("--site-dir", type=Path, required=True)
     index_parser.set_defaults(func=publish_case_index)
+
+    editorial_parser = subparsers.add_parser("export-editorial-site-data", help="Export sanitized combined public data for the editorial Vercel site.")
+    editorial_parser.add_argument("--site-dir", type=Path, required=True)
+    editorial_parser.add_argument("--output-dir", type=Path, required=True)
+    editorial_parser.set_defaults(func=export_editorial_site_data)
 
     readiness_parser = subparsers.add_parser("compare-run-readiness", help="Compare a rerun against a baseline run before relying on it.")
     readiness_parser.add_argument("--current-run-dir", type=Path, required=True)
