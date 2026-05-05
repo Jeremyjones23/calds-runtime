@@ -1,0 +1,98 @@
+{
+  "cases": [
+    {
+      "case_id": "live_ca_homelessness_top15_2026_04_29",
+      "case_url": "cases/live_ca_homelessness_top15_2026_04_29/",
+      "citation_status": "PASS",
+      "entities": [
+        "California Supportive Housing",
+        "DignityMoves",
+        "Hope the Mission",
+        "The People Concern",
+        "Weingart Center Association"
+      ],
+      "evidence_count": 16,
+      "geography": "California",
+      "issue_area": "Homelessness services",
+      "link_status": "PASS",
+      "public_summary": "CalDS screened 15 California homelessness nonprofits. The public records show large state housing-award exposure, one official federal charging announcement tied to a connected property transaction, and records that still need to be requested before anyone should draw a final conclusion.",
+      "short_title": "Statewide homelessness",
+      "source_blocker_count": 25,
+      "source_link_count": 9,
+      "strongest_supported_flags": [
+        "Entities selected for closer review: Hope the Mission, Weingart Center Association, DignityMoves, The People Concern, California Supportive Housing.",
+        "Official enforcement/docket triage source: Weingart Center Association (Official enforcement or docket source, 2025-10-16): An official federal press release dated October 16, 2025 says Steven Taylor was charged with seven counts of bank fraud, one count of aggravated identity theft, and one count of money laundering, and describes a Cheviot Hills property originally acquired for..."
+      ],
+      "title": "California homelessness nonprofit triage",
+      "what_this_does_not_prove": [
+        "Entities selected for closer review: Hope the Mission, Weingart Center Association, DignityMoves, The People Concern, California Supportive Housing.",
+        "Main signal pattern: audit-control concerns, connected-party enforcement exposure, material public-funding exposure, rapid financial growth, payroll or wage-growth questions, spend-versus-results mismatch, executive-compensation or payroll-governance questions, and possible scope-mismatch signals."
+      ]
+    },
+    {
+      "case_id": "live_ca_recovery_ngos_2026_04_24",
+      "case_url": "cases/live_ca_recovery_ngos_2026_04_24/",
+      "citation_status": "PASS",
+      "entities": [
+        "Phoenix Houses Of California Inc"
+      ],
+      "evidence_count": 69,
+      "geography": "California",
+      "issue_area": "Recovery and treatment services",
+      "link_status": "PASS",
+      "public_summary": "CalDS screened seven recovery and treatment nonprofits. This public file shows the records recovered so far, including audit and public-statement sources, but it does not support a public accusation.",
+      "short_title": "Recovery and treatment",
+      "source_blocker_count": 0,
+      "source_link_count": 82,
+      "strongest_supported_flags": [
+        "Entities selected for closer review: Phoenix Houses Of California Inc.",
+        "Public statement page harvest: WestCare California Inc (Public statement source, 2026-04-24): on addressing social influencers of health and implement homelessness: es building the resiliency of individuals who face barriers including trauma, abuse, chemical dependency, severe behavioral health disorders, developmental disabilities, homelessness, and..."
+      ],
+      "title": "California recovery and treatment nonprofits",
+      "what_this_does_not_prove": [
+        "Entities selected for closer review: Phoenix Houses Of California Inc.",
+        "Main signal pattern: spend-versus-results mismatch."
+      ]
+    },
+    {
+      "case_id": "live_ca_sf_homelessness_complex",
+      "case_url": "cases/live_ca_sf_homelessness_complex/",
+      "citation_status": "PASS",
+      "entities": [
+        "Brilliant Corners",
+        "Catholic Charities",
+        "Community Housing Partnership",
+        "Compass Family Services",
+        "Episcopal Community Svcs of SF Inc",
+        "Five Keys Schools And Programs",
+        "Hamilton Families",
+        "Heluna Health",
+        "Larkin Street Youth Services",
+        "St Vincent De Paul Society of SF",
+        "Tenderloin Housing Clinic Inc",
+        "Tenderloin Neighborhood Development Corp",
+        "Tides Center",
+        "United Council of Human Services",
+        "Providence Foundation of San Francisco"
+      ],
+      "evidence_count": 23,
+      "geography": "San Francisco",
+      "issue_area": "Homelessness services",
+      "link_status": "PASS",
+      "public_summary": "CalDS screened 15 San Francisco homelessness nonprofits. The records show public payments, official notices or audits for some providers, and many contract, monitoring, and outcome records still needed for a full review.",
+      "short_title": "San Francisco homelessness",
+      "source_blocker_count": 75,
+      "source_link_count": 16,
+      "strongest_supported_flags": [
+        "Entities selected for closer review: Tenderloin Housing Clinic Inc, Episcopal Community Svcs of SF Inc, Five Keys Schools And Programs, Community Housing Partnership, Providence Foundation of San Francisco, United Council of Human Services, St Vincent De Paul Society of SF, Larkin Street Youth Services, Heluna Health, Tides Center, Compass Family Services, Catholic Charities, Brilliant Corners, Tenderloin Neighborhood Development Corp, Hamilton Families.",
+        "Official enforcement/docket triage source: United Council of Human Services (Official enforcement or docket source, 2025-10-16): San Francisco issued an official notice that United Council of Human Services was found to be in violation of City agreements. The San Francisco District Attorney separately announced that a former nonprofit chief executive officer was charged with stealing...",
+        "Official enforcement/docket triage source: Community Housing Partnership (Official enforcement or docket source, 2025-10-16): A San Francisco Controller announcement and audit report identify HomeRise, formerly Community Housing Partnership, as the provider in an audit of City-funded housing for unhoused residents. The Controller announcement says the audit found serious financial..."
+      ],
+      "title": "San Francisco homelessness nonprofit complex",
+      "what_this_does_not_prove": [
+        "Entities selected for closer review: Tenderloin Housing Clinic Inc, Episcopal Community Svcs of SF Inc, Five Keys Schools And Programs, Community Housing Partnership, Providence Foundation of San Francisco, United Council of Human Services, St Vincent De Paul Society of SF, Larkin Street Youth Services, Heluna Health, Tides Center, Compass Family Services, Catholic Charities, Brilliant Corners, Tenderloin Neighborhood Development Corp, Hamilton Families.",
+        "Main signal pattern: audit-control concerns, connected-party enforcement exposure, Enforcement and docket history review signals, executive-compensation or payroll-governance questions, material public-funding exposure, payroll or wage-growth questions, San Francisco homelessness payment exposure review signals, spend-versus-results mismatch, rapid financial growth, and possible scope-mismatch signals."
+      ]
+    }
+  ]
+}

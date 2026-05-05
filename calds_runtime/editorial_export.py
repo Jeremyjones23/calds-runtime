@@ -54,6 +54,9 @@ PUBLIC_INTERNAL_PHRASES = (
     "source completeness",
     "low-linkage",
     "publication confidence",
+    "review priority",
+    "risk severity",
+    "how safe this is to publish",
     "review packet",
     "WFA",
 )
@@ -120,6 +123,34 @@ def _extract_bullets(section: str, limit: int = 8) -> list[str]:
     return bullets
 
 
+def _public_caveats(section: str) -> list[str]:
+    banned = (
+        "case posture",
+        "workflow state",
+        "sentinel",
+        "review priority",
+        "risk severity",
+        "source completeness",
+        "publication confidence",
+        "how safe this is to publish",
+        "score scope",
+        "awaiting_human_review",
+    )
+    caveats: list[str] = []
+    for bullet in _extract_bullets(section, 10):
+        lower = bullet.lower()
+        if any(term in lower for term in banned):
+            continue
+        caveats.append(bullet)
+    if caveats:
+        return caveats[:5]
+    return [
+        "This public page shows records that deserve human review.",
+        "It does not decide guilt, intent, or legal liability.",
+        "A stronger conclusion would require more contracts, monitoring records, outcome records, or official findings.",
+    ]
+
+
 def _extract_deep_review_entities(markdown: str) -> list[str]:
     entities: list[str] = []
     in_deep_review = False
@@ -167,12 +198,11 @@ def _case_summary_from_markdown(case_id: str, markdown: str, manifest: dict[str,
         "geography": metadata["geography"],
         "public_summary": public_summary,
         "strongest_supported_flags": found_first or _extract_bullets(one_page, 3),
-        "what_this_does_not_prove": _extract_bullets(does_not_prove, 5),
+        "what_this_does_not_prove": _public_caveats(does_not_prove),
         "source_link_count": link_count,
         "source_blocker_count": blockers,
         "entities": selected_entities,
         "case_url": f"cases/{case_id}/",
-        "legal_language_check": str(manifest.get("sentinel_decision", "not provided")).replace("_", " ").title(),
         "citation_status": manifest.get("citation_verification", {}).get("status", "not checked"),
         "link_status": manifest.get("link_integrity", {}).get("status", "not checked"),
         "evidence_count": len(ledger.get("evidence", [])),
@@ -383,7 +413,56 @@ def _scan_public_payload(payloads: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+PUBLIC_DATA_FILES = (
+    "public-cases.json",
+    "claim-ledger.json",
+    "source-ledger.json",
+    "case-summaries.json",
+    "entities.json",
+    "money-trail.json",
+    "blockers.json",
+)
+
+
+def _export_existing_public_data(data_dir: Path, output_dir: Path) -> EditorialExport:
+    payloads = {filename: read_json(data_dir / filename) for filename in PUBLIC_DATA_FILES}
+    manifest_path = data_dir / "verification-manifest.json"
+    manifest = read_json(manifest_path) if manifest_path.exists() else {}
+    case_summaries = payloads["case-summaries.json"].get("cases", [])
+    claims = payloads["claim-ledger.json"]
+    evidence_by_case = Counter(claim["case_id"] for claim in claims)
+    safety = _scan_public_payload(payloads)
+    manifest.update(
+        {
+            "generated_at": utc_now(),
+            "runtime_source": "calds_runtime.editorial_export.public_data_snapshot",
+            "included_cases": [case["case_id"] for case in case_summaries],
+            "claim_coverage": {
+                "status": "PASS" if claims and all(claim.get("evidence_ids") for claim in claims) else "FAIL",
+                "claim_count": len(claims),
+                "evidence_backed_claim_count": sum(1 for claim in claims if claim.get("evidence_ids")),
+                "claims_by_case": dict(evidence_by_case),
+            },
+            "public_safety": safety,
+        }
+    )
+    manifest["status"] = "PASS" if safety["status"] == "PASS" and manifest["claim_coverage"]["status"] == "PASS" else "FAIL"
+    payloads["verification-manifest.json"] = manifest
+
+    files: dict[str, str] = {}
+    for filename, payload in payloads.items():
+        path = output_dir / filename
+        write_json(path, payload)
+        files[filename] = str(path)
+    return EditorialExport(output_dir=str(output_dir), files=files, verification_manifest=manifest)
+
+
 def export_editorial_public_data(site_dir: Path, output_dir: Path) -> EditorialExport:
+    data_dir = site_dir / "data"
+    if data_dir.exists() and all((data_dir / filename).exists() for filename in PUBLIC_DATA_FILES):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return _export_existing_public_data(data_dir, output_dir)
+
     cases_dir = site_dir / "cases"
     if not cases_dir.exists():
         raise FileNotFoundError(f"Missing cases directory: {cases_dir}")

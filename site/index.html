@@ -1,688 +1,1232 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <meta name="calds-build" content="editorial_publication_0c3c85970d23a1d6">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CalDS Public Case Index</title>
-  <style>
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Geist:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-:root {
-  color-scheme: light;
-  --paper: #f5ecda;
-  --paper-2: #fffaf0;
-  --paper-3: #e8d7ba;
-  --ink: #171511;
-  --muted: #625b50;
-  --quiet: #8a7d69;
-  --charcoal: #101513;
-  --charcoal-2: #17231f;
-  --civic-blue: #234f72;
-  --civic-blue-2: #2e728d;
-  --docket-red: #9d302c;
-  --audit-amber: #dca326;
-  --ledger-green: #2d6d55;
-  --line: rgba(23, 21, 17, .16);
-  --line-strong: rgba(23, 21, 17, .34);
-  --line-dark: rgba(255, 250, 240, .18);
-  --shadow: 0 28px 80px rgba(23, 21, 17, .18);
-  --hard-shadow: 10px 10px 0 rgba(157, 48, 44, .14);
-}
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body {
-  margin: 0;
-  color: var(--ink);
-  background:
-    radial-gradient(circle at 10% -4%, rgba(220, 163, 38, .28), transparent 30%),
-    radial-gradient(circle at 88% 8%, rgba(35, 79, 114, .14), transparent 34%),
-    linear-gradient(90deg, rgba(23, 21, 17, .035) 1px, transparent 1px) 0 0 / 42px 42px,
-    linear-gradient(180deg, rgba(23, 21, 17, .026) 1px, transparent 1px) 0 0 / 42px 42px,
-    linear-gradient(145deg, #f8edda 0%, #ecddc1 42%, #fff7e8 100%);
-  font-family: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.55;
-  overflow-x: hidden;
-}
-a { color: var(--civic-blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-a:focus-visible, button:focus-visible, summary:focus-visible {
-  outline: 3px solid var(--audit-amber);
-  outline-offset: 3px;
-}
-.skip-link {
-  position: absolute;
-  left: 16px;
-  top: -60px;
-  z-index: 10;
-  padding: 10px 12px;
-  color: var(--ink);
-  background: var(--audit-amber);
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 12px;
-}
-.skip-link:focus { top: 12px; }
-code, pre, .mono, .evidence-ref {
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  letter-spacing: 0;
-}
-code {
-  background: rgba(255, 250, 240, .82);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-.case-hero {
-  position: relative;
-  overflow: hidden;
-  color: var(--paper-2);
-  background:
-    radial-gradient(circle at 18% 18%, rgba(220, 163, 38, .16), transparent 24%),
-    radial-gradient(circle at 86% 22%, rgba(46, 114, 141, .22), transparent 32%),
-    linear-gradient(135deg, rgba(16, 21, 19, .98), rgba(23, 35, 31, .97)),
-    repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 1px, transparent 1px 32px);
-  border-bottom: 8px solid var(--docket-red);
-}
-.case-hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(120deg, transparent 0 52%, rgba(220,163,38,.18) 52% 53%, transparent 53%),
-    linear-gradient(90deg, rgba(255,250,240,.04) 1px, transparent 1px) 0 0 / 54px 54px,
-    repeating-linear-gradient(135deg, rgba(255,255,255,.032) 0 1px, transparent 1px 18px);
-  pointer-events: none;
-}
-.case-hero__inner {
-  position: relative;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 22px 24px 38px;
-}
-.case-topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: 36px;
-  padding: 10px 0;
-  border-bottom: 1px solid rgba(255, 250, 240, .13);
-}
-.case-brand {
-  color: var(--paper-2);
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-.case-topbar__links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.case-topbar__links a,
-.case-topbar__links button,
-.case-nav a,
-.print-button {
-  color: rgba(255, 250, 240, .92);
-  border: 1px solid rgba(255, 250, 240, .24);
-  border-radius: 999px;
-  background: rgba(255, 250, 240, .07);
-  padding: 8px 11px;
-  text-decoration: none;
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 11px;
-  line-height: 1;
-  text-transform: uppercase;
-}
-.case-topbar__links button,
-.print-button { cursor: pointer; }
-.case-command-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 28px;
-  align-items: end;
-}
-.case-command-grid > * { min-width: 0; }
-.eyebrow {
-  margin: 0 0 12px;
-  color: var(--audit-amber);
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.case-hero h1 {
-  margin: 0;
-  max-width: 1180px;
-  font-family: "Fraunces", Georgia, serif;
-  font-size: 5rem;
-  line-height: .9;
-  letter-spacing: 0;
-}
-.case-title {
-  max-width: 880px;
-  margin: 20px 0 0;
-  color: rgba(255, 250, 240, .88);
-  font-size: 22px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-.case-id {
-  margin: 14px 0 0;
-  color: rgba(255, 250, 240, .72);
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.case-docket {
-  min-height: 248px;
-  padding: 18px;
-  background: rgba(255, 250, 240, .08);
-  border: 1px solid rgba(255, 250, 240, .18);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 12px 12px 0 rgba(0,0,0,.18);
-}
-.case-docket h2 {
-  margin: 0 0 16px;
-  color: var(--paper-2);
-  font-family: "Fraunces", Georgia, serif;
-  font-size: 30px;
-}
-.case-docket p {
-  margin: 0;
-  color: rgba(255, 250, 240, .78);
-  font-size: 14px;
-}
-.status-strip {
-  display: grid;
-  grid-template-columns: 1.25fr 1fr 1fr 1.25fr;
-  grid-auto-flow: dense;
-  gap: 12px;
-  margin: 34px 0 0;
-}
-.status-tile {
-  min-height: 132px;
-  padding: 16px;
-  border: 1px solid var(--line-dark);
-  background: rgba(255, 250, 240, .08);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
-}
-.status-tile strong {
-  display: block;
-  color: #fffaf0;
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.status-tile span {
-  display: block;
-  margin-top: 8px;
-  color: rgba(255, 250, 240, .84);
-  font-size: 20px;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-.case-nav {
-  display: none;
-}
-.case-shell {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 30px;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 34px 24px 80px;
-}
-.case-rail {
-  position: sticky;
-  top: 18px;
-  align-self: start;
-  padding: 20px;
-  background: linear-gradient(180deg, rgba(255,250,240,.94), rgba(245,236,218,.88));
-  border: 1px solid var(--line);
-  box-shadow: var(--hard-shadow);
-}
-.case-rail h2 {
-  margin: 0 0 10px;
-  font-family: "Fraunces", Georgia, serif;
-  font-size: 24px;
-  line-height: 1;
-}
-.case-rail a {
-  display: block;
-  margin: 8px 0;
-  padding: 8px 0;
-  color: var(--charcoal);
-  border-bottom: 1px solid rgba(23, 21, 17, .08);
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 11px;
-  text-decoration: none;
-  text-transform: uppercase;
-}
-.case-main { min-width: 0; }
-.reviewer-panel {
-  margin: 0 0 24px;
-  padding: 22px;
-  background: linear-gradient(120deg, rgba(47,109,85,.12), transparent 46%), #fffdf5;
-  border: 2px solid rgba(47, 109, 85, .38);
-  box-shadow: 10px 10px 0 rgba(47, 109, 85, .13);
-}
-.reviewer-panel p { margin: 8px 0 0; }
-.reviewer-panel__grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-auto-flow: dense;
-  gap: 10px;
-  margin-top: 14px;
-}
-.reviewer-panel__grid div {
-  min-height: 92px;
-  padding: 12px;
-  background: rgba(243, 234, 216, .72);
-  border: 1px solid var(--line);
-}
-.reviewer-panel__grid span {
-  display: block;
-  color: var(--muted);
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 11px;
-  text-transform: uppercase;
-}
-.reviewer-panel__grid strong { overflow-wrap: anywhere; }
-.reviewer-panel details {
-  margin-top: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-}
-.case-intel-strip {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
-  grid-auto-flow: dense;
-  gap: 12px;
-  margin: 0 0 24px;
-}
-.case-intel-card {
-  min-height: 124px;
-  padding: 16px;
-  background: rgba(255, 250, 240, .88);
-  border: 1px solid var(--line);
-}
-.case-intel-card strong {
-  display: block;
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.case-intel-card span {
-  display: block;
-  margin-top: 8px;
-  font-size: 22px;
-  font-weight: 700;
-}
-.notice {
-  display: grid;
-  grid-template-columns: 10px 1fr;
-  gap: 14px;
-  margin: 0 0 24px;
-  padding: 18px;
-  background: var(--paper-2);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-}
-.notice::before { content: ""; background: var(--audit-amber); }
-.notice strong { color: var(--docket-red); }
-.dossier, #source-ledger {
-  background: rgba(255, 250, 240, .94);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-}
-.dossier {
-  padding: 36px;
-}
-#source-ledger {
-  margin-top: 30px;
-  padding: 36px;
-}
-.ledger-digest {
-  margin: 20px 0 28px;
-  padding: 18px;
-  background: linear-gradient(135deg, rgba(35,79,114,.1), transparent 44%), rgba(243, 234, 216, .76);
-  border: 1px solid var(--line);
-}
-.ledger-digest h3 { margin-top: 0; }
-.table-scroll { overflow-x: auto; }
-.ledger-digest table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-.ledger-digest th, .ledger-digest td {
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  vertical-align: top;
-}
-.ledger-digest th {
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 11px;
-  text-transform: uppercase;
-}
-h1, h2, h3, h4 {
-  font-family: "Fraunces", Georgia, serif;
-  line-height: 1.12;
-  letter-spacing: 0;
-}
-.dossier h1 {
-  max-width: 920px;
-  margin-top: 0;
-  font-size: 48px;
-}
-.dossier h2, #source-ledger h2 {
-  margin-top: 44px;
-  padding-top: 20px;
-  border-top: 3px solid rgba(157, 48, 44, .24);
-  color: var(--charcoal);
-}
-.dossier h3 { color: var(--civic-blue); }
-.dossier p, .dossier li { font-size: 17px; }
-.dossier ul, .dossier ol { padding-left: 26px; }
-.table-block {
-  overflow: auto;
-  margin: 18px 0;
-  padding: 16px;
-  color: #f9edd4;
-  background: linear-gradient(90deg, rgba(216, 157, 40, .1), transparent 26%), #18201d;
-  border: 1px solid rgba(25, 21, 15, .42);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
-  white-space: pre;
-}
-.evidence-ref {
-  display: inline-block;
-  color: var(--paper-2);
-  background: var(--docket-red);
-  border: 1px solid rgba(25, 21, 15, .22);
-  border-radius: 3px;
-  padding: 0 5px;
-  font-size: .78em;
-  font-weight: 600;
-  text-decoration: none;
-  transform: translateY(-1px);
-}
-.evidence-card {
-  position: relative;
-  margin: 18px 0;
-  padding: 20px 20px 20px 30px;
-  border: 1px solid var(--line);
-  background: linear-gradient(90deg, rgba(47, 109, 85, .12), transparent 32%), #fffaf0;
-  box-shadow: 6px 6px 0 rgba(23, 21, 17, .06);
-  transition: transform .25s ease, box-shadow .25s ease;
-}
-.evidence-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 10px 10px 0 rgba(23, 21, 17, .09);
-}
-.evidence-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 8px;
-  background: var(--ledger-green);
-}
-.evidence-card--source-access-required::before { background: var(--audit-amber); }
-.evidence-card--external-source-linked::before { background: var(--ledger-green); }
-.evidence-card--derived-external-source-linked::before { background: var(--civic-blue-2); }
-.evidence-card h3 {
-  margin: 0 0 10px;
-  font-size: 24px;
-}
-.meta, .link-status, footer {
-  color: var(--muted);
-  font-size: 14px;
-}
-.source-role {
-  margin: 8px 0;
-  padding: 10px;
-  background: rgba(33, 79, 114, .08);
-  border-left: 4px solid var(--civic-blue);
-}
-.repro-details {
-  margin: 12px 0;
-  padding: 10px;
-  background: rgba(25, 21, 15, .04);
-  border: 1px solid var(--line);
-}
-.repro-details summary {
-  cursor: pointer;
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 12px;
-  text-transform: uppercase;
-}
-.source-list {
-  margin: 8px 0 0;
-  padding-left: 22px;
-  overflow-wrap: anywhere;
-}
-.source-list a { word-break: break-word; }
-footer {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 22px 24px 38px;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .notice, .dossier, #source-ledger, .evidence-card, .reviewer-panel {
-    animation: rise-in .7s ease both;
-  }
-  .notice { animation-delay: .08s; }
-  .dossier { animation-delay: .14s; }
-  #source-ledger { animation-delay: .2s; }
-  .evidence-card:nth-of-type(2n) { animation-delay: .05s; }
-  @keyframes rise-in {
-    from { opacity: 0; transform: translateY(16px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
-  }
-}
-@media (max-width: 940px) {
-  .case-command-grid { grid-template-columns: 1fr; }
-  .status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .case-shell { grid-template-columns: 1fr; }
-  .case-rail { position: static; }
-  .reviewer-panel__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .case-intel-strip { grid-template-columns: 1fr; }
-  .case-hero h1 { font-size: 3.9rem; }
-  .case-title { font-size: 20px; }
-}
-@media (max-width: 560px) {
-  .case-hero * { box-sizing: border-box; }
-  .case-hero__inner, .case-shell {
-    width: 100%;
-    max-width: 100%;
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-  .case-hero__inner,
-  .case-command-grid,
-  .case-command-grid > *,
-  .case-title,
-  .case-id {
-    max-width: 320px;
-    width: 100%;
-  }
-  .case-command-grid { display: block; }
-  .case-title { overflow-wrap: break-word; font-size: 18px; }
-  .case-docket { margin-top: 22px; width: 100%; max-width: 320px; }
-  .case-hero h1 {
-    max-width: 320px;
-    font-size: 2.35rem;
-    line-height: .96;
-    overflow-wrap: anywhere;
-  }
-  .case-topbar { align-items: flex-start; flex-direction: column; }
-  .case-topbar__links {
-    display: grid;
-    grid-template-columns: 1fr;
-    justify-content: stretch;
-    width: 100%;
-    max-width: 320px;
-  }
-  .case-topbar__links a,
-  .case-topbar__links button {
-    min-width: 0;
-    width: 100%;
-    white-space: normal;
-    text-align: center;
-  }
-  .status-strip { grid-template-columns: 1fr; }
-  .reviewer-panel__grid { grid-template-columns: 1fr; }
-  .dossier, #source-ledger { padding: 18px; }
-  .dossier p, .dossier li { font-size: 16px; }
-}
-@media print {
-  body { background: #fff; color: #000; }
-  .case-hero, .case-rail, .case-nav { background: #fff; color: #000; border: 0; }
-  .case-topbar, .case-nav, .print-button, .skip-link { display: none; }
-  .case-shell { display: block; max-width: none; padding: 0; }
-  .dossier, #source-ledger, .notice { box-shadow: none; border-color: #999; }
-  .reviewer-panel, .evidence-card { break-inside: avoid; box-shadow: none; }
-  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 10px; }
-}
-
-.index-main { max-width: 1280px; margin: 0 auto; padding: 34px 24px 82px; }
-.case-index-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); grid-auto-flow: dense; gap: 18px; }
-.case-index-card {
-  position: relative;
-  overflow: hidden;
-  min-height: 380px;
-  background: linear-gradient(135deg, rgba(255, 250, 240, .97), rgba(245, 236, 218, .9));
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  padding: 22px;
-}
-.case-index-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 8px;
-  background: var(--docket-red);
-}
-.case-index-card h2 {
-  margin: 0 0 12px;
-  max-width: 720px;
-  font-size: 32px;
-}
-.case-index-card h2 a { color: var(--ink); text-decoration: none; }
-.case-index-card__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; gap: 8px; margin: 16px 0; }
-.case-index-card__meta div { min-height: 82px; padding: 10px; background: rgba(243, 234, 216, .72); border: 1px solid var(--line); }
-.case-index-card__meta span { display: block; color: var(--muted); font-family: "IBM Plex Mono", Consolas, monospace; font-size: 11px; text-transform: uppercase; }
-.case-index-card__meta strong { overflow-wrap: anywhere; }
-.case-index-card__links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-.case-index-card__links a {
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  padding: 8px 10px;
-  background: #fffdf5;
-  color: var(--ink);
-  font-family: "IBM Plex Mono", Consolas, monospace;
-  font-size: 11px;
-  text-decoration: none;
-  text-transform: uppercase;
-}
-</style>
+  <title>Follow the Receipts | CalDS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800;9..144,900&family=Geist:wght@400;520;650;760;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<a class="skip-link" href="#cases">Skip to cases</a>
-<header class="case-hero">
-  <div class="case-hero__inner">
-    <nav class="case-topbar" aria-label="Site tools">
-      <a class="case-brand" href="./">California Evidence Room</a>
-      <div class="case-topbar__links">
-        <a href="#cases">Cases</a>
-        <a href="https://github.com/Jeremyjones23/calds-public-cases">GitHub</a>
-      </div>
-    </nav>
-    <div class="case-command-grid">
-      <div>
-        <p class="eyebrow">Public review packets</p>
-        <h1>CalDS Public Case Index</h1>
-        <p class="case-title">Source-cited case rooms for state and local government reviewers. Each case keeps evidence links, source blockers, sentinel posture, and human-review status visible.</p>
-        <p class="case-id">Generated: 2026-05-04T02:53:24+00:00</p>
-      </div>
-      <aside class="case-docket" aria-label="Index posture">
-        <h2>Read like a case room</h2>
-        <p>Open a case, read the briefing first, then audit every evidence label in the source ledger before relying on the lead.</p>
-      </aside>
+
+  <a class="skip-link" href="#main">Skip to story</a>
+  <nav class="record-rail" aria-label="Primary navigation">
+    <a class="brand" href="index.html">CalDS</a>
+    <div class="rail-links">
+      <a href="index.html#pattern">Pattern</a>
+      <a href="cases/">Cases</a>
+      <a href="index.html#money">Money trail</a>
+      <a href="sources/">Sources</a>
+      <a href="method/">Method</a>
     </div>
-  </div>
-</header>
-<main id="cases" class="index-main">
-  <section class="notice"><div><strong>How to read this index:</strong> open a case, read the executive snapshot, then audit the linked evidence labels in the source ledger. Link integrity and source-access status are shown per case.</div></section>
-  <section class="case-index-grid">
-<article class="case-index-card">
-  <h2><a href="cases/live_ca_homelessness_top15_2026_04_29/">California homelessness top-15 nonprofit triage</a></h2>
-  <p>CalDS screened 15 entities and keeps Hope the Mission, Weingart Center Association, DignityMoves, The People Concern, California Supportive Housing in deep review because the strongest source-backed pattern is audit-control concerns, connected-party enforcement exposure, material public-funding exposure, and rapid financial growth. Evidence: Federal Audit...</p>
-  <div class="case-index-card__meta">
-    <div><span>Case ID</span><strong>live_ca_homelessness_top15_2026_04_29</strong></div>
-    <div><span>Generated</span><strong>2026-05-04T02:50:24+00:00</strong></div>
-    <div><span>Sentinel</span><strong>Downgrade For Review</strong></div>
-    <div><span>Links and source access</span><strong>PASS / 9 verified URL(s); 25 source blocker(s)</strong></div>
-  </div>
-  <p><strong>Public posture:</strong> Human review required; not a formal finding.</p>
-  <div class="case-index-card__links">
-    <a href="cases/live_ca_homelessness_top15_2026_04_29/">Open Viewer</a>
-    <a href="cases/live_ca_homelessness_top15_2026_04_29/case_dossier.md">Markdown</a>
-    <a href="cases/live_ca_homelessness_top15_2026_04_29/source_ledger.json">Source Ledger</a>
-    <a href="cases/live_ca_homelessness_top15_2026_04_29/publication_manifest.json">Manifest</a>
-  </div>
-</article>
+    <p>Public records. Public interest.</p>
+  </nav>
 
+  <main id="main">
+    <header class="poster-hero" id="top">
+      <div class="sun-strip" aria-hidden="true"></div>
+      <section class="poster-sheet">
+        <div class="poster-copy">
+          <p class="type-stamp">Public records / public power</p>
+          <h1><span>Follow</span><span class="receipt-line"><span>the</span> <span>receipts.</span></span></h1>
+          <p class="dek">We read the records, pull out the money trail, and show the questions a human should ask next.</p>
+        </div>
+        <aside class="tip-note">
+          <span>See something worth checking?</span>
+          <p>Send records, links, or a lead. We only publish what the receipts support.</p>
+          <a href="#sources">Check the sources</a>
+        </aside>
+        <section class="latest-wall" aria-label="Latest cases">
+          <p class="wall-label">Latest cases</p>
+          <div class="case-strip">
+            <article class="case-ticket reveal" data-case="live_ca_homelessness_top15_2026_04_29" style="--case-color:#9f3d2f">
+              <a class="case-ticket__photo tone-civic" href="cases/live_ca_homelessness_top15_2026_04_29/" aria-label="Open Statewide homelessness"></a>
+              <div class="case-ticket__body">
+                <p class="case-ticket__label">Homelessness</p>
+                <h3>Big housing awards. Thin answers.</h3>
+                <p>CalDS screened 15 California homelessness nonprofits. The public records show large state housing-award exposure, one official federal charging announcement tied to a connected property transaction, and records that still need to be requested before anyone should draw a final conclusion.</p>
+                <div class="case-ticket__meta">
+                  <span>5 orgs</span>
+                  <span>10 public claims</span>
+                  <span>16 receipts</span>
+                </div>
+                <a class="paper-link" href="cases/live_ca_homelessness_top15_2026_04_29/">View case</a>
+              </div>
+              <span class="case-ticket__number">01</span>
+            </article>
 
-<article class="case-index-card">
-  <h2><a href="cases/live_ca_recovery_ngos_2026_04_24/">Live web case: large California recovery and treatment nonprofits</a></h2>
-  <p>CalDS screened 7 entities and keeps Phoenix Houses Of California Inc in deep review because the strongest source-backed pattern is spend-versus-results mismatch. Evidence: `E19`, `E20`. The review priority score is 63.91 / 100, source completeness is 0.0 / 100, publication confidence is 0.0 / 100, and the sentinel posture is `DOWNGRADE_FOR_REVIEW`; this i...</p>
-  <div class="case-index-card__meta">
-    <div><span>Case ID</span><strong>live_ca_recovery_ngos_2026_04_24</strong></div>
-    <div><span>Generated</span><strong>2026-05-04T02:52:52+00:00</strong></div>
-    <div><span>Sentinel</span><strong>Downgrade For Review</strong></div>
-    <div><span>Links and source access</span><strong>PASS / 82 verified URL(s); 0 source blocker(s)</strong></div>
-  </div>
-  <p><strong>Public posture:</strong> Human review required; not a formal finding.</p>
-  <div class="case-index-card__links">
-    <a href="cases/live_ca_recovery_ngos_2026_04_24/">Open Viewer</a>
-    <a href="cases/live_ca_recovery_ngos_2026_04_24/case_dossier.md">Markdown</a>
-    <a href="cases/live_ca_recovery_ngos_2026_04_24/source_ledger.json">Source Ledger</a>
-    <a href="cases/live_ca_recovery_ngos_2026_04_24/publication_manifest.json">Manifest</a>
-  </div>
-</article>
+            <article class="case-ticket reveal" data-case="live_ca_recovery_ngos_2026_04_24" style="--case-color:#4e6f42">
+              <a class="case-ticket__photo tone-field" href="cases/live_ca_recovery_ngos_2026_04_24/" aria-label="Open Recovery and treatment"></a>
+              <div class="case-ticket__body">
+                <p class="case-ticket__label">Recovery</p>
+                <h3>Treatment promises. Public records.</h3>
+                <p>CalDS screened seven recovery and treatment nonprofits. This public file shows the records recovered so far, including audit and public-statement sources, but it does not support a public accusation.</p>
+                <div class="case-ticket__meta">
+                  <span>1 orgs</span>
+                  <span>61 public claims</span>
+                  <span>69 receipts</span>
+                </div>
+                <a class="paper-link" href="cases/live_ca_recovery_ngos_2026_04_24/">View case</a>
+              </div>
+              <span class="case-ticket__number">02</span>
+            </article>
 
+            <article class="case-ticket reveal" data-case="live_ca_sf_homelessness_complex" style="--case-color:#245b72">
+              <a class="case-ticket__photo tone-bay" href="cases/live_ca_sf_homelessness_complex/" aria-label="Open San Francisco homelessness"></a>
+              <div class="case-ticket__body">
+                <p class="case-ticket__label">San Francisco</p>
+                <h3>City spending. Provider questions.</h3>
+                <p>CalDS screened 15 San Francisco homelessness nonprofits. The records show public payments, official notices or audits for some providers, and many contract, monitoring, and outcome records still needed for a full review.</p>
+                <div class="case-ticket__meta">
+                  <span>15 orgs</span>
+                  <span>17 public claims</span>
+                  <span>23 receipts</span>
+                </div>
+                <a class="paper-link" href="cases/live_ca_sf_homelessness_complex/">View case</a>
+              </div>
+              <span class="case-ticket__number">03</span>
+            </article>
+            </div>
+        </section>
+        <aside class="recent-source">
+          <span>Receipt count</span>
+          <p>Contract or payment record: California Supportive Housing</p>
+          <strong>108/108</strong>
+          <small>live public links</small>
+        </aside>
+        <p class="verdict-note">Red flag, not a verdict.</p>
+        <div class="public-service">Journalism is a public service</div>
+        <div class="marquee" aria-hidden="true"><span>New records added</span><span>IRS 990s</span><span>Contracts</span><span>City grants</span><span>Audits</span><span>Open questions</span></div>
+      </section>
+    </header>
 
-<article class="case-index-card">
-  <h2><a href="cases/live_ca_sf_homelessness_complex/">San Francisco homelessness nonprofit organization complex triage</a></h2>
-  <p>CalDS screened 15 entities and keeps Tenderloin Housing Clinic Inc, Episcopal Community Svcs of SF Inc, Five Keys Schools And Programs, Community Housing Partnership, Providence Foundation of San Francisco, United Council of Human Services, St Vincent De Paul Society of SF, Larkin Street Youth Services, Heluna Health, Tides Center, Compass Family Services...</p>
-  <div class="case-index-card__meta">
-    <div><span>Case ID</span><strong>live_ca_sf_homelessness_complex</strong></div>
-    <div><span>Generated</span><strong>2026-05-04T02:50:34+00:00</strong></div>
-    <div><span>Sentinel</span><strong>Downgrade For Review</strong></div>
-    <div><span>Links and source access</span><strong>PASS / 16 verified URL(s); 75 source blocker(s)</strong></div>
-  </div>
-  <p><strong>Public posture:</strong> Human review required; not a formal finding.</p>
-  <div class="case-index-card__links">
-    <a href="cases/live_ca_sf_homelessness_complex/">Open Viewer</a>
-    <a href="cases/live_ca_sf_homelessness_complex/case_dossier.md">Markdown</a>
-    <a href="cases/live_ca_sf_homelessness_complex/source_ledger.json">Source Ledger</a>
-    <a href="cases/live_ca_sf_homelessness_complex/publication_manifest.json">Manifest</a>
-  </div>
-</article>
-</section>
-</main>
-<footer>Generated 2026-05-04T02:53:24+00:00. Human review remains required before outside-facing use.</footer>
+    <section class="chapter pattern-chapter" id="pattern">
+      <div class="chapter-copy">
+        <p class="type-stamp">What the public can see</p>
+        <h2>The same question keeps coming back: who got paid, and what changed?</h2>
+        <p>CalDS checked public records across homelessness, recovery, and treatment nonprofit cases. The records raise questions about money, outcomes, missing oversight records, and public accountability. This is a red flag, not a verdict.</p>
+      </div>
+      <div class="record-grid">
+        <article><b>3</b><span>case families</span></article>
+        <article><b>88</b><span>public claims tied to records</span></article>
+        <article><b>100</b><span>records still needed</span></article>
+        <article><b>108</b><span>live public receipts</span></article>
+      </div>
+    </section>
+
+    <section class="chapter money-machine" id="money">
+      <div class="machine-copy">
+        <p class="type-stamp">Money trail</p>
+        <h2>Follow the dollar rows.</h2>
+        <p>These dollar amounts come from public records. Some are partial. We say so when a record does not show the full total.</p>
+        <div class="filter-tabs" aria-label="Filter money trail by case"><button class="filter-tab is-active" type="button" data-money-filter="all"><span>All cases</span><b>6</b></button><button class="filter-tab" type="button" data-money-filter="live_ca_homelessness_top15_2026_04_29"><span>Statewide homelessness</span><b>6</b></button><button class="filter-tab" type="button" data-money-filter="live_ca_recovery_ngos_2026_04_24"><span>Recovery and treatment</span><b>0</b></button><button class="filter-tab" type="button" data-money-filter="live_ca_sf_homelessness_complex"><span>San Francisco homelessness</span><b>0</b></button></div>
+      </div>
+      <div class="receipt-machine">
+        <div class="machine-counter"><span id="receiptCount">6</span><small>visible receipts</small></div>
+        <div class="receipt-roll">
+            <article class="receipt-card reveal" data-case="live_ca_homelessness_top15_2026_04_29">
+              <div class="receipt-card__stub">Public record</div>
+              <strong>$51,891,854</strong>
+              <p>California Supportive Housing</p>
+              <small>Contract or payment record: California Supportive Housing</small>
+              <button class="source-jump" type="button" data-source="source_aed0b285da2580f7">Open receipt row</button>
+            </article>
+
+            <article class="receipt-card reveal" data-case="live_ca_homelessness_top15_2026_04_29">
+              <div class="receipt-card__stub">Public record</div>
+              <strong>$77,180,702</strong>
+              <p>DignityMoves</p>
+              <small>Contract or payment record: DignityMoves</small>
+              <button class="source-jump" type="button" data-source="source_623e8384c050cac1">Open receipt row</button>
+            </article>
+
+            <article class="receipt-card reveal" data-case="live_ca_homelessness_top15_2026_04_29">
+              <div class="receipt-card__stub">Public record</div>
+              <strong>$115,337,991</strong>
+              <p>Hope the Mission</p>
+              <small>Contract or payment record: Hope the Mission</small>
+              <button class="source-jump" type="button" data-source="source_24b3eae831438e36">Open receipt row</button>
+            </article>
+
+            <article class="receipt-card reveal" data-case="live_ca_homelessness_top15_2026_04_29">
+              <div class="receipt-card__stub">Public record</div>
+              <strong>$53,435,650</strong>
+              <p>The People Concern</p>
+              <small>Contract or payment record: The People Concern</small>
+              <button class="source-jump" type="button" data-source="source_98b8fc83c977ef43">Open receipt row</button>
+            </article>
+
+            <article class="receipt-card reveal" data-case="live_ca_homelessness_top15_2026_04_29">
+              <div class="receipt-card__stub">Public record</div>
+              <strong>$95,565,300</strong>
+              <p>Weingart Center Association</p>
+              <small>Contract or payment record: Weingart Center Association</small>
+              <button class="source-jump" type="button" data-source="source_82cf4e7d5e876356">Open receipt row</button>
+            </article>
+
+            <article class="receipt-card reveal" data-case="live_ca_homelessness_top15_2026_04_29">
+              <div class="receipt-card__stub">Public record</div>
+              <strong>$11.2 million</strong>
+              <p>Weingart Center Association</p>
+              <small>Official enforcement or docket source: Weingart Center Association</small>
+              <button class="source-jump" type="button" data-source="source_2c61fae7fe11eb0a">Open receipt row</button>
+            </article>
+            </div>
+        <p class="empty-money" hidden>No dollar records are shown for this case yet. Open the sources to see the public records we have.</p>
+      </div>
+    </section>
+
+    <section class="chapter entity-board" id="cases">
+      <div class="chapter-copy">
+        <p class="type-stamp">Named review leads</p>
+        <h2>Open the folders. Read what triggered review.</h2>
+        <p>This page shows only public records, source links, open questions, and caveats. Draft notes and unreviewed leads stay off the public site.</p>
+      </div>
+      <div class="folder-grid">
+            <details class="entity-folder reveal">
+              <summary>
+                <span>Weingart Center Association</span>
+                <small>5 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>An official federal press release dated October 16, 2025 says Steven Taylor was charged with seven counts of bank fraud, one count of aggravated identity theft, and one...</li><li>Weingart Center Association has $95,565,300 in California Department of Housing and Community Development award-list exposure across 3 project entries.</li><li>Latest matched Form 990 filing for Weingart Center Association: Employer Identification Number 956054617, tax period year 2023.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>DignityMoves</span>
+                <small>3 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>DignityMoves has $77,180,702 in California Department of Housing and Community Development award-list exposure across 3 project entries.</li><li>Latest matched Form 990 filing for DignityMoves: Employer Identification Number 871111468, tax period year 2023.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>Hope the Mission</span>
+                <small>3 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>Hope the Mission has $115,337,991 in California Department of Housing and Community Development award-list exposure across 5 project entries.</li><li>Latest matched Form 990 filing for Hope the Mission: Employer Identification Number 272053273, tax period year 2023.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>The People Concern</span>
+                <small>3 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>The People Concern has $53,435,650 in California Department of Housing and Community Development award-list exposure across 2 project entries.</li><li>Latest matched Form 990 filing for The People Concern: Employer Identification Number 956143865, tax period year 2023.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>Community Housing Partnership</span>
+                <small>4 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>A San Francisco Controller announcement and audit report identify HomeRise, formerly Community Housing Partnership, as the provider in an audit of City-funded housing...</li><li>Latest matched Form 990 filing for Community Housing Partnership: Employer Identification Number 943112338, tax period year 2023.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>United Council of Human Services</span>
+                <small>3 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>San Francisco issued an official notice that United Council of Human Services was found to be in violation of City agreements.</li><li>Latest matched Form 990 filing for United Council of Human Services: Employer Identification Number 942936270, tax period year 2020.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>California Supportive Housing</span>
+                <small>2 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>California Supportive Housing has $51,891,854 in California Department of Housing and Community Development award-list exposure across 2 project entries.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>Phoenix Houses Of California Inc</span>
+                <small>4 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>Federal Audit Clearinghouse general-table record for Phoenix Houses Of California Inc.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>BHS SAPC provider</span>
+                <small>1 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>Los Angeles County Auditor-Controller fiscal compliance review: BHS SAPC provider Source URI...</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>HealthRIGHT 360</span>
+                <small>2 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>Official court website calendar page surfaced a HealthRIGHT 360 party-name hit for case VENCI00555357. This is a court-calendar search result only; it is not a merits...</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>Social Model Recovery Systems Inc</span>
+                <small>1 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>Official Social Model Recovery Systems Programs/Services Social Model Recovery Systems, Inc.</li></ul>
+              </div>
+            </details>
+
+            <details class="entity-folder reveal">
+              <summary>
+                <span>Brilliant Corners</span>
+                <small>1 receipts</small>
+              </summary>
+              <div>
+                <p>No source-backed service description is shown in this public export.</p>
+                <ul><li>Latest matched Form 990 filing for Brilliant Corners: Employer Identification Number 562379862, tax period year 2023.</li></ul>
+              </div>
+            </details>
+            </div>
+    </section>
+
+    <section class="chapter source-room" id="sources">
+      <div class="source-room__intro">
+        <p class="type-stamp">Source room</p>
+        <h2>Every public claim needs a receipt.</h2>
+        <p>Public means linked records, plain caveats, and a clear list of what still needs to be checked.</p>
+        <input id="sourceSearch" class="source-search" type="search" placeholder="Search receipts, agencies, cases, or record types" aria-label="Search sources">
+      </div>
+      <div class="source-cabinet">
+        <table class="source-table">
+          <thead><tr><th>Case</th><th>Record type</th><th>Title</th><th>Status</th><th>Receipt</th></tr></thead>
+          <tbody>
+            <tr data-source-id="source_aed0b285da2580f7" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>Contract or payment record search</td>
+              <td>Contract or payment record: California Supportive Housing</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/funding/homekey/funding-overview" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_623e8384c050cac1" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>Contract or payment record search</td>
+              <td>Contract or payment record: DignityMoves</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/funding/homekey/funding-overview" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_24b3eae831438e36" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>Contract or payment record search</td>
+              <td>Contract or payment record: Hope the Mission</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/funding/homekey/funding-overview" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_98b8fc83c977ef43" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>Contract or payment record search</td>
+              <td>Contract or payment record: The People Concern</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/funding/homekey/funding-overview" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_82cf4e7d5e876356" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>Contract or payment record search</td>
+              <td>Contract or payment record: Weingart Center Association</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/funding/homekey/funding-overview" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_8d8cc266cbf913b7" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>enforcement_docket_discovery</td>
+              <td>Official enforcement/docket public-source search: Weingart Center Association</td>
+              <td>Live</td>
+              <td><a href="https://www.justice.gov/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_7c26a981736f8012" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: DignityMoves</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_07A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_7d071dd160e1c081" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Hope the Mission</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_11A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_ff7add9be3fc69ad" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: The People Concern</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_05A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_c7efdea6410205a5" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Weingart Center Association</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_03A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_954f81e4282c6710" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>California Department of Housing and Community Development homelessness award record</td>
+              <td>California housing-award exposure source collection</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/homekey-round-3-awardee-list.pdf" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_2c61fae7fe11eb0a" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>Official enforcement or docket source</td>
+              <td>Official enforcement or docket source: Weingart Center Association</td>
+              <td>Live</td>
+              <td><a href="https://www.fhfaoig.gov/sites/default/files/Beverly-Hills-Man-Arrested%2C-Brentwood-Man-Charged-in-Separate-Criminal-Cases-Linked-to-Fraud-in-Public-Homelessness-Funds.pdf" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_e0633bb90df98b6e" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>California Department of Housing and Community Development homelessness award record</td>
+              <td>California housing-award exposure source collection</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/homekey-round-3-awardee-list.pdf" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_38b519ff478dcadc" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>California Department of Housing and Community Development homelessness award record</td>
+              <td>California housing-award exposure source collection</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/hk-plus-awardee-list.pdf" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_fd54c34a3b3221be" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>California Department of Housing and Community Development homelessness award record</td>
+              <td>California housing-award exposure source collection</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/hk-plus-awardee-list.pdf" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_809845a7789f5908" data-case="live_ca_homelessness_top15_2026_04_29">
+              <td>live_ca_homelessness_top15_2026_04_29</td>
+              <td>California Department of Housing and Community Development homelessness award record</td>
+              <td>California housing-award exposure source collection</td>
+              <td>Live</td>
+              <td><a href="https://www.hcd.ca.gov/sites/default/files/docs/grants-and-funding/homekey/hk-plus-awardee-list.pdf" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_2a3b1afda9010731" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Internal Revenue Service Form 990 summary</td>
+              <td>Internal Revenue Service Form 990 summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/954079133" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_adbbcca616aebb11" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>IRS Form 990 filing data</td>
+              <td>Internal Revenue Service Form 990 summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/index_2024.csv" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_41bdb9549bd1d028" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>IRS filing index</td>
+              <td>Internal Revenue Service Form 990 summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/index_2024.csv" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_957cfb2ae33c74fc" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Rendered Form 990 secondary source</td>
+              <td>Internal Revenue Service Form 990 summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/954079133" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_efcece56f535326b" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2016-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_49236eb4ad9ff1d6" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse findings records</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/public-data/gsa/full/findings.csv" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_69e25a2fa8826d85" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse federal awards records</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/public-data/gsa/full/federal_awards.csv" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_a18e21587238935d" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services facility-status row set</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_8322a0bb41e0ffb3" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>state adverse-status page</td>
+              <td>state adverse-status source index</td>
+              <td>Live</td>
+              <td><a href="https://www.dhcs.ca.gov/provgovpart/SUD-LCR/Pages/SUS-REV-NOV.aspx" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_6cfa3cd2284005e9" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services adverse-status source</td>
+              <td>California Department of Health Care Services adverse-status source index</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_f7f42c63890b26a7" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>County contract or monitoring source</td>
+              <td>Los Angeles County Auditor-Controller fiscal compliance review: BHS SAPC provider</td>
+              <td>Live</td>
+              <td><a href="https://file.lacounty.gov/SDSInter/auditor/cmr/1141106_2023-04-26BehavioralHealthServicesInc-ADPHSAPCServiceProvider-FiscalComplianceReview.pdf" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_e9181cca5602f3e6" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>court calendar search result</td>
+              <td>Santa Barbara Superior Court calendar search hit: HealthRIGHT 360</td>
+              <td>Live</td>
+              <td><a href="https://www.santabarbara.courts.ca.gov/es/online-services/court-calendars/search-court-calendars/calendarios-judiciales-civil?case_type=All&amp;hearing_type=All&amp;keyword=&amp;order=field_party_name&amp;page=56&amp;sort=asc" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_06b17c380138384f" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Internal Revenue Service source collection</td>
+              <td>Internal Revenue Service Form 990 summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/954079133" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_0c5ab75a609d01f8" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source collection</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/954079133" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_12e12412e987df21" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse award source collection</td>
+              <td>Federal Audit Clearinghouse award source collection</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/954079133" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_3ec2f7b4fa9336f5" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services status source collection</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/954079133" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_3018c91ec8ae4153" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Source document text</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2016-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_47ab22ba6e740fb9" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Official service page: Tarzana Treatment Centers Inc</td>
+              <td>Live</td>
+              <td><a href="https://www.tarzanatc.org/services/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_cf2304ac44149ec1" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Official outcome source collection</td>
+              <td>Official homelessness outcome source collection</td>
+              <td>Live</td>
+              <td><a href="https://www.dhcs.ca.gov/provgovpart/Pages/caloms-treatment.aspx" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_43e135782c1ed829" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Spend-versus-results source collection</td>
+              <td>Spend-versus-results context source collection</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/954079133" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_0e99331c6047b737" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Public statement source collection</td>
+              <td>Public statement review source collection</td>
+              <td>Live</td>
+              <td><a href="https://www.tarzanatc.org/who-we-are/meet-us/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_ea17287c0256765e" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Public statement source</td>
+              <td>Public statement page: WestCare California Inc</td>
+              <td>Live</td>
+              <td><a href="https://westcare.com/leadership/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_a5ec29e383bbbc2b" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services facility-status row set</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_6ad63e9bb59edadc" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services facility-status row set</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_956348030a9a4f27" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services facility-status row set</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_1533b9236ee20aa9" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services facility-status row set</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_fa8fe79757ec4d8f" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services facility-status row set</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_0504dec87d337dce" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2019-06-CENSUS-0000126607" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_41004b255e5eafa5" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2023-06-GSAFAC-0000017535" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_ca24b4e2cad9909c" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2023-06-GSAFAC-0000019151" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_8e7092b68281d775" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2024-06-GSAFAC-0000348075" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_cbf443e6b5d9f33e" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2024-06-GSAFAC-0000354996" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_63b74c395071be09" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2025-06-GSAFAC-0000400073" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_3b8cd985845d3b74" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2025-06-GSAFAC-0000405366" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_ae3a41640bfb8a35" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>California Department of Health Care Services facility-status row set</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://services7.arcgis.com/7MUwsS9z05YumJRZ/arcgis/rest/services/SUDS_Facilities_LCD_view/FeatureServer/7" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_0cac048f2650a67b" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2016-06-CENSUS-0000119575" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_c04c8136ed8c35ea" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2016-06-CENSUS-0000124927" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_c16016d0e05763af" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2017-06-CENSUS-0000119575" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_d75b031466b4f202" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2017-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_19e130cebc60deb3" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2017-06-CENSUS-0000124927" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_57ddf2f7935ee4b1" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2017-06-CENSUS-0000126607" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_a0ffe424dae69ee1" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2018-06-CENSUS-0000119575" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_ac5e1cf9348c819b" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2018-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_0d86a166c51b1c30" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2018-06-CENSUS-0000124927" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_9053c576e1419bc5" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2018-06-CENSUS-0000126607" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_196506344bac9926" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2019-06-CENSUS-0000119575" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_dc1c2333a0785e16" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2019-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_389b604673d85d82" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2019-06-CENSUS-0000124927" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_25fd958f38f780e3" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2020-06-CENSUS-0000119575" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_83b8ea767febfabb" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2020-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_c189f81366362a6b" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2020-06-CENSUS-0000124927" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_ec690db4bda37279" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2020-06-CENSUS-0000249434" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_9c57e73056fafcb6" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2021-06-CENSUS-0000119575" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_695763f555d34900" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2021-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_10afb536b0568f6c" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2021-06-CENSUS-0000249434" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_386a2323211959bd" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2021-06-GSAFAC-0000011418" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_2d2a1b1b4c766ff5" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2022-06-CENSUS-0000119575" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_39f48ec62698f9cf" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2022-06-CENSUS-0000122774" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_089ac9adf6e63ab2" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2022-06-GSAFAC-0000366337" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_ced406ac8dcc803a" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Federal Audit Clearinghouse audit source document</td>
+              <td>Federal Audit Clearinghouse audit summary source collection</td>
+              <td>Live</td>
+              <td><a href="https://app.fac.gov/dissemination/report/pdf/2023-06-GSAFAC-0000384194" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_c6cfd5734395398d" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>HealthRIGHT 360 substance use disorder services</td>
+              <td>Live</td>
+              <td><a href="https://www.healthright360.org/our-services/substance-use-disorder/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_75caf5e288355a20" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Official service page: Behavioral Health Services Inc</td>
+              <td>Live</td>
+              <td><a href="https://bhs-inc.org/services" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_876f2c8a58206d20" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Official service page: CRI-Help Inc</td>
+              <td>Live</td>
+              <td><a href="https://cri-help.org/programs/residential-treatment/overview.html" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_8ace27372f011763" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Official service page: HealthRIGHT 360</td>
+              <td>Live</td>
+              <td><a href="https://www.healthright360.org/our-services/substance-use-disorder/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_c2e8e3b5646d0862" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Official service page: Phoenix Houses Of California Inc</td>
+              <td>Live</td>
+              <td><a href="https://phoenixhouseca.org/what-we-do/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_d80cdf54697ad8c4" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Official service page: Social Model Recovery Systems Inc</td>
+              <td>Live</td>
+              <td><a href="https://socialmodelrecovery.org/services/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_c634fd908479962d" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Official service page: WestCare California Inc</td>
+              <td>Live</td>
+              <td><a href="https://westcare.com/places/california/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_05c81121bff3a9ac" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>Tarzana Treatment Centers substance use disorder services</td>
+              <td>Live</td>
+              <td><a href="https://www.tarzanatc.org/services/substance-abuse-disorder-treatment/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_421a7820dc2e7fd4" data-case="live_ca_recovery_ngos_2026_04_24">
+              <td>live_ca_recovery_ngos_2026_04_24</td>
+              <td>Organization service page</td>
+              <td>WestCare California treatment and rehabilitation services</td>
+              <td>Live</td>
+              <td><a href="https://westcarecalifornia.org/services/treatment-rehab/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_49dbcf1126fe681a" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>enforcement_docket_discovery</td>
+              <td>Official enforcement/docket public-source search: Community Housing Partnership</td>
+              <td>Live</td>
+              <td><a href="https://www.justice.gov/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_44cf5f12db5c7358" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>enforcement_docket_discovery</td>
+              <td>Official enforcement/docket public-source search: United Council of Human Services</td>
+              <td>Live</td>
+              <td><a href="https://www.justice.gov/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_beafc8e6b2faec8e" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Brilliant Corners</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_05A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_4545e7396f339aaa" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Catholic Charities</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_10A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_06122086150a97e5" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Community Housing Partnership</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_11A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_d5646de584349230" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Compass Family Services</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_05A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_0ae5c78ea31712d0" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Episcopal Community Svcs of SF Inc</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2025/2025_TEOS_XML_07A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_2f605c63ea06b6cd" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Five Keys Schools And Programs</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/810622701" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_5f745f1f1e12a9c2" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Hamilton Families</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_05A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_f7e275ee394ae375" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Heluna Health</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_03A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_d78d1f32934356e6" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Larkin Street Youth Services</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_05A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_907b723ea823cbaa" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Providence Foundation of San Francisco</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_11A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_868778ebc063f7b1" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Tenderloin Housing Clinic Inc</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_04A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_7e1ed4eb95c5801a" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Tenderloin Neighborhood Development Corp</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_11A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_5e46448b92435084" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: Tides Center</td>
+              <td>Live</td>
+              <td><a href="https://apps.irs.gov/pub/epostcard/990/xml/2024/2024_TEOS_XML_10A.zip" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_29cd168e97a8af11" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>IRS Form 990 record</td>
+              <td>IRS Form 990 record: United Council of Human Services</td>
+              <td>Live</td>
+              <td><a href="https://projects.propublica.org/nonprofits/organizations/942936270" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_8e0933ca65ef1157" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>Public statement source</td>
+              <td>Public statement page: Tenderloin Housing Clinic Inc</td>
+              <td>Live</td>
+              <td><a href="https://www.thclinic.org/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_f691cbf0f378e4ba" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>Official enforcement or docket source</td>
+              <td>Official enforcement or docket source: Community Housing Partnership</td>
+              <td>Live</td>
+              <td><a href="https://www.sf.gov/news--audit-finds-one-citys-providers-housing-unhoused-residents-had-serious-financial-shortfalls" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_3a3226cda0b61582" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>Public statement source</td>
+              <td>Public statement page: Community Housing Partnership</td>
+              <td>Live</td>
+              <td><a href="https://homerisesf.org/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_30e5a3ee1dfa75f0" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>Public statement source</td>
+              <td>Public statement page: Catholic Charities</td>
+              <td>Live</td>
+              <td><a href="https://www.catholiccharitiessf.org/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_8cea8805b08dda9f" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>Official enforcement or docket source</td>
+              <td>Official enforcement or docket source: United Council of Human Services</td>
+              <td>Live</td>
+              <td><a href="https://www.sf.gov/news--united-council-human-services-found-be-violation-city-agreements" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_db020f59e1b42025" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>Organization service page</td>
+              <td>Official service page: Tenderloin Neighborhood Development Corp</td>
+              <td>Live</td>
+              <td><a href="https://www.tndc.org/our-work/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+
+            <tr data-source-id="source_05e53e03feb352d0" data-case="live_ca_sf_homelessness_complex">
+              <td>live_ca_sf_homelessness_complex</td>
+              <td>Public statement source</td>
+              <td>Public statement page: Tenderloin Neighborhood Development Corp</td>
+              <td>Live</td>
+              <td><a href="https://www.tndc.org/" target="_blank" rel="noreferrer">Open receipt</a></td>
+            </tr>
+            </tbody>
+        </table>
+      </div>
+      <aside class="private-lock">
+        <b>Private stays private</b>
+        <p>Draft notes and unchecked leads stay off public pages.</p>
+      </aside>
+    </section>
+
+    <section class="chapter method-wall" id="method">
+      <p class="type-stamp">How this stays honest</p>
+      <h2>Possible fraud, waste, or abuse means the records show a red flag.</h2>
+      <p>It does not mean CalDS has proved a crime. We publish source-backed review leads, legal-status caveats, and what still needs to be checked.</p>
+      <div class="method-cards">
+        <article><b>Receipts first</b><span>No public claim ships without a source.</span></article>
+        <article><b>Plain words</b><span>We write for readers, not for internal tools.</span></article>
+        <article><b>Gaps are not proof</b><span>Missing records are shown as records still needed.</span></article>
+        <article><b>Red flag, not verdict</b><span>Human review comes before conclusions.</span></article>
+      </div>
+      <details class="gate-detail">
+        <summary>What this build checked</summary>
+        <ul><li>live_ca_homelessness_top15_2026_04_29: source links PASS, citations PASS, records still needed 25</li><li>live_ca_recovery_ngos_2026_04_24: source links PASS, citations PASS, records still needed </li><li>live_ca_sf_homelessness_complex: source links PASS, citations PASS, records still needed 75</li></ul>
+      </details>
+    </section>
+  </main>
+
+  <footer class="final-poster">
+    <h2>Follow the receipts.</h2>
+    <p>Public records are not paperwork. They are receipts.</p>
+    <p>Read the case. Check the source. Ask the next question.</p>
+    <a href="#top">Back to top</a>
+  </footer>
+
+  <script src="app.js"></script>
 </body>
 </html>
