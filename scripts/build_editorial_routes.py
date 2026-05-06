@@ -129,9 +129,9 @@ def render_case_page(
         money_cards.append(
             f"""
             <article class="mini-receipt">
-              <span>{esc(amount)}</span>
+              <span class="mini-receipt__amount">{esc(amount)}</span>
               <p>{esc(compact_sentence(source.get('title') or row.get('amount_type'), 120))}</p>
-              {source_link(source)}
+              <div class="mini-receipt__source">{source_link(source)}</div>
             </article>
             """
         )

@@ -40,6 +40,10 @@ MECHANICAL_PUBLIC_MARKERS = (
     "calds shows only",
 )
 
+BRIEFING_EXCLUDED_SOURCE_FAMILIES = {
+    "Organization service page",
+}
+
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -153,6 +157,7 @@ def top_claims_for_case(claims: list[dict[str, Any]], case_id: str, count: int =
         for claim in claims
         if claim.get("case_id") == case_id
         and claim.get("public_language_allowed", True)
+        and claim.get("source_family") not in BRIEFING_EXCLUDED_SOURCE_FAMILIES
         and not is_mechanical_public_sentence(claim.get("plain_language_sentence") or claim.get("public_sentence"))
     ]
 
@@ -271,7 +276,7 @@ def render_index(data_dir: Path, output_dir: Path) -> str:
             f"""
             <article class="receipt-card reveal" data-case="{esc(row['case_id'])}">
               <div class="receipt-card__stub">Public record</div>
-              <strong>{esc(amount)}</strong>
+              <strong class="receipt-card__amount">{esc(amount)}</strong>
               <p>{esc(entity_name)}</p>
               <small>{esc(source_title)}</small>
               <button class="source-jump" type="button" data-source="{esc(row['source_id'])}">Open receipt row</button>
